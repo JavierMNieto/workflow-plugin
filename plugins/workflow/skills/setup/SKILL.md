@@ -13,11 +13,12 @@ You write the project's files and nothing else: its
 `permissions.deny` in that file or in `.claude/settings.local.json`
 (step 5 says which), with the `.gitignore` lines `plans init` adds for
 the queue's own files when it runs, and the one for
-`.claude/settings.local.json` when you write it. Never the user
-settings, `.mcp.json` or a catalogue; never a commit, which is the
-owner's. The defaults for each
-kind of project are in [kinds.md](kinds.md); the rules the keys follow
-are in the workflow plugin's docs, "The project file" and "Decisions".
+`.claude/settings.local.json` when you write it, and the `GH_TOKEN`
+line of `.devcontainer/devcontainer.json`'s `containerEnv` (step 6).
+Never the user settings, `.mcp.json` or a catalogue; never a commit,
+which is the owner's. The defaults for each kind of project are in
+[kinds.md](kinds.md); the rules the keys follow are in the workflow
+plugin's docs, "The project file" and "Decisions".
 
 ## 1. Look first
 
@@ -33,6 +34,12 @@ are in the workflow plugin's docs, "The project file" and "Decisions".
   `.claude/settings.json` or `.claude/settings.local.json` already
   denies whole, whose tools a session here no longer sees; with the
   other entries of `permissions.deny`.
+- GitHub access: `.devcontainer/devcontainer.json` when there is one,
+  for a `containerEnv` and whether it holds `GH_TOKEN`;
+  `gh auth status --hostname github.com` (exit 0 is signed in; 1, or no
+  `gh`, is not).
+  Never print a token: the status line names the login, the file names
+  the variable.
 - `ls` of the root, for the kind: a `package.json` (a web app or a
   service), `*.tex` (a paper), a `_talk/` folder, a `.pptx` or an
   `mcp.json` for slides (a talk).
@@ -131,7 +138,24 @@ of the connectors there were: one added to the account later reaches
 every chat here until the setup runs again, which the final message
 says.
 
-## 6. Say what is on and what it costs
+## 6. The GitHub token
+
+The queue's chats push and read runs with a token the host keeps in
+`GH_TOKEN` (the workflow docs, "Installing"): it reaches a container
+through `containerEnv`, which every process there sees, where
+`remoteEnv` reaches VS Code's terminals only. With a
+`.devcontainer/devcontainer.json`, add
+`"GH_TOKEN": "${localEnv:GH_TOKEN}"` to its `containerEnv` by Edit:
+into the object when there is one, else a new
+`"containerEnv": { "GH_TOKEN": "${localEnv:GH_TOKEN}" }` key after
+`remoteEnv` or, without one, last in the file, with the file's own
+indentation; a file with comments
+stays as it is but for that line (an Edit, never a parse and a rewrite).
+A line already there is left alone. Without a `.devcontainer/`, write
+nothing: the host's shell has to carry the variable to the chats, which
+the final message says. Never a token's value in any file.
+
+## 7. Say what is on and what it costs
 
 One line each, from the counts you can take (each plugin's `skills/` and
 `agents/` directories in its install path):
@@ -143,10 +167,18 @@ One line each, from the counts you can take (each plugin's `skills/` and
 - `MCP: <server> from <config>, in every chat here.`
 - `Connectors: <chosen> on here; <denied> off (permissions.deny).`,
   naming the file it is in.
+- One `GitHub:` line, from step 1's look:
+  - `GitHub: GH_TOKEN reaches this container (containerEnv); gh is signed in as <login>.`
+  - `GitHub: GH_TOKEN added to devcontainer.json (containerEnv); rebuild the container with GH_TOKEN set on the host, then gh signs in with it.`,
+    when the line was written or the status is not signed in with the
+    line present.
+  - `GitHub: no gh in this container; the dotfiles install it and wire it to git when GH_TOKEN is set.`,
+    when `gh` is absent.
+  - `GitHub: no .devcontainer here; GH_TOKEN must be in the shell that starts the queue's chats.`
 
 Then: `/context in a chat here shows the numbers.`
 
-## 7. Say how to reach the rest
+## 8. Say how to reach the rest
 
 From the kind's row of the table, in a line: for a paper set to the
 maker, `For a restructuring or a full copy edit, the full queue: remove
@@ -154,9 +186,10 @@ form: compact, then claude (the assistant) and a brief for the
 planner.`; for a web project, `For a quick fix in one chat, plans chat
 with form: compact set for the day.`
 
-## 8. The final message
+## 9. The final message
 
-The two files' paths, the keys set, the plugins on and off with their
+The two files' paths (and the devcontainer file's, when step 6 wrote
+it), the keys set, the plugins on and off with their
 cost lines, the connectors on and off (and that a connector added to
 the account later is on here until the setup runs again), and the line
 to reach the rest. Nothing is committed.

@@ -194,8 +194,20 @@ paste.
    `origin/<branch>` for the first, then one commit); then `git push
    origin HEAD:<branch>` as a fast-forward, and if it is refused, `git
    fetch origin && git rebase origin/<branch>` and push again. When the
-   project names a `run`, note its id (`gh run list --branch <branch>
-   --workflow <run> --limit 1`) and go on to the next plan; read it
+   push is refused for credentials ("could not read Username",
+   "Authentication failed", "Permission denied") or `gh` is not found,
+   try once more and no further: name the cause in one line in the final
+   message and in the plan's "Built" ("Not pushed: <cause>"), leave the
+   commit on the branch for ${user_config.owner}, and say the fix (the
+   project's setup writes the `GH_TOKEN` line, the dotfiles wire `gh`;
+   "Installing" in the plugin's docs).
+   Never a token in a URL, a remote or a config, never another remote.
+   Without `gh`, a public repository's run is read through the public
+   Actions API (`curl -s
+   https://api.github.com/repos/<owner>/<repo>/actions/runs?branch=<branch>&per_page=1`
+   and the run's `jobs_url`); a private one's is unread, and "Built"
+   says so. When the project names a `run`, note its id (`gh run list
+   --branch <branch> --workflow <run> --limit 1`) and go on to the next plan; read it
    before your next push and at the batch's end (`gh run watch <id>
    --exit-status`, then a failed job's log through `gh api
    repos/{owner}/{repo}/actions/jobs/<id>/logs`), since a green push is

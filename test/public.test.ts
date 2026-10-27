@@ -7,8 +7,9 @@ const root = join(__dirname, "..");
 
 /**
  * **The repository is public**: no tracked file names a host's address, a
- * personal email, the home lab's own domain, or the projects the workflow
- * runs in; the README says "the author's projects", never which. This test
+ * personal email, the home lab's own domain, the projects the workflow
+ * runs in, or a GitHub token (a line naming `GH_TOKEN` is the most a file
+ * holds); the README says "the author's projects", never which. This test
  * is the one tracked file that spells those names, as patterns.
  */
 
@@ -42,6 +43,8 @@ const PERSONAL_EMAIL = /[A-Za-z0-9._%+-]+@(gmail\.com|yandex\.ru|[a-z0-9.-]*ethz
 const HOME_LAB = /javinieto/i;
 /** The project the workflow was first written in, which this repository does not name. */
 const FIRST_PROJECT = /wordplay/i;
+/** A GitHub token: classic, OAuth, user, server, refresh, or fine-grained. */
+const TOKEN = /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/;
 
 function trackedFiles(): string[] {
   const out = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" });
@@ -53,7 +56,7 @@ function trackedFiles(): string[] {
 }
 
 describe("a tracked file", () => {
-  it("names no host address, personal email, home lab or first project in a tracked file", () => {
+  it("names no host address, personal email, home lab, first project or GitHub token in a tracked file", () => {
     const found: string[] = [];
     for (const path of trackedFiles()) {
       let text: string;
@@ -70,6 +73,7 @@ describe("a tracked file", () => {
         if (PERSONAL_EMAIL.test(line)) found.push(`${where}: a personal email`);
         if (HOME_LAB.test(line)) found.push(`${where}: the home lab's domain`);
         if (FIRST_PROJECT.test(line)) found.push(`${where}: the first project's name`);
+        if (TOKEN.test(line)) found.push(`${where}: a GitHub token`);
       });
     }
     expect(found).toEqual([]);

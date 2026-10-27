@@ -852,6 +852,24 @@ describe("the setup interview", () => {
     expect(text).toContain("gh repo view --json visibility");
     // A connector some agents need and others must not reach is the project file's.
     expect(text).toContain("the project file's `deny` key");
+    // The GitHub token reaches the container through containerEnv (plans/github-token-in-containers.md).
+    expect(text).toContain('"GH_TOKEN": "${localEnv:GH_TOKEN}"');
+    expect(text).toContain("containerEnv");
+    expect(text).toContain("gh auth status --hostname github.com");
+    for (const line of [
+      "GitHub: GH_TOKEN reaches this container (containerEnv); gh is signed in as <login>.",
+      "GitHub: GH_TOKEN added to devcontainer.json (containerEnv); rebuild the container with GH_TOKEN set on the host, then gh signs in with it.",
+      "GitHub: no gh in this container; the dotfiles install it and wire it to git when GH_TOKEN is set.",
+      "GitHub: no .devcontainer here; GH_TOKEN must be in the shell that starts the queue's chats.",
+    ])
+      expect(text).toContain(line);
+    expect(text.indexOf("## 6. The GitHub token")).toBeGreaterThan(-1);
+    expect(text.indexOf("## 9. The final message")).toBeGreaterThan(
+      text.indexOf("## 6. The GitHub token"),
+    );
+    expect(text).not.toMatch(
+      /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/,
+    );
     // No connector of the owner's is named in a skill or an agent file (CLAUDE.md: nothing
     // from a project is in the plugin); the public check covers the rest.
     const agents = new URL("../plugins/workflow/agents/", import.meta.url).pathname;
@@ -893,6 +911,15 @@ describe("the setup interview", () => {
 });
 
 describe("the reuse ceiling and the reviewer", () => {
+  it("has the executor stop at one retry of a push refused for credentials", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/agents/executor.md", import.meta.url),
+      "utf8",
+    );
+    expect(text).toContain("Not pushed: <cause>");
+    expect(text).toContain("Never a token in a URL, a remote or a config");
+  });
+
   it("reads reuse, 200000 by default, and the starter names it", () => {
     const at = (front: string) => {
       const root = dir("reuse-");

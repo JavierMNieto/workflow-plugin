@@ -457,6 +457,22 @@ checkout (`bgIsolation`), as "The queue" says; and a subagent starts no
 subagent of its own. The owner's name is the plugin option `owner`
 (`claude plugin install workflow@workflow --config owner=<name>`).
 
+**A push needs a token in the container.** The queue's chats run where
+no VS Code window may be, and VS Code's git credential helper answers
+only while its window is attached; so the owner keeps a fine-grained
+GitHub token in `GH_TOKEN` on the host (their repositories; Contents
+read and write, Actions read, Metadata read, and Workflows read and
+write, so a plan that changes a file under `.github/workflows/` is
+pushed too: Javi, 27 October), each project's
+`.devcontainer/devcontainer.json` carries it in as
+`"containerEnv": { "GH_TOKEN": "${localEnv:GH_TOKEN}" }` (the setup
+writes the line; a rebuild makes it take), and the dotfiles install
+`gh` and run `gh auth setup-git --hostname github.com` when the
+variable is set, so `git push` over HTTPS and `gh run watch` work in
+every chat. The token's value is in no file; the setup's final message
+says where access stands. A token expires: `gh auth status` says so,
+and a new one on the host and a rebuild renew it.
+
 The research-writing skills are a second plugin of the same marketplace,
 `writing@workflow`, that a project turns on in its own
 `.claude/settings.json`; its skills load when the project works on
