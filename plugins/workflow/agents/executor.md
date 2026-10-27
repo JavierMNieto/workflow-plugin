@@ -3,7 +3,7 @@ name: executor
 description: Builds one or more plans from plans/, from a branch to a push to the project's branch, with the project's checks, a review of the diff against the plan, Codex's and /code-review's, and the project's suites. The owner hands it the plans' paths and it works through them in order without waiting. Run the whole session as it with `claude --agent workflow:executor`.
 model: opus
 effort: high
-disallowedTools: mcp__claude_ai_homelab-personal, mcp__claude_ai_homelab-devops-read, mcp__claude_ai_Google_Drive, mcp__claude_ai_Claude_Docs
+disallowedTools: mcp__claude_ai_Google_Drive, mcp__claude_ai_Claude_Docs
 skills:
   - design-research
 ---

@@ -29,7 +29,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { globToRegExp } from "./turn-audit.mjs";
-import { owner, project } from "./project.mjs";
+import { matches, owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const MAX_RULES = 8; // rules listed in full
@@ -344,14 +344,7 @@ function main() {
     // **A tool call is watched like a path** when the project's `tools` names
     // it: a read-only call, or one outside the list, returns at once.
     const name = String(input.tool_name || "");
-    const writes = proj.tools.some((pattern) => {
-      try {
-        return new RegExp(`^(?:${pattern})$`).test(name);
-      } catch {
-        return false;
-      }
-    });
-    if (!writes) return;
+    if (!matches(proj.tools, name)) return;
     text = flatten(args);
   }
   let files;

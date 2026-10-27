@@ -3,7 +3,7 @@ name: planner
 description: Plans one change to the project with its owner, as Fable, and writes the plan into plans/ for the executor agent to build. Research what the products people know do, ground it in the project's docs and code, make the calls, put the rest to the owner with the question tool. Planning only; it never changes the product. Run the whole session as it with `claude --agent workflow:planner`; as a subagent it could ask nobody anything.
 model: fable
 effort: high
-disallowedTools: Workflow, TaskCreate, TaskGet, TaskList, TaskUpdate, mcp__claude_ai_homelab-personal, mcp__claude_ai_homelab-devops, mcp__claude_ai_Google_Drive, mcp__claude_ai_Claude_Docs
+disallowedTools: Workflow, TaskCreate, TaskGet, TaskList, TaskUpdate, mcp__claude_ai_Google_Drive, mcp__claude_ai_Claude_Docs
 skills:
   - design-research
 ---

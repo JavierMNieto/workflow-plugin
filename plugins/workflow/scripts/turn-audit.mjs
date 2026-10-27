@@ -28,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { owner, project } from "./project.mjs";
+import { kindOf, matches, owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -136,13 +136,6 @@ export function changedSince(snapshot, now) {
 /** The sessions that only read and write `plans/`, which git does not see. */
 const READERS = new Set(["planner", "assistant"]);
 
-/** The agent a hook's input is for: the last part of `agent_type` (`workflow:planner`, `planner`). */
-function kindOf(input) {
-  return String(input?.agent_type || "")
-    .split(":")
-    .at(-1);
-}
-
 /** The editing tools, whose `file_path` is what they wrote. */
 const EDITORS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
@@ -176,16 +169,7 @@ export function recordTool(state, input, dir = root, tools = []) {
   const args = input.tool_input || {};
   // **A tool call is a change** when the project's `tools` names it: the
   // audit counts it as it counts a `ui` path.
-  if (
-    name &&
-    tools.some((pattern) => {
-      try {
-        return new RegExp(`^(?:${pattern})$`).test(name);
-      } catch {
-        return false;
-      }
-    })
-  ) {
+  if (name && matches(tools, name)) {
     state.calls = [...(state.calls || []), name];
     return state;
   }

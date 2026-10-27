@@ -98,6 +98,9 @@ tools:                    # tool names whose calls change what a person sees
   - "mcp__server__write_.*"
 mcp:                      # MCP configs every chat here gets (plans chat, plans start)
   - .mcp/server.json
+deny:                     # MCP tools an agent here may never call, by agent
+  assistant:
+    - "mcp__server__write_.*"
 form: compact             # one chat decides and builds; omit for the full queue
 reuse: 200000             # the context, in tokens, above which a finished session retires
 reviews:                  # the reviews before a push; omit for all three (none when compact)
@@ -123,6 +126,24 @@ what the user settings load is loaded too. `plans chat` is the way to open the
 maker or the assistant in a project with `mcp` or `inherits` (each
 inherited catalogue an added directory). A token in such a config stays
 where the config keeps it; `plans chat` prints the path, never the file.
+
+**`deny` keeps an agent off a tool the project gives another.** The key
+maps an agent of the plugin (`assistant`, `planner`, `executor`,
+`maker`, `reviewer`) to tool-name patterns, regular expressions matched
+whole as `tools` are, MCP names only (`mcp__server__.*` a whole server,
+`mcp__(claude_ai_)?server__.*` a connector in both its forms); the
+plugin's `PreToolUse` hook (`scripts/tool-denials.mjs`) refuses a call
+that matches with the reason, in both forms and in every chat here, and
+a subagent is held to its session's agent's list as well as its own. The
+tool stays listed; the
+call never runs. A plugin agent's own frontmatter cannot be extended
+from a project, and a settings `permissions.deny` holds for every agent
+alike, which is what the setup's whole-connector denies are for: a
+connector no chat here needs is denied there, whole; one that some
+agents here need and others must not reach is `deny`. `plans check`
+lints the key: a list with no agent's name over it, an agent the plugin
+has no file for, a pattern that is not a regular expression or cannot
+name an MCP tool.
 
 The name defaults to the directory's, the branch to the remote's default
 (with no remote, `plans init` writes the branch checked out when the file
@@ -178,7 +199,7 @@ entry of the same id overrides an inherited one, says so with
 `overrides <file>#<id>`, and the edit-time hook shows the project's with
 the one it overrides named. `plans check` lints every catalogue the
 project file names: the tier and date on every entry, an id used twice,
-an override naming no inherited id.
+an override naming no inherited id; and the `deny` key (above).
 
 **The tier says who may change a rule.** A person's name is their call; a
 named product (`as GitHub does`) is replaced only by a better-grounded

@@ -1,30 +1,51 @@
 // **The project's part of the workflow** (docs/workflow.md, "The project
 // file"): `.claude/workflow.md`, its frontmatter read here by the hooks,
-// its body by the agents. The frontmatter holds three shapes only (a
-// scalar, a list of strings, a comment after `#`), parsed by hand so the
-// plugin needs no dependency.
+// its body by the agents. The frontmatter holds four shapes only (a
+// scalar, a list of strings, a map of lists, a comment after `#`), parsed by
+// hand so the plugin needs no dependency.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const PROJECT_FILE = join(".claude", "workflow.md");
 
-/** The frontmatter's keys: `key: value`, or `key:` followed by `  - item` lines. */
+/**
+ * The frontmatter's keys: `key: value`; `key:` followed by `  - item` lines;
+ * or `key:` followed by indented `name:` lines, each with its own `- item`
+ * lines, a map of lists (`deny`). A top-level key closes the map.
+ */
 export function frontmatter(text) {
   const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
   const out = {};
   let list = null;
+  let sub = null;
   for (const raw of block.split("\n")) {
     const line = raw.replace(/\s+#.*$/, "");
     const item = /^\s+-\s+(.*)$/.exec(line);
     if (item && list) {
-      out[list].push(unquote(item[1].trim()));
+      (sub ? out[list][sub] : out[list]).push(unquote(item[1].trim()));
+      continue;
+    }
+    // An indented `name:` under a key with no value opens a sub-list there;
+    // the key's value becomes a map the first time, with no prototype, so a
+    // name is only ever a name. Under a list that has items already, the line
+    // is skipped, as before the map: no item is lost.
+    const nested = /^\s+([\w:-]+):\s*$/.exec(line);
+    if (nested && list) {
+      if (Array.isArray(out[list])) {
+        if (out[list].length) continue;
+        out[list] = Object.create(null);
+      }
+      sub = nested[1];
+      out[list][sub] = [];
       continue;
     }
     const pair = /^([\w-]+):\s*(.*)$/.exec(line);
     if (!pair) continue;
     const [, key, value] = pair;
+    sub = null;
     if (value.trim() === "") {
       out[key] = [];
       list = key;
@@ -57,6 +78,36 @@ export function owner(env = process.env, settings = join(homedir(), ".claude", "
   return read?.pluginConfigs?.["workflow@workflow"]?.options?.owner || "the owner";
 }
 
+/** The agent a hook's input is for: the last part of `agent_type` (`workflow:executor`, `executor`). */
+export function kindOf(input) {
+  return String(input?.agent_type || "")
+    .split(":")
+    .at(-1);
+}
+
+/** Whether one of `patterns` matches `name` whole, as `tools` and `deny` are read; a pattern that is not a regular expression never matches. */
+export function matches(patterns, name) {
+  return patterns.some((pattern) => {
+    try {
+      return new RegExp(`^(?:${pattern})$`).test(name);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The plugin's agents, by their files in `agents/` beside `scripts/`, sorted: a new agent needs no edit here. */
+export function pluginAgents(dir = join(dirname(fileURLToPath(import.meta.url)), "..", "agents")) {
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => basename(name, ".md"))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 /**
  * The remote's default branch (`origin/HEAD`), else "main". With
  * `checkedOut`, when the file is written (`plans init`): in the folder's own
@@ -87,8 +138,8 @@ export function defaultBranch(root, { checkedOut = false } = {}) {
 }
 
 /**
- * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, form, reviews,
- * body, found }` for the project
+ * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, deny, form,
+ * reviews, body, found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
  * remote's default (else main; `plans init` writes the branch checked out
  * in a repository with no remote), `run`, `ui` and `catalogue` to none, `form` to "full"
@@ -103,7 +154,9 @@ export function project(root) {
     // No project file: the defaults.
   }
   const front = frontmatter(text);
-  const list = (value) => (Array.isArray(value) ? value : value ? [value] : []);
+  // A map where a list belongs is no list.
+  const list = (value) =>
+    Array.isArray(value) ? value : typeof value === "string" && value ? [value] : [];
   // The remote's default is asked of git only when a caller reads the branch:
   // every hook reads `found`, in every session (/code-review, 27 October).
   let branch = typeof front.branch === "string" && front.branch ? front.branch : null;
@@ -123,6 +176,14 @@ export function project(root) {
     inherits: list(front.inherits),
     tools: list(front.tools),
     mcp: list(front.mcp),
+    // `deny`: the MCP tool names (regular expressions) an agent here may
+    // never call, by agent; a flat list under the key names no agent.
+    deny:
+      front.deny && typeof front.deny === "object" && !Array.isArray(front.deny)
+        ? Object.fromEntries(
+            Object.entries(front.deny).map(([agent, patterns]) => [agent, list(patterns)]),
+          )
+        : {},
     form: front.form === "compact" ? "compact" : "full",
     // The context, in tokens, above which a finished session retires.
     reuse: Number(front.reuse) > 0 ? Number(front.reuse) : 200_000,
@@ -153,6 +214,9 @@ branch: ${defaultBranch(root, { checkedOut: true })}
 #   - "mcp__server__write_.*"
 # mcp:                   MCP configs every chat here gets (plans chat, plans start)
 #   - .mcp/server.json
+# deny:                  MCP tools an agent here may never call, by agent (regular expressions)
+#   assistant:
+#     - "mcp__server__write_.*"
 # form: compact          one chat decides and builds; omit for the full queue
 # reuse: 200000          the context, in tokens, above which a finished session retires (the cost wash is near 100000)
 # reviews:               the reviews before a push: plan, code-review, codex, or a plugin skill; omit for all three

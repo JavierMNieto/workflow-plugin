@@ -56,7 +56,15 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 import { shellWrites, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
-import { PROJECT_FILE, init, owner, project } from "./project.mjs";
+import {
+  PROJECT_FILE,
+  frontmatter,
+  init,
+  kindOf,
+  owner,
+  pluginAgents,
+  project,
+} from "./project.mjs";
 
 export { owner };
 
@@ -102,13 +110,6 @@ function proj() {
   return projectRead;
 }
 const branch = () => proj().branch;
-
-/** The agent a hook's input is for: the last part of `agent_type` (`workflow:executor`, `executor`). */
-export function kindOf(input) {
-  return String(input?.agent_type || "")
-    .split(":")
-    .at(-1);
-}
 
 /** Plans dated before this are built by path only, as before the queue. */
 export const QUEUE_SINCE = Date.UTC(2026, 9, 24);
@@ -2421,6 +2422,49 @@ function hook(mode, input) {
   }
 }
 
+/** The project file's `deny` as written, before `project()` drops a shape that names no agent. */
+function writtenDeny(dir = root) {
+  try {
+    return frontmatter(readFileSync(join(dir, PROJECT_FILE), "utf8")).deny;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * **`plans check` lints the `deny` key** (docs/workflow.md, "The project
+ * file"): a list or a value with no agent's name over it, an agent the
+ * plugin has no file for, a pattern that is not a regular expression, a
+ * pattern that cannot name an MCP tool. One line per fault; an absent or
+ * empty `deny` says nothing.
+ */
+export function checkDeny(project = proj(), agents = pluginAgents(), written = writtenDeny()) {
+  const lines = [];
+  // A flat list or a value under `deny` denies nothing: say so, or a typo
+  // turns every denial off unseen.
+  if ((Array.isArray(written) && written.length) || (typeof written === "string" && written))
+    lines.push(
+      "deny: names no agent; each agent's name goes on a line of its own under deny, its patterns under it",
+    );
+  for (const [agent, patterns] of Object.entries(project.deny)) {
+    if (!agents.includes(agent))
+      lines.push(`deny: ${agent} is no agent of the plugin (${agents.join(", ")})`);
+    for (const pattern of patterns) {
+      try {
+        new RegExp(`^(?:${pattern})$`);
+      } catch {
+        lines.push(`deny: ${agent}: ${pattern} is not a regular expression`);
+        continue;
+      }
+      if (!pattern.startsWith("mcp__"))
+        lines.push(
+          `deny: ${agent}: ${pattern} names no MCP tool (mcp__<server>__<tool>); deny watches MCP calls only`,
+        );
+    }
+  }
+  return lines;
+}
+
 /**
  * **`plans check`**: every catalogue the project file names, linted. One line
  * per fault: an entry without its tier and date, an id used twice in one
@@ -2510,7 +2554,7 @@ plans start --agent planner <brief>   start a planner on a brief
 plans pause | resume  stop and restart starting sessions
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
-plans check           lint the catalogues the project file names
+plans check           lint the catalogues and the deny key the project file names
 plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits`;
 
 export function main(args = process.argv.slice(2)) {
@@ -2524,9 +2568,10 @@ export function main(args = process.argv.slice(2)) {
     return;
   }
   if (mode === "check") {
+    const denied = checkDeny();
     const { text, faults } = checkCatalogues();
-    process.stdout.write(`${text}\n`);
-    if (faults) process.exitCode = 1;
+    process.stdout.write(`${[...denied, text].join("\n")}\n`);
+    if (faults || denied.length) process.exitCode = 1;
     return;
   }
   if (mode === "chat") {

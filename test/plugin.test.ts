@@ -15,12 +15,17 @@ import {
   canStart,
   data,
   decideStop,
-  kindOf,
   owner,
   pathsIn,
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
-import { defaultBranch, frontmatter, init, project } from "../plugins/workflow/scripts/project.mjs";
+import {
+  defaultBranch,
+  frontmatter,
+  init,
+  kindOf,
+  project,
+} from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
 
 const scripts = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
@@ -150,6 +155,60 @@ catalogue: docs/patterns
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
       ".claude/executor.*\n.claude/planner.*\n",
+    );
+    expect(text).toContain(
+      "# deny:                  MCP tools an agent here may never call, by agent (regular expressions)",
+    );
+  });
+
+  /** A project whose frontmatter is `front`, read back through `project()`. */
+  const withFront = (front: string) => {
+    const root = dir("deny-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "workflow.md"), `---\n${front}---\n`);
+    return project(root);
+  };
+
+  it("reads a map of lists: deny, by agent, each agent's patterns in order", () => {
+    const front = `name: Lab
+deny:                     # MCP tools an agent here may never call
+  assistant:              # the owner's chat
+    - "mcp__(claude_ai_)?lab-devops__.*"
+    - mcp__lab__write_.*
+  planner:
+    - 'mcp__lab-personal__.*'
+    - mcp__research__.*
+branch: test
+`;
+    expect(frontmatter(`---\n${front}---\n`)).toMatchObject({
+      deny: {
+        assistant: ["mcp__(claude_ai_)?lab-devops__.*", "mcp__lab__write_.*"],
+        planner: ["mcp__lab-personal__.*", "mcp__research__.*"],
+      },
+      branch: "test",
+    });
+    const proj = withFront(front);
+    expect(proj.deny).toEqual({
+      assistant: ["mcp__(claude_ai_)?lab-devops__.*", "mcp__lab__write_.*"],
+      planner: ["mcp__lab-personal__.*", "mcp__research__.*"],
+    });
+    expect(proj.branch).toBe("test");
+  });
+
+  it("gives deny as {} when absent or a flat list, which names no agent", () => {
+    expect(withFront("name: Lab\n").deny).toEqual({});
+    expect(withFront('name: Lab\ndeny:\n  - "mcp__lab__.*"\n').deny).toEqual({});
+    expect(withFront("name: Lab\ndeny: mcp__lab__.*\n").deny).toEqual({});
+  });
+
+  it("keeps a list's items when an indented name follows them, and reads no map as a list", () => {
+    const kept = withFront('tools:\n  - "mcp__x__.*"\n  extra:\n  - "mcp__y__.*"\nbranch: test\n');
+    expect(kept.tools).toEqual(["mcp__x__.*", "mcp__y__.*"]);
+    expect(kept.branch).toBe("test");
+    expect(withFront('tools:\n  extra:\n    - "mcp__x__.*"\n').tools).toEqual([]);
+    // Patterns before the first agent's name keep the list flat, which names no agent.
+    expect(withFront('deny:\n  - "mcp__lab__.*"\n  assistant:\n    - "mcp__x__.*"\n').deny).toEqual(
+      {},
     );
   });
 });
@@ -613,6 +672,37 @@ describe("the catalogue follow-up", () => {
     expect(good.out).toContain("1 entries in 1 file, no faults.");
   });
 
+  it("plans check lints deny: an agent the plugin has not, a pattern that is no regular expression or no MCP name", () => {
+    const root = linted(true);
+    const file = (deny: string) =>
+      writeFileSync(
+        join(root, ".claude", "workflow.md"),
+        `---\nname: Check\ncatalogue: decisions\n${deny}---\n`,
+      );
+    file('deny:\n  gardener:\n    - "mcp__lab__.*"\n  assistant:\n    - "mcp__["\n    - Bash\n');
+    const bad = plansIn(root, ["check"]);
+    expect(bad.code).toBe(1);
+    expect(bad.out.split("\n").slice(0, 3)).toEqual([
+      "deny: gardener is no agent of the plugin (assistant, executor, maker, planner, reviewer)",
+      "deny: assistant: mcp__[ is not a regular expression",
+      "deny: assistant: Bash names no MCP tool (mcp__<server>__<tool>); deny watches MCP calls only",
+    ]);
+    file('deny:\n  - "mcp__lab__.*"\n');
+    const flat = plansIn(root, ["check"]);
+    expect(flat.code).toBe(1);
+    expect(flat.out).toContain(
+      "deny: names no agent; each agent's name goes on a line of its own under deny, its patterns under it",
+    );
+    file('deny:\n  workflow:assistant:\n    - "mcp__lab__.*"\n');
+    expect(plansIn(root, ["check"]).out).toContain(
+      "deny: workflow:assistant is no agent of the plugin (assistant, executor, maker, planner, reviewer)",
+    );
+    file('deny:\n  assistant:\n    - "mcp__server__write_.*"\n');
+    const good = plansIn(root, ["check"]);
+    expect(good).toMatchObject({ code: 0 });
+    expect(good.out).toBe("1 entries in 1 file, no faults.\n");
+  });
+
   it("plans check reads an override ending a sentence, and faults a catalogue that is not there", () => {
     const root = dir("override-");
     mkdirSync(join(root, ".claude"));
@@ -760,10 +850,17 @@ describe("the setup interview", () => {
     // Javi, 27 October: the denies go to settings.local.json where settings.json is public or shared.
     expect(text).toContain(".claude/settings.local.json");
     expect(text).toContain("gh repo view --json visibility");
-    // No connector of the owner's is named in a skill; the public check covers the rest.
-    const named = (readdirSync(skills, { recursive: true }) as string[])
+    // A connector some agents need and others must not reach is the project file's.
+    expect(text).toContain("the project file's `deny` key");
+    // No connector of the owner's is named in a skill or an agent file (CLAUDE.md: nothing
+    // from a project is in the plugin); the public check covers the rest.
+    const agents = new URL("../plugins/workflow/agents/", import.meta.url).pathname;
+    const named = [
+      ...(readdirSync(skills, { recursive: true }) as string[]).map((path) => join(skills, path)),
+      ...readdirSync(agents).map((path) => join(agents, path)),
+    ]
       .filter((path) => path.endsWith(".md"))
-      .filter((path) => /homelab/i.test(readFileSync(join(skills, path), "utf8")));
+      .filter((path) => /homelab/i.test(readFileSync(path, "utf8")));
     expect(named).toEqual([]);
   });
 

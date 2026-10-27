@@ -124,9 +124,12 @@ nothing else in `permissions`: an entry that is not a whole connector
 server's) stays as it is, and so do `allow` and `ask`. A project's
 setting is the place because it holds for every chat in the project and
 for no other project; the user settings would turn the connector off
-everywhere. The list is of the connectors there were: one added to the
-account later reaches every chat here until the setup runs again, which
-the final message says.
+everywhere. A connector some agents here need and others must not reach
+is not denied here: that is the project file's `deny` key (the workflow
+docs, "The project file"), which the setup does not write. The list is
+of the connectors there were: one added to the account later reaches
+every chat here until the setup runs again, which the final message
+says.
 
 ## 6. Say what is on and what it costs
 
