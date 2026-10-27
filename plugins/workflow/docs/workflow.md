@@ -313,16 +313,18 @@ picks the change up after its next session starts.
 ## Installing
 
 ```
-claude plugin marketplace add JavierMNieto/workflow-plugin
-claude plugin install workflow@workflow
+claude plugin marketplace add JavierMNieto/workflow-plugin#main
+claude plugin install workflow@workflow --config owner=<name>
 ```
 
-and, in the user settings (`~/.claude/settings.json`):
+On Javi's machines the dotfiles' `install.sh` merges
+`claude/settings.json` into the user settings (`~/.claude/settings.json`);
+what the plugin needs there is:
 
 ```json
 "extraKnownMarketplaces": {
   "workflow": {
-    "source": { "source": "github", "repo": "JavierMNieto/workflow-plugin" },
+    "source": { "source": "github", "repo": "JavierMNieto/workflow-plugin", "ref": "main" },
     "autoUpdate": true
   }
 },
@@ -335,8 +337,17 @@ and, in the user settings (`~/.claude/settings.json`):
 "env": { "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1" }
 ```
 
-A plugin cannot set `statusLine`, and its own path changes with every
-version, so a SessionStart hook copies the status line script into the
-plugin's data directory, which the setting runs. The owner's name is the
-plugin option `owner` (`claude plugin install workflow@workflow --config
-owner=<name>`).
+The marketplace follows `main`, which CI moves only on a green `test`,
+and updates itself; the plugin is on everywhere; a plugin cannot set
+`statusLine`, and its own path changes with every version, so a
+SessionStart hook copies the status line script into the plugin's data
+directory, which the setting runs; a background session works in the
+checkout (`bgIsolation`), as "The queue" says; and a subagent starts no
+subagent of its own. The owner's name is the plugin option `owner`
+(`claude plugin install workflow@workflow --config owner=<name>`).
+
+The research-writing skills are a second plugin of the same marketplace,
+`writing@workflow`, that a project turns on in its own
+`.claude/settings.json`; its skills load when the project works on
+`.tex`, `.bib` or `.md` files, and the project's own writing decisions
+are its catalogue.

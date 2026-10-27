@@ -1,0 +1,9 @@
+{
+  "name": "writing",
+  "description": "Research-writing skills: reviewing, editing, drafting and checking LaTeX papers, proofs, sources and figures, loaded when a project works on them.",
+  "author": {
+    "name": "Javier Nieto"
+  },
+  "repository": "https://github.com/JavierMNieto/workflow-plugin",
+  "license": "MIT"
+}

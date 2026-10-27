@@ -6,7 +6,7 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "validate": "claude plugin validate plugins/workflow && claude plugin validate ."
+    "validate": "claude plugin validate plugins/workflow && claude plugin validate plugins/writing && claude plugin validate ."
   },
   "devDependencies": {
     "prettier": "^3.9.8",

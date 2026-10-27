@@ -469,3 +469,48 @@ describe("the audit's preference check", () => {
     ).toBe("");
   });
 });
+
+describe("the writing plugin", () => {
+  const top = new URL("../", import.meta.url).pathname;
+  const skills = join(top, "plugins", "writing", "skills");
+  const SKILLS = ["review", "edit", "draft", "proof", "sources", "figures"];
+  const front = (name: string) =>
+    /^---\n([\s\S]*?)\n---/.exec(readFileSync(join(skills, name, "SKILL.md"), "utf8"))?.[1] ?? "";
+
+  it("is the marketplace's second plugin", () => {
+    const market = JSON.parse(
+      readFileSync(join(top, ".claude-plugin", "marketplace.json"), "utf8"),
+    );
+    expect(market.plugins.map((p: { name: string }) => p.name)).toEqual(["workflow", "writing"]);
+    const manifest = JSON.parse(
+      readFileSync(join(top, "plugins", "writing", ".claude-plugin", "plugin.json"), "utf8"),
+    );
+    expect(manifest.name).toBe("writing");
+  });
+
+  it("has six skills, each with a name, a description and paths; review and proof fork", () => {
+    for (const name of SKILLS) {
+      const head = front(name);
+      expect(head, name).toMatch(new RegExp(`^name: ${name}$`, "m"));
+      expect(head, name).toMatch(/^description: \S/m);
+      expect(head, name).toMatch(/^paths:/m);
+      expect(/^context: fork$/m.test(head), name).toBe(name === "review" || name === "proof");
+    }
+  });
+
+  it("has every reference file a skill names, and each skill under 500 lines", () => {
+    for (const name of SKILLS) {
+      const text = readFileSync(join(skills, name, "SKILL.md"), "utf8");
+      expect(text.split("\n").length, name).toBeLessThan(500);
+      for (const [, file] of text.matchAll(/\]\(([\w-]+\.md)\)/g))
+        expect(existsSync(join(skills, name, file)), `${name}/${file}`).toBe(true);
+    }
+    const names = (name: string) =>
+      [...readFileSync(join(skills, name, "SKILL.md"), "utf8").matchAll(/\]\(([\w-]+\.md)\)/g)].map(
+        (m) => m[1],
+      );
+    expect(names("review")).toEqual(["semantic-review.md", "narrative-and-pedagogy.md"]);
+    expect(names("edit")).toEqual(["copyedit-and-grammar.md", "latex-style.md"]);
+    expect(names("draft")).toEqual(["prose-drafting.md"]);
+  });
+});

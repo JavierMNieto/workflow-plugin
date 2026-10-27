@@ -1,6 +1,8 @@
 {
   "name": "workflow",
-  "owner": { "name": "Javier Nieto" },
+  "owner": {
+    "name": "Javier Nieto"
+  },
   "metadata": {
     "description": "An assistant, a planner and an executor with a plan queue: decide, plan, build, in any project."
   },
@@ -9,6 +11,12 @@
       "name": "workflow",
       "source": "./plugins/workflow",
       "description": "Three agents and a plan queue: the assistant answers and routes, the planner writes a plan, the executor builds it and pushes.",
+      "license": "MIT"
+    },
+    {
+      "name": "writing",
+      "source": "./plugins/writing",
+      "description": "Research-writing skills: reviewing, editing, drafting and checking LaTeX papers, proofs, sources and figures, loaded when a project works on them.",
       "license": "MIT"
     }
   ]
