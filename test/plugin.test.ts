@@ -20,7 +20,7 @@ import {
   pathsIn,
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
-import { frontmatter, init, project } from "../plugins/workflow/scripts/project.mjs";
+import { defaultBranch, frontmatter, init, project } from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
 
 const scripts = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
@@ -75,10 +75,11 @@ catalogue: docs/patterns
     expect(project(root).body).toContain("# Body");
   });
 
-  it("defaults the name to the directory and the branch to the remote's default", () => {
+  it("defaults the name to the directory and the branch to the remote's default, else main", () => {
     const root = dir("defaults-");
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
-    git("init", "-q");
+    git("init", "-q", "-b", "work");
+    // At run time the branch checked out is a batch's: never the project's.
     expect(project(root)).toMatchObject({ branch: "main", run: "", ui: [], found: false });
     expect(project(root).name).toMatch(/^defaults-/);
     const origin = dir("origin-");
@@ -86,6 +87,51 @@ catalogue: docs/patterns
     git("remote", "add", "origin", origin);
     git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
     expect(project(root).branch).toBe("trunk");
+  });
+
+  const gitIn =
+    (root: string) =>
+    (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+
+  it("a project with no remote takes the branch it is on", () => {
+    const root = dir("master-");
+    const g = gitIn(root);
+    g("init", "-q", "-b", "master");
+    g("commit", "-q", "--allow-empty", "-m", "one");
+    expect(defaultBranch(root, { checkedOut: true })).toBe("master");
+    expect(defaultBranch(root)).toBe("main");
+    init(root);
+    expect(readFileSync(join(root, ".claude", "workflow.md"), "utf8")).toMatch(/^branch: master$/m);
+  });
+
+  it("a remote's default branch still wins", () => {
+    const root = dir("work-");
+    const g = gitIn(root);
+    g("init", "-q", "-b", "work");
+    g("commit", "-q", "--allow-empty", "-m", "one");
+    g("update-ref", "refs/remotes/origin/main", "HEAD");
+    g("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    expect(defaultBranch(root, { checkedOut: true })).toBe("main");
+  });
+
+  it("a remote without origin/HEAD writes main, not the branch checked out", () => {
+    const root = dir("pushed-");
+    const g = gitIn(root);
+    g("init", "-q", "-b", "feature");
+    g("remote", "add", "origin", dir("bare-"));
+    expect(defaultBranch(root, { checkedOut: true })).toBe("main");
+  });
+
+  it("a repository with no commit takes the branch git names, and a folder with no git main", () => {
+    const root = dir("unborn-");
+    gitIn(root)("init", "-q", "-b", "trunk");
+    expect(defaultBranch(root, { checkedOut: true })).toBe("trunk");
+    expect(defaultBranch(dir("nogit-"), { checkedOut: true })).toBe("main");
   });
 
   it("writes the starter once, and refuses a second time", () => {

@@ -57,25 +57,41 @@ export function owner(env = process.env, settings = join(homedir(), ".claude", "
   return read?.pluginConfigs?.["workflow@workflow"]?.options?.owner || "the owner";
 }
 
-/** The remote's default branch (`origin/HEAD`), or "main". */
-export function defaultBranch(root) {
-  try {
-    const ref = execFileSync("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return ref.replace(/^origin\//, "") || "main";
-  } catch {
-    return "main";
-  }
+/**
+ * The remote's default branch (`origin/HEAD`), else "main". With
+ * `checkedOut`, when the file is written (`plans init`): in the folder's own
+ * repository with no remote at all, the branch checked out (a new
+ * repository's too, before its first commit), since it is the only one
+ * there is. Never at run time, where the branch checked out is a batch's.
+ */
+export function defaultBranch(root, { checkedOut = false } = {}) {
+  const git = (...args) => {
+    try {
+      return execFileSync("git", args, {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      return "";
+    }
+  };
+  const remoteDefault = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD").replace(
+    /^origin\//,
+    "",
+  );
+  if (remoteDefault) return remoteDefault;
+  if (checkedOut && existsSync(join(root, ".git")) && !git("remote"))
+    return git("symbolic-ref", "--short", "HEAD") || "main";
+  return "main";
 }
 
 /**
  * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, form, reviews,
  * body, found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
- * remote's default, `run`, `ui` and `catalogue` to none, `form` to "full"
+ * remote's default (else main; `plans init` writes the branch checked out
+ * in a repository with no remote), `run`, `ui` and `catalogue` to none, `form` to "full"
  * ("compact" when the frontmatter says so: one chat, no queue).
  */
 export function project(root) {
@@ -124,7 +140,7 @@ export function project(root) {
 export function starter(root) {
   return `---
 name: ${basename(root)}
-branch: ${defaultBranch(root)}
+branch: ${defaultBranch(root, { checkedOut: true })}
 # run: checks.yml        the Actions workflow read after a push; omit for none
 # ui:                    paths a user sees, for the turn audit; omit for none
 #   - "src/components/**"

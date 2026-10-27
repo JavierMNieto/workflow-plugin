@@ -123,7 +123,9 @@ maker or the assistant in a project with `mcp` or `inherits` (each
 inherited catalogue an added directory). A token in such a config stays
 where the config keeps it; `plans chat` prints the path, never the file.
 
-The name defaults to the directory's, the branch to the remote's default.
+The name defaults to the directory's, the branch to the remote's default
+(with no remote, `plans init` writes the branch checked out when the file
+was written).
 The body's headings are the executor's steps for this project: **Before a
 build** (installs, generated code), **While working** (which tests to run
 for one change), **Before the push** (screenshots, checks, suites, in
