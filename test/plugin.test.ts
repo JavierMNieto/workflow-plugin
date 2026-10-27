@@ -725,7 +725,7 @@ describe("the setup interview", () => {
     );
   });
 
-  it("has the setup skill at fable, and the kinds table's five rows of seven columns", () => {
+  it("has the setup skill at fable, and the kinds table's five rows of eight columns", () => {
     const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
     const text = readFileSync(join(skill, "SKILL.md"), "utf8");
     expect(text).toMatch(/^model: fable$/m);
@@ -740,9 +740,28 @@ describe("the setup interview", () => {
       "Personal tool or script",
       "Something else",
     ]);
-    for (const row of rows) expect(row.split("|").length - 2, row).toBe(7);
+    for (const row of rows) expect(row.split("|").length - 2, row).toBe(8);
     // The reading-tools trial's outcome (plans/reading-tools-trial.md, 5c): none for every kind.
     for (const row of rows) expect(row.split("|")[7].trim(), row).toBe("none");
+    // Every kind recommends its connectors: a "Connectors" column, filled in every row.
+    const header = readFileSync(join(skill, "kinds.md"), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| Kind |"));
+    expect(header?.split("|")[8].trim()).toBe("Connectors");
+    for (const row of rows) expect(row.split("|")[8].trim(), row).not.toBe("");
+  });
+
+  it("has the setup turn off the connectors a project does not use, by whole connector", () => {
+    const skills = new URL("../plugins/workflow/skills/", import.meta.url).pathname;
+    const text = readFileSync(join(skills, "setup", "SKILL.md"), "utf8");
+    expect(text).toContain("permissions.deny");
+    expect(text).toContain("mcp__claude_ai_<connector>");
+    expect(text).toContain("Connectors: <chosen> on here; <denied> off (permissions.deny).");
+    // No connector of the owner's is named in a skill; the public check covers the rest.
+    const named = (readdirSync(skills, { recursive: true }) as string[])
+      .filter((path) => path.endsWith(".md"))
+      .filter((path) => /homelab/i.test(readFileSync(join(skills, path), "utf8")));
+    expect(named).toEqual([]);
   });
 
   it("passes the project's mcp to a started chat", () => {

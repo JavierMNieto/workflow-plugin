@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Sets a project up for the workflow in a short interview, what the project is for and what its owner mostly does there, then the project file and the plugins it turns on, with the defaults for that kind of project and a line on how to reach the rest. Use when a project has no .claude/workflow.md, when the owner asks to set the project up or change its setup, or when a project's form, reviews, catalogue or plugins no longer fit.
+description: Sets a project up for the workflow in a short interview, what the project is for and what its owner mostly does there, then the project file, the plugins it turns on and the connectors it keeps, with the defaults for that kind of project and a line on how to reach the rest. Use when a project has no .claude/workflow.md, when the owner asks to set the project up or change its setup, or when a project's form, reviews, catalogue, plugins or connectors no longer fit.
 model: fable
 effort: high
 ---
@@ -8,7 +8,8 @@ effort: high
 # Setting a project up
 
 You write two files and nothing else: the project's
-`.claude/workflow.md` and the `enabledPlugins` key of its
+`.claude/workflow.md`, and the `enabledPlugins` key and the
+whole-connector entries of `permissions.deny` in its
 `.claude/settings.json` (and the `.gitignore` lines `plans init` adds for
 the queue's own files, when it runs). Never the user settings, `.mcp.json` or a
 catalogue; never a commit, which is the owner's. The defaults for each
@@ -23,6 +24,11 @@ are in the workflow plugin's docs, "The project file" and "Decisions".
 - `.github/workflows/*.yml`, for a `run`.
 - `.mcp.json` and `.claude/`, for what is there.
 - `claude plugin list --json`, for the plugins on here.
+- The connectors: those this session has, from its tool names
+  (`mcp__claude_ai_<connector>__<tool>`: the part between
+  `mcp__claude_ai_` and the next `__`), and those `permissions.deny` in
+  `.claude/settings.json` already denies whole, whose tools a session
+  here no longer sees; with the other entries of `permissions.deny`.
 - `ls` of the root, for the kind: a `package.json` (a web app or a
   service), `*.tex` (a paper), a `_talk/` folder, a `.pptx` or an
   `mcp.json` for slides (a talk).
@@ -52,6 +58,17 @@ pattern of its writing calls; the `ui` globs when screens were chosen
 and step 1 found no obvious ones; the branch when none was detected. A
 question the table answers is not asked.
 
+Then, in a call of its own, **which connectors a chat here uses**: the
+connectors step 1 found, as multi-select questions of at most four
+options each (up to four questions; the question tool takes no more),
+the ones matching the kind's role in the table's "Connectors" column
+marked recommended. On a run again the recommendation is still the
+role's, and each option says whether the connector is on or denied
+here now, since nothing records which were chosen and a connector added
+to the account since is not denied either. A connector no question
+showed is left as it is, never denied unasked. When step 1 found no
+connector, the call is not made.
+
 ## 4. Write the project file
 
 `plans init` when there is none (it writes the starter and the
@@ -61,13 +78,13 @@ question the table answers is not asked.
 and only the body's empty or missing headings filled with what step 1
 found: **While working** from `package.json` scripts or a Makefile,
 **Reading** from the tools on (the kinds table's reading tools, none
-for every kind: then the built-in Grep, Glob and Read), **Products** empty with its explaining
-line. On a run again, every key the answers did not change and every
-heading's text stay as they are. A talk or a paper synced with Overleaf
-names no `branch`: take out the `branch:` line `plans init` wrote, so
-the maker never commits there.
+for every kind: then the built-in Grep, Glob and Read), **Products**
+empty with its explaining line. On a run again, every key the answers
+did not change and every heading's text stay as they are. A talk or a
+paper synced with Overleaf names no `branch`: take out the `branch:`
+line `plans init` wrote, so the maker never commits there.
 
-## 5. Write the plugins
+## 5. Write the plugins and the connectors
 
 `enabledPlugins` in the project's `.claude/settings.json`, merged into
 what is there with every other key kept:
@@ -81,6 +98,20 @@ what is there with every other key kept:
 
 Never write `workflow@workflow`: it is the user settings'.
 
+`permissions.deny` in the same file, when the connectors were asked:
+one entry `mcp__claude_ai_<connector>` for each connector shown and not
+chosen, which denies the whole connector, every tool in it, in every
+chat here. Remove such an entry for a connector now chosen, whoever
+wrote it: the owner's answer is the latest word on that connector. Touch
+nothing else in `permissions`: an entry that is not a whole connector
+(`mcp__claude_ai_<connector>__<tool>`, a `Bash(...)` rule, another
+server's) stays as it is, and so do `allow` and `ask`. A project's
+setting is the place because it holds for every chat in the project and
+for no other project; the user settings would turn the connector off
+everywhere. The list is of the connectors there were: one added to the
+account later reaches every chat here until the setup runs again, which
+the final message says.
+
 ## 6. Say what is on and what it costs
 
 One line each, from the counts you can take (each plugin's `skills/` and
@@ -91,6 +122,7 @@ One line each, from the counts you can take (each plugin's `skills/` and
 - `codex: on; 1 skill, 1 agent; the review runs once per plan.`
 - `<plugin>: off here (it was on in your user settings).`
 - `MCP: <server> from <config>, in every chat here.`
+- `Connectors: <chosen> on here; <denied> off (permissions.deny).`
 
 Then: `/context in a chat here shows the numbers.`
 
@@ -105,4 +137,6 @@ with form: compact set for the day.`
 ## 8. The final message
 
 The two files' paths, the keys set, the plugins on and off with their
-cost lines, and the line to reach the rest. Nothing is committed.
+cost lines, the connectors on and off (and that a connector added to
+the account later is on here until the setup runs again), and the line
+to reach the rest. Nothing is committed.

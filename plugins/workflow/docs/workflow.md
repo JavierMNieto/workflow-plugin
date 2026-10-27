@@ -142,7 +142,15 @@ what the project is for, what the owner mostly does there, which
 reviews, what the catalogue watches, asked once with the defaults of
 that kind of project (the skill's `kinds.md`), then the project file
 and the plugins' on and off written and the cost of each thing on said
-in a line. Run again, it keeps the answers as the defaults. **A project
+in a line. Run again, it keeps the answers as the defaults. **A
+project turns off the connectors it does not use**: the setup asks which
+of the session's claude.ai connectors a chat here needs and denies the
+rest, whole (`mcp__claude_ai_<connector>`), in the project's
+`.claude/settings.json`, since the account's connectors otherwise reach
+every chat in every project, and a project setting holds for every chat
+there and nowhere else. It adds and removes only whole-connector
+entries, so every other deny stays, and a connector added to the
+account later is on until the setup runs again. **A project
 with no project file is not
 the workflow's**: the plugin's hooks do nothing there, `plans` says so and
 `plans start` refuses, so a project with hooks of its own keeps them until
