@@ -63,19 +63,26 @@ export function globToRegExp(glob) {
   return new RegExp("^" + re + "$");
 }
 
+/** Whether a path is in a catalogue location: the file itself, or under the directory. */
+function inCatalogue(path, location) {
+  const at = location.replace(/\/$/, "");
+  return Boolean(at) && (path === at || path.startsWith(`${at}/`));
+}
+
 /** The paths a user sees, the catalogue that records them and the catalogue's changed files' text. */
 function uiRule(changed = []) {
-  const { ui, catalogue } = project(root);
-  const under = `${catalogue.replace(/\/$/, "")}/`;
+  const { ui, catalogue, inherits } = project(root);
   const texts = {};
-  for (const file of catalogue ? changed.filter((f) => f.startsWith(under)) : []) {
+  for (const file of changed.filter((f) =>
+    [catalogue, ...inherits].some((at) => inCatalogue(f, at)),
+  )) {
     try {
       texts[file] = readFileSync(join(root, file), "utf8");
     } catch {
       // Deleted this turn: no rules to check.
     }
   }
-  return { ui: ui.map(globToRegExp), catalogue, texts, who: owner() };
+  return { ui: ui.map(globToRegExp), catalogue, inherits, texts, who: owner() };
 }
 
 function statePath(sessionId) {
@@ -164,9 +171,24 @@ export function shellWrites(command) {
 }
 
 /** A tool this session ran, remembered in its state: the path an editing tool wrote, or a writing shell. */
-export function recordTool(state, input, dir = root) {
+export function recordTool(state, input, dir = root, tools = []) {
   const name = input.tool_name;
   const args = input.tool_input || {};
+  // **A tool call is a change** when the project's `tools` names it: the
+  // audit counts it as it counts a `ui` path.
+  if (
+    name &&
+    tools.some((pattern) => {
+      try {
+        return new RegExp(`^(?:${pattern})$`).test(name);
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    state.calls = [...(state.calls || []), name];
+    return state;
+  }
   if (EDITORS.has(name)) {
     const file = args.file_path || args.notebook_path;
     if (file) {
@@ -194,7 +216,7 @@ export function listToJudge(state, now) {
 
 /** A rule's tier and date, as the catalogue writes them (the first project's check). */
 const TIER =
-  /\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as .+? do(?:es)?|the agent's choice), \d{1,2} [A-Z][a-z]+(?: \d{4})?(?:,[^)]*)?\)/u;
+  /\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as .+? do(?:es)?|per .+?|observed in .+?|the agent's choice), (?:\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,[^)]*)?\)/u;
 
 /**
  * The rules of a catalogue file without their tier and date: each rule is a
@@ -205,7 +227,8 @@ export function untiered(text) {
   const lines = text.split("\n");
   const missing = [];
   lines.forEach((line, i) => {
-    if (!/^- \*\*/.test(line)) return;
+    // A rule may open with its id in backticks: - `id` **Rule.** (tier, date)
+    if (!/^- (?:`[\w.-]+` )?\*\*/.test(line)) return;
     let rule = line;
     for (
       let j = i + 1;
@@ -218,19 +241,6 @@ export function untiered(text) {
   return missing;
 }
 
-/**
- * **A request that reads like a preference or a correction**: the words that
- * matched, or "". A list, like the shell's: what it does not know is not
- * asked about.
- */
-export function preferenceIn(prompt) {
-  const m =
-    /\b(always|never|from now on|every time|as a rule|in general|i(?:'d)? prefer|i (?:don't |do not )?like|not like that)\b|^\s*no\b/i.exec(
-      prompt,
-    );
-  return m ? m[0].trim() : "";
-}
-
 /** Today as a catalogue entry writes it: "27 October". */
 function entryDay(now = new Date()) {
   return now.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
@@ -241,7 +251,16 @@ export function reasonFor(
   changed,
   prompt,
   lastMessage,
-  { ui: uiPaths = [], catalogue = "", texts = {}, who = "the owner", day = entryDay() } = {},
+  {
+    ui: uiPaths = [],
+    catalogue = "",
+    inherits = [],
+    texts = {},
+    who = "the owner",
+    day = entryDay(),
+    calls = [],
+    wrote = [],
+  } = {},
 ) {
   const reasons = [];
   const outside = changed.length > 1 && changed.some((f) => dirname(f) !== dirname(changed[0]));
@@ -250,29 +269,37 @@ export function reasonFor(
       `This turn changed ${changed.length} files:\n${changed.map((f) => `- ${f}`).join("\n")}\n\nThe request was: "${prompt.slice(0, 400)}${prompt.length > 400 ? "..." : ""}"\n\nFor each file the request did not ask for, revert it, or say in your final message why the change was necessary. Change what was asked and keep the rest as it was.`,
     );
   }
-  // Only for a project whose file names both the paths a user sees and its catalogue.
+  // **The stop check is on effect**: a path a user sees changed, or a tool
+  // that changes what they see was called, and nothing in the catalogue was
+  // written, is asked once; `decisions: none (why)` answers it.
+  const under = catalogue.replace(/\/$/, "");
   const ui = catalogue ? changed.filter((f) => uiPaths.some((p) => p.test(f))) : [];
-  const under = `${catalogue.replace(/\/$/, "")}/`;
-  const recorded = changed.some((f) => f.startsWith(under));
-  if (ui.length && !recorded && !/patterns: none/.test(lastMessage)) {
+  const made = catalogue ? calls : [];
+  const recorded = [...changed, ...wrote].some((f) =>
+    [catalogue, ...inherits].some((at) => inCatalogue(f, at)),
+  );
+  if ((ui.length || made.length) && !recorded && !/decisions: none/.test(lastMessage)) {
+    const parts = [];
+    if (ui.length)
+      parts.push(
+        `${ui.length} file${ui.length === 1 ? "" : "s"} a user sees changed (${ui.slice(0, 4).join(", ")}${ui.length > 4 ? ", ..." : ""})`,
+      );
+    if (made.length)
+      parts.push(
+        `${made.length} call${made.length === 1 ? "" : "s"} to ${[...new Set(made)].slice(0, 4).join(", ")} ${made.length === 1 ? "was" : "were"} made`,
+      );
     reasons.push(
-      `${ui.length} file${ui.length === 1 ? "" : "s"} a user sees changed (${ui.slice(0, 4).join(", ")}${ui.length > 4 ? ", ..." : ""}) and nothing under ${under} did. Add or update the entry there, as the catalogue's rules say, or say why not in your final message with the line: patterns: none (why)`,
-    );
-  }
-  // **A decision said in chat is recorded** (Javi, 27 October): a request
-  // that reads like one, in a turn that left the catalogue untouched and
-  // whose final message neither records nor declines, is asked once.
-  const said = catalogue ? preferenceIn(prompt) : "";
-  if (said && !recorded && !/Recorded:|decision: none/.test(lastMessage)) {
-    reasons.push(
-      `The request reads like a preference or a correction ("${said}"). If it decided how something looks, behaves or is worded, add the rule to ${under} under ${who}'s name with today's date, in this turn, and say Recorded: <file>: <rule> in your final message; if it decided nothing, say: decision: none (why).`,
+      `${parts.join(" and ")}, and nothing under ${under} did. Add or update the entry in ${under} in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why).`,
     );
   }
   // **Every rule carries its tier and date**: a catalogue file this turn
   // changed, with a rule that does not, is asked for them.
   // The README explains the format and holds no tiered rules of its own.
   const ruleFiles = catalogue
-    ? changed.filter((f) => f.startsWith(under) && basename(f) !== "README.md")
+    ? [...new Set([...changed, ...wrote])].filter(
+        (f) =>
+          [catalogue, ...inherits].some((at) => inCatalogue(f, at)) && basename(f) !== "README.md",
+      )
     : [];
   // The name the tier suggests is one the check accepts.
   const person = /^\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*$/u.test(who) ? who : "<a person's name>";
@@ -299,11 +326,13 @@ function main() {
   }
   const path = statePath(input.session_id);
   if (mode === "prompt") {
+    // Outside git (a compact project may have none) the snapshot is empty,
+    // and the turn is judged on its own writes and calls.
     let files = {};
     try {
       files = treeFiles();
     } catch {
-      return;
+      files = {};
     }
     writeFileSync(
       path,
@@ -321,6 +350,8 @@ function main() {
   }
   if (mode === "tool") {
     const { tool_name, tool_input } = input;
+    // An MCP call counts only in a project whose `tools` names some.
+    if (String(tool_name || "").startsWith("mcp__") && !project(root).tools.length) return;
     const { file_path, notebook_path, command } = tool_input || {};
     appendFileSync(
       toolsPath(input.session_id),
@@ -335,9 +366,10 @@ function main() {
     return;
   }
   if (mode !== "stop" || input.stop_hook_active || state.audited) return;
+  const { tools } = project(root);
   try {
     for (const line of readFileSync(toolsPath(input.session_id), "utf8").split("\n")) {
-      if (line) recordTool(state, JSON.parse(line));
+      if (line) recordTool(state, JSON.parse(line), root, tools);
     }
   } catch {
     // No tools ran this turn, or the log is gone: nothing more to fold in.
@@ -346,22 +378,23 @@ function main() {
   writeFileSync(path, JSON.stringify(state));
   const reader = READERS.has(state.agent || kindOf(input));
   if (reader) return;
-  // A turn whose tools wrote nothing is judged on nothing but its request: a
-  // preference said in chat is still asked about.
+  // A turn whose tools wrote nothing may still have called a tool that
+  // changes what a person sees.
+  if (!state.shell && !(state.wrote || []).length && !(state.calls || []).length) return;
   let changed = [];
   if (state.shell || (state.wrote || []).length) {
     try {
       changed = listToJudge(state, treeFiles());
     } catch {
-      return;
+      // No git: the paths its own editing tools wrote.
+      changed = [...(state.wrote || [])].sort();
     }
   }
-  const reason = reasonFor(
-    changed,
-    state.prompt,
-    input.last_assistant_message || "",
-    uiRule(changed),
-  );
+  const reason = reasonFor(changed, state.prompt, input.last_assistant_message || "", {
+    ...uiRule([...new Set([...changed, ...(state.wrote || [])])]),
+    calls: state.calls || [],
+    wrote: state.wrote || [],
+  });
   if (reason) process.stdout.write(JSON.stringify({ decision: "block", reason }));
 }
 

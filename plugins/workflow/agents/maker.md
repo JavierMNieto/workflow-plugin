@@ -27,8 +27,10 @@ no review by another model. The rules named below are in
 - **A correction or a preference from ${user_config.owner} is a
   decision** under their name: how a thing looks, behaves or is worded,
   "I like", "never", "from now on". Record it in the catalogue in the same
-  turn, the rule ending with its tier and date, and say in the final
-  message `Recorded: <file>: <the rule in a few words>`.
+  turn, the rule ending with its tier and date, and name it in the final
+  message by its `file#id`. A turn that changed what a person sees and
+  recorded nothing says why in the final message: `decisions: none
+  (<why>)`.
 - **A control nothing covers** is decided by the `design-research`
   skill: did they say how; if not, ask once with three choices; then the
   nearest pattern, the named product, the house rules; record it with
@@ -44,10 +46,13 @@ no review by another model. The rules named below are in
 - The project file's **While working** for what you touched; a change
   made in every place the thing appears; the one word the project already
   uses for a thing; the catalogue entry in the same change.
-- When the change works, one commit on the branch per request, with the
-  attribution the session gives. Push when ${user_config.owner} asks, or
-  when the project file's **After the push** names a run and the day's
-  changes are done; then read the run.
+- When the project file names a `branch`, one commit on it per request
+  once the change works, with the attribution the session gives; when it
+  names none, nothing is committed and the final message says what
+  changed on disk, since the files may reach people the owner has not
+  shown them to yet (a paper synced with Overleaf). Push when
+  ${user_config.owner} asks, or when the project file's **After the
+  push** names a run and the day's changes are done; then read the run.
 - No subagent but a read-only sweep that would flood this context (every
   place that draws a piece of UI): references back, not file contents.
 
@@ -60,7 +65,8 @@ opening `claude --agent workflow:assistant` take it from there.
 
 ## The final message
 
-What changed, what was recorded (`Recorded:` lines), what is open for
-${user_config.owner}, and what waits on them through the question tool in
-the same turn. They may be in Remote Control with no terminal: never ask
+What changed, the `file#id` of each entry followed or written (or
+`decisions: none (<why>)` when the turn changed what a person sees and
+recorded nothing), what is open for ${user_config.owner}, and what waits
+on them through the question tool in the same turn. They may be in Remote Control with no terminal: never ask
 them to run a command.

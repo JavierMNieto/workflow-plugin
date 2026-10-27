@@ -35,7 +35,7 @@
 // the lock, the pause and the deferral in the project's `.claude/` (ignored
 // by git); the usage numbers and the starts' log in the plugin's data
 // directory.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -51,9 +51,10 @@ import {
   appendFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { shellWrites } from "./turn-audit.mjs";
+import { shellWrites, untiered } from "./turn-audit.mjs";
+import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
 import { PROJECT_FILE, init, owner, project } from "./project.mjs";
 
 export { owner };
@@ -1976,6 +1977,14 @@ function hook(mode, input) {
   // if it has any, run alone (a project moving onto the plugin keeps its old
   // queue until its file lands).
   if (!proj().found) return;
+  // A compaction drops the catalogue's rules from the context, so the
+  // edit-time hook shows them in full again (in both forms).
+  if (mode === "compact")
+    try {
+      unlinkSync(join(tmpdir(), `workflow-catalogue-${input.session_id}.json`));
+    } catch {
+      // None shown yet.
+    }
   // **The compact form has no queue**: the maker is one chat, and the queue's
   // hooks do nothing (the catalogue's hooks run in both forms).
   if (proj().form === "compact") return;
@@ -2176,13 +2185,96 @@ function hook(mode, input) {
   }
 }
 
+/**
+ * **`plans check`**: every catalogue the project file names, linted. One line
+ * per fault: an entry without its tier and date, an id used twice in one
+ * catalogue, a project entry that says it overrides a `file#id` no inherited
+ * catalogue has. Then the count.
+ */
+export function checkCatalogues(project = proj(), dir = root) {
+  const locs = locations(project, dir);
+  const named = [...project.inherits, project.catalogue].filter(Boolean);
+  if (!named.length)
+    return { text: "No catalogue: the project file names no catalogue or inherits.", faults: 0 };
+  // A location the project file names that is not there is a fault.
+  const lines = named
+    .filter((p) => !locs.some((loc) => loc.label === p.replace(/\/$/, "")))
+    .map((p) => `${p}: no such catalogue`);
+  const inherited = new Set();
+  let entries = 0;
+  let fileCount = 0;
+  const read = locs.map((loc) => {
+    const files = catalogueFiles(loc.path).map((f) => ({
+      ...f,
+      text: readFileSync(f.path, "utf8"),
+    }));
+    fileCount += files.length;
+    return { loc, files };
+  });
+  for (const { loc, files } of read) {
+    const ids = new Map();
+    for (const f of files) {
+      const where = loc.path.endsWith(".md") ? loc.label : `${loc.label}/${f.name}`;
+      for (const rule of untiered(f.text))
+        lines.push(
+          `${where}: no tier and date: ${rule.length > 80 ? `${rule.slice(0, 77)}...` : rule}`,
+        );
+      for (const { item, line } of paragraphs(f.text)) {
+        entries++;
+        const id = /^- `([\w.-]+)`/.exec(item)?.[1];
+        if (!id) continue;
+        if (ids.has(id))
+          lines.push(
+            `${where}:${line}: id ${id} is used twice in ${loc.label} (first ${ids.get(id)})`,
+          );
+        else ids.set(id, `${where}:${line}`);
+        if (!loc.own) inherited.add(`${f.name.replace(/\.md$/, "")}#${id}`);
+      }
+    }
+  }
+  for (const { loc, files } of read.filter((r) => r.loc.own)) {
+    for (const f of files) {
+      const where = loc.path.endsWith(".md") ? loc.label : `${loc.label}/${f.name}`;
+      for (const { item, line } of paragraphs(f.text))
+        // The id ends at a word character: a sentence's full stop is not part of it.
+        for (const m of item.matchAll(/\boverrides?\s+`?([\w./-]+#[\w.-]*[\w-])`?/gi))
+          if (!inherited.has(m[1].replace(/\.md#/, "#")))
+            lines.push(`${where}:${line}: overrides ${m[1]}, which no inherited catalogue has`);
+    }
+  }
+  const tail = `${entries} entries in ${fileCount} file${fileCount === 1 ? "" : "s"}, ${lines.length ? `${lines.length} fault${lines.length === 1 ? "" : "s"}` : "no faults"}.`;
+  return { text: [...lines, tail].join("\n"), faults: lines.length };
+}
+
+/**
+ * **`plans chat`**: the maker in a compact project, else the assistant, with
+ * the project's `mcp` configs (and no other server) and its inherited
+ * catalogues as added directories.
+ */
+export function chatCommand(args = [], project = proj(), dir = root) {
+  const at = (p) => (isAbsolute(p) ? p : resolve(dir, p));
+  const agent = project.form === "compact" ? "maker" : "assistant";
+  const effort = agent === "maker" ? agentEffort("maker") : "";
+  return [
+    "--agent",
+    `workflow:${agent}`,
+    ...(effort ? ["--effort", effort] : []),
+    ...project.mcp.flatMap((p) => ["--mcp-config", at(p)]),
+    ...(project.mcp.length ? ["--strict-mcp-config"] : []),
+    ...project.inherits.flatMap((p) => ["--add-dir", at(p)]),
+    ...args,
+  ];
+}
+
 const USAGE = `plans                 the queue: briefs, ready, building, built
 plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
 plans start --agent planner <brief>   start a planner on a brief
 plans pause | resume  stop and restart starting sessions
 plans sync            move a clean, detached checkout to the branch
-plans init            write .claude/workflow.md for this project`;
+plans init            write .claude/workflow.md for this project
+plans check           lint the catalogues the project file names
+plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits`;
 
 export function main(args = process.argv.slice(2)) {
   const [mode, ...rest] = args;
@@ -2192,6 +2284,28 @@ export function main(args = process.argv.slice(2)) {
   }
   if (mode === "init") {
     process.stdout.write(`${init(root)}\n`);
+    return;
+  }
+  if (mode === "check") {
+    const { text, faults } = checkCatalogues();
+    process.stdout.write(`${text}\n`);
+    if (faults) process.exitCode = 1;
+    return;
+  }
+  if (mode === "chat") {
+    const dry = rest.includes("--dry");
+    const command = chatCommand(rest.filter((a) => a !== "--dry"));
+    process.stdout.write(
+      `${dry ? "Would run" : "Running"}: claude ${command.map((a) => JSON.stringify(a)).join(" ")}\n`,
+    );
+    if (!dry) {
+      const done = spawnSync(claudeBin(), command, {
+        cwd: root,
+        stdio: "inherit",
+        env: sessionEnv(),
+      });
+      process.exitCode = done.status ?? 1;
+    }
     return;
   }
   if (!["sync", "pause", "resume", "start", ...HOOK_MODES].includes(mode)) {

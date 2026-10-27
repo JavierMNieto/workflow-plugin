@@ -29,9 +29,11 @@ order:
    - **The product people know for this exact control**, named: the
      products the project file's body names under **Products** (one line
      per kind of thing, the product people know for it), then the ones
-     the catalogue's README names, then the familiar product for this
-     exact control, named and looked up, never recalled. Prefer a product
-     of the same kind and the same flow, and say which you looked at.
+     the catalogue's README names, then the written sources the
+     catalogue's `sources.md` lists when it has one, then the familiar
+     product for this exact control, named and looked up, never recalled.
+     Prefer a product of the same kind and the same flow, and say which
+     you looked at.
    - **The house rules**: the docs the project's `CLAUDE.md` names for
      copy and look, and the catalogue's README.
 4. **Say what you found before building anything large**: the product,
@@ -40,7 +42,12 @@ order:
 5. **Record it.** Add the entry to the catalogue file for the control's
    kind, with the tier and today's date: `(<the person's name>, 15
    October)` when they decided, `(as GitHub does, 15 October)` when you
-   followed a product, `(the agent's choice, 15 October)` when you chose.
+   followed a product, `(per <source>, 15 October)` when you followed a
+   named written source (one `sources.md` lists), `(observed in <x>, 15
+   October)` when you measured it in an existing artifact, `(the agent's
+   choice, 15 October)` when you chose. The date as the project writes
+   dates (`15 October` or `2026-10-15`). An entry another may override
+   opens with an id in backticks, `` - `id` **Rule.** ``.
    One or two sentences, present tense, the reason in a sentence. Add the
    component to the file's `paths` and the control's word to its
    `signals`, so the next edit of similar UI meets the rule. A kind of

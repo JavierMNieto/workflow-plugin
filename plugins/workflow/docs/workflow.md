@@ -91,7 +91,13 @@ branch: test              # the branch the executor pushes, fast-forward
 run: checks.yml           # the Actions workflow read after a push; omit for none
 ui:                       # paths a user sees, for the turn audit; omit for none
   - "src/components/**"
-catalogue: docs/patterns  # the design catalogue the audit asks for; omit for none
+catalogue: docs/patterns  # the design catalogue: a directory or one file; omit for none
+inherits:                 # catalogues this one overrides by id, farthest first
+  - ../.claude/decisions
+tools:                    # tool names whose calls change what a person sees
+  - "mcp__server__write_.*"
+mcp:                      # MCP configs a chat here needs, passed by plans chat
+  - .mcp/server.json
 form: compact             # one chat decides and builds; omit for the full queue
 note: \JaviAI             # the writing plugin's note command; omit for notes in the report
 reply: \javi              # the command the author answers notes with
@@ -103,7 +109,17 @@ decides and builds; the queue's hooks do nothing, and `plans` says so.
 Absent, the full form: the three agents and the queue. A project moves
 between them by this line alone: the catalogue, the project file's
 headings and the branch are the same in both, so nothing is converted,
-and the maker says when a change has outgrown the compact form.
+and the maker says when a change has outgrown the compact form. `branch`
+may be omitted in a compact project: the maker then commits nothing, and
+a project file needs no repository around it.
+
+**`mcp` names the MCP configs a chat here needs** (a PowerPoint bridge, a
+database), which `plans chat` passes on the command line with
+`--strict-mcp-config`, so the tools exist in that chat and in no other;
+nothing registers them globally. `plans chat` is the way to open the
+maker or the assistant in a project with `mcp` or `inherits` (each
+inherited catalogue an added directory). A token in such a config stays
+where the config keeps it; `plans chat` prints the path, never the file.
 
 The name defaults to the directory's, the branch to the remote's default.
 The body's headings are the executor's steps for this project: **Before a
@@ -123,15 +139,30 @@ its file lands.
 ## Decisions
 
 **The catalogue is the record.** The project file's `catalogue` names a
-directory: a `README.md` with the rules that apply everywhere and a table
-of the files, then one file per kind of thing a person sees, each rule a
-bold list item ending with its tier and date. What is not there was not
-decided, as far as the next agent can tell. The long reasoning is in
-`plans/`; the entry names the plan when there is one.
+directory (a `README.md` with the rules that apply everywhere and a table
+of the files, then one file per kind of thing a person sees, at any
+depth) or one file, each rule a bold list item ending with its tier and
+date. What is not there was not decided, as far as the next agent can
+tell. The long reasoning is in `plans/`; the entry names the plan when
+there is one. An entry may open with an id in backticks, ``- `presenter-bold`
+**The presenter's name is bold.** (Javi, 2026-10-21)``, and is then cited
+as `file#id` in replies, plans and the project's own notes; a rule that
+replaces one keeps the old line struck through under it. The date is
+written as the project writes dates, `21 October` or `2026-10-21`.
+
+**A catalogue inherits others.** `inherits` lists catalogues above the
+project's (a workspace's, every talk's), farthest first; the project's
+entry of the same id overrides an inherited one, says so with
+`overrides <file>#<id>`, and the edit-time hook shows the project's with
+the one it overrides named. `plans check` lints every catalogue the
+project file names: the tier and date on every entry, an id used twice,
+an override naming no inherited id.
 
 **The tier says who may change a rule.** A person's name is their call; a
 named product (`as GitHub does`) is replaced only by a better-grounded
-standard, named; `the agent's choice` is changed with a reason. A
+standard, named, as is one `per <source>` (a written source) or
+`observed in <x>` (measured in an existing artifact); `the agent's
+choice` is changed with a reason. A
 replaced rule stays struck through under its replacement with its date; a
 retired one is struck through with "retired". (MADR's accepted,
 superseded and deprecated, in the catalogue's shape.)
@@ -145,19 +176,34 @@ resting on it first.
 **A decision is recognized in three places**: a plan's "Decided" section
 and the entries it drafts; an edit under `ui`, where the turn audit asks
 for the entry; and the chat, where a correction or a preference from the
-owner is recorded under their name in the same turn, and the audit asks
-once when a turn that read like one left the catalogue untouched.
+owner is recorded under their name in the same turn; the audit cannot
+read the chat, so it watches the effect: a turn that changed what a
+person sees and recorded nothing is asked once.
 
 **A decision is found again in three ways**: the README's everywhere
 rules, which `CLAUDE.md` or a rule file without `paths` loads always; a
 catalogue file's `paths` and `signals`, which the plugin's edit-time hook
-(`scripts/catalogue-context.mjs`) matches before an edit; and the
+(`scripts/catalogue-context.mjs`) matches before an edit, or before a
+call to one of the project's `tools` against the call's inputs, each
+entry shown in full once per session and again after a compaction; and
+the
 `design-research` skill, which the agent reaches for when nothing covers
 a thing.
 
-**The audit's checks**: a UI path changed without the catalogue; a rule
-written without its tier and date; a turn that read like a preference
-and recorded nothing. Each is refused once, and the second stop passes.
+**The audit's checks**: a path under `ui` changed, or a call to one of
+the `tools` made, and nothing in the catalogue written, answered by the
+entry or a `decisions: none (<why>)` line; a rule written without its
+tier and date. Each is refused once, and the second stop passes.
+
+**The talk setup retires into the plugin.** A talk's agent file is the
+maker with a project file (`mcp`, `inherits`, `tools`, `catalogue`, no
+`branch`) opened by `plans chat`; its slide-editing turn (the PowerPoint
+steps, which the plugin never names) is a skill of the talk workspace
+with `paths` on the talk's folder. A decision-research skill is
+`design-research`, whose tiers now take `per <source>` and `observed in
+<x>` and whose research reads the catalogue's `sources.md`. Its context,
+stop and check scripts are the edit-time hook, the audit and `plans
+check`. A talk's decisions file is read as it is.
 
 ## The queue
 
@@ -289,13 +335,10 @@ its limit or past the timeout, the script says so and the build goes on.
 **The turn audit** (`scripts/turn-audit.mjs`): once per turn, a session
 that changed more than one file is asked, at its Stop, to say why each
 file was needed; and when the project names the paths a user sees and its
-catalogue, a turn that changed one of those paths without the catalogue
-is asked for the entry, or a `patterns: none (<why>)` line; a catalogue
-file changed with a rule that lacks its tier and date is asked to add
-them; and a request that reads like a preference or a correction ("from
-now on", "never", "I prefer", "no, ...") in a turn that left the
-catalogue untouched is asked whether it decided anything, answered by a
-`Recorded: <file>: <rule>` line or `decision: none (<why>)`. A session is
+catalogue, a turn that changed one of those paths, or called one of the
+project's `tools`, and wrote nothing in the catalogue is asked for the
+entry, or a `decisions: none (<why>)` line; and a catalogue file changed
+with a rule that lacks its tier and date is asked to add them. A session is
 charged only with its own writes; the planner and the assistant are never
 audited. The refusal is one per turn, so nothing loops.
 

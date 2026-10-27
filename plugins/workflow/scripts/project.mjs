@@ -72,7 +72,8 @@ export function defaultBranch(root) {
 }
 
 /**
- * `{ name, branch, run, ui, catalogue, form, body, found }` for the project
+ * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, form, body,
+ * found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
  * remote's default, `run`, `ui` and `catalogue` to none, `form` to "full"
  * ("compact" when the frontmatter says so: one chat, no queue).
@@ -98,7 +99,14 @@ export function project(root) {
     },
     run: typeof front.run === "string" ? front.run : "",
     ui: list(front.ui),
+    // A directory or one `.md` file; `inherits` the catalogues it overrides
+    // by id, farthest first; `tools` the tool names (regular expressions)
+    // whose calls change what a person sees; `mcp` the MCP configs a chat
+    // here needs, which `plans chat` passes.
     catalogue: typeof front.catalogue === "string" ? front.catalogue : "",
+    inherits: list(front.inherits),
+    tools: list(front.tools),
+    mcp: list(front.mcp),
     form: front.form === "compact" ? "compact" : "full",
     body: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
     found: Boolean(text),
@@ -114,6 +122,12 @@ branch: ${defaultBranch(root)}
 # ui:                    paths a user sees, for the turn audit; omit for none
 #   - "src/components/**"
 # catalogue: docs/patterns   the design catalogue the audit asks for; omit for none
+# inherits:              catalogues this one overrides by id, farthest first
+#   - ../.claude/decisions
+# tools:                 tool names whose calls change what a person sees
+#   - "mcp__server__write_.*"
+# mcp:                   MCP configs a chat here needs, passed by plans chat
+#   - .mcp/server.json
 # form: compact          one chat decides and builds; omit for the full queue
 ---
 

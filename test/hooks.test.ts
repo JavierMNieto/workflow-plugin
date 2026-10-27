@@ -161,7 +161,7 @@ describe("turn-audit", () => {
       last_assistant_message: "Done.",
     });
     expect(JSON.parse(out).reason).toContain("changed 2 files");
-    expect(JSON.parse(out).reason).not.toContain("nothing under docs/patterns/");
+    expect(JSON.parse(out).reason).not.toContain("nothing under docs/patterns");
   });
 
   it("refuses once when a UI file changed and the catalogue did not, then lets the second stop pass", () => {
@@ -174,20 +174,20 @@ describe("turn-audit", () => {
       last_assistant_message: "Done.",
     });
     const reason = JSON.parse(first).reason as string;
-    expect(reason).toContain("nothing under docs/patterns/ did");
+    expect(reason).toContain("nothing under docs/patterns did");
     expect(reason).not.toContain("changed 1 files");
     expect(run(audit, ["stop"], { session_id: "t2", stop_hook_active: true })).toBe("");
     expect(run(audit, ["stop"], { session_id: "t2", stop_hook_active: false })).toBe("");
   });
 
-  it("accepts a patterns: none line in the final message", () => {
+  it("accepts a decisions: none line in the final message", () => {
     run(audit, ["prompt"], { session_id: "t3", prompt: "Fix a typo" });
     writeFileSync(join(repo, "apps/forum/src/components/Composer.tsx"), "export {}\n");
     wrote("t3", "apps/forum/src/components/Composer.tsx");
     const out = run(audit, ["stop"], {
       session_id: "t3",
       stop_hook_active: false,
-      last_assistant_message: "patterns: none (a typo)",
+      last_assistant_message: "decisions: none (a typo)",
     });
     expect(out).toBe("");
   });
@@ -285,7 +285,7 @@ describe("turn-audit, whose files they are", () => {
     const out = run(audit, ["stop"], {
       session_id: "t7",
       stop_hook_active: false,
-      last_assistant_message: "patterns: none (a test)",
+      last_assistant_message: "decisions: none (a test)",
     });
     expect(JSON.parse(out).reason).toContain("changed 2 files");
   });

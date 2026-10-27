@@ -8,6 +8,7 @@ export type TurnState = {
   audited?: boolean;
   wrote?: string[];
   shell?: boolean;
+  calls?: string[];
 };
 export type ToolEvent = {
   tool_name?: string;
@@ -16,10 +17,14 @@ export type ToolEvent = {
 export function treeFiles(dir?: string): Files;
 export function changedSince(snapshot: Files, now: Files): string[];
 export function shellWrites(command: string): boolean;
-export function recordTool<S extends TurnState>(state: S, input: ToolEvent, dir?: string): S;
+export function recordTool<S extends TurnState>(
+  state: S,
+  input: ToolEvent,
+  dir?: string,
+  tools?: string[],
+): S;
 export function listToJudge(state: TurnState, now: Files): string[];
 export function untiered(text: string): string[];
-export function preferenceIn(prompt: string): string;
 export function reasonFor(
   changed: string[],
   prompt: string,
@@ -28,7 +33,10 @@ export function reasonFor(
     ui?: RegExp[];
     catalogue?: string;
     texts?: Record<string, string>;
+    inherits?: string[];
     who?: string;
     day?: string;
+    calls?: string[];
+    wrote?: string[];
   },
 ): string;

@@ -15,9 +15,10 @@ const context = new URL("../plugins/workflow/scripts/catalogue-context.mjs", imp
 
 let repo: string;
 
+/** The hook as Claude Code runs it: an input with no tool named is an Edit's. */
 function run(script: string, args: string[], input: object, env: Record<string, string> = {}) {
   return execFileSync("node", [script, ...args], {
-    input: JSON.stringify(input),
+    input: JSON.stringify({ tool_name: "Edit", ...input }),
     encoding: "utf8",
     env: { ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_PLUGIN_OPTION_OWNER: "Javi", ...env },
   });
@@ -218,5 +219,127 @@ signals:
         tool_input: { file_path: join(repo, "apps/forum/src/components/Search.tsx") },
       }),
     ).toBe("");
+  });
+});
+
+describe("a talk's catalogue: ids, inherits, tools, once per session", () => {
+  let ws: string;
+  let paper: string;
+  beforeAll(() => {
+    ws = mkdtempSync(join(tmpdir(), "catalogue-ws-"));
+    paper = join(ws, "paper");
+    mkdirSync(join(ws, ".claude", "decisions", "slides"), { recursive: true });
+    mkdirSync(join(paper, ".claude"), { recursive: true });
+    mkdirSync(join(paper, "_talk"), { recursive: true });
+    writeFileSync(
+      join(ws, ".claude", "decisions", "slides", "title.md"),
+      `---
+signals:
+  - "presenter"
+---
+
+# The title slide
+
+- \`presenter-bold\` **The presenter's name is bold.** (Javi, 2026-10-21)
+- \`title-size\` **The title is 40 point.** (per Wheeler, 3 October)
+`,
+    );
+    writeFileSync(
+      join(paper, "_talk", "decisions.md"),
+      "# This talk\n\n- `presenter-bold` **The presenter's name is regular here.** (Javi, 2026-10-22) overrides slides/title#presenter-bold.\n",
+    );
+    writeFileSync(
+      join(paper, ".claude", "workflow.md"),
+      `---
+name: Talk
+form: compact
+catalogue: _talk/decisions.md
+inherits:
+  - ../.claude/decisions
+tools:
+  - "mcp__powerpoint__ppt_(set|add)_.*"
+---
+`,
+    );
+  });
+  afterAll(() => rmSync(ws, { recursive: true, force: true }));
+
+  const call = (tool: string, session?: string) =>
+    run(
+      context,
+      [],
+      {
+        ...(session ? { session_id: session } : {}),
+        tool_name: tool,
+        tool_input: { slide: 1, text: "The presenter, Javier" },
+      },
+      { CLAUDE_PROJECT_DIR: paper },
+    );
+
+  it("gives a writing call the rules its input signals, the project's override in the inherited one's place", () => {
+    const ctx = JSON.parse(call("mcp__powerpoint__ppt_set_text")).hookSpecificOutput
+      .additionalContext as string;
+    expect(ctx).toContain("Recorded design decisions cover this call.");
+    expect(ctx).toContain(
+      "Javi, 2026-10-22: The presenter's name is regular here. (decisions#presenter-bold; overrides slides/title#presenter-bold)",
+    );
+    expect(ctx).not.toContain("The presenter's name is bold.");
+    expect(ctx).toContain("../.claude/decisions/slides/title.md");
+  });
+
+  it("judges an MCP call by its tools entry even when its input has a file_path", () => {
+    const out = run(
+      context,
+      [],
+      {
+        tool_name: "mcp__powerpoint__ppt_set_text",
+        tool_input: { file_path: join(paper, "talk.pptx"), text: "The presenter" },
+      },
+      { CLAUDE_PROJECT_DIR: paper },
+    );
+    expect(out).toContain("regular here");
+    expect(
+      run(
+        context,
+        [],
+        { tool_name: "mcp__files__read", tool_input: { file_path: join(paper, "_talk", "x.md") } },
+        { CLAUDE_PROJECT_DIR: paper },
+      ),
+    ).toBe("");
+  });
+
+  it("says nothing for a call outside tools or a read-only one", () => {
+    expect(call("mcp__powerpoint__ppt_get_slide")).toBe("");
+    expect(call("mcp__other__write_thing")).toBe("");
+  });
+
+  it("shows an entry in full once per session, and again in another", () => {
+    const session = `talk-${process.pid}`;
+    try {
+      expect(call("mcp__powerpoint__ppt_add_shape", session)).toContain("regular here");
+      const second = call("mcp__powerpoint__ppt_add_shape", session);
+      expect(second).not.toContain("regular here");
+      expect(second).toContain("more rule");
+      expect(call("mcp__powerpoint__ppt_add_shape", `${session}-b`)).toContain("regular here");
+    } finally {
+      for (const id of [session, `${session}-b`])
+        rmSync(join(tmpdir(), `workflow-catalogue-${id}.json`), { force: true });
+    }
+  });
+
+  it("reads a single-file catalogue for an edit", () => {
+    writeFileSync(
+      join(paper, ".claude", "workflow.md"),
+      '---\nname: Talk\ncatalogue: _talk/decisions.md\nui:\n  - "_talk/**"\n---\n',
+    );
+    const ctx = JSON.parse(
+      run(
+        context,
+        [],
+        { tool_input: { file_path: join(paper, "_talk", "presenter-notes.md"), content: "x" } },
+        { CLAUDE_PROJECT_DIR: paper },
+      ),
+    ).hookSpecificOutput.additionalContext as string;
+    expect(ctx).toContain("_talk/decisions.md (1 rules; its rules name this control)");
   });
 });

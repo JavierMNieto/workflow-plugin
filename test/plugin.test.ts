@@ -21,12 +21,7 @@ import {
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { frontmatter, init, project } from "../plugins/workflow/scripts/project.mjs";
-import {
-  globToRegExp,
-  preferenceIn,
-  reasonFor,
-  untiered,
-} from "../plugins/workflow/scripts/turn-audit.mjs";
+import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
 
 const scripts = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
 const made: string[] = [];
@@ -256,7 +251,7 @@ describe("the turn audit's UI rule", () => {
   it("asks for the catalogue only when the project names the paths and the catalogue", () => {
     const changed = ["apps/web/src/components/Button.tsx"];
     expect(reasonFor(changed, "x", "", { ui, catalogue: "docs/patterns" })).toContain(
-      "nothing under docs/patterns/ did",
+      "nothing under docs/patterns did",
     );
     expect(reasonFor(changed, "x", "", { ui, catalogue: "" })).toBe("");
     expect(reasonFor(changed, "x", "", {})).toBe("");
@@ -446,49 +441,6 @@ describe("the audit's tier check", () => {
   });
 });
 
-describe("the audit's preference check", () => {
-  it("reads a preference or a correction, and not a plain request", () => {
-    expect(preferenceIn("from now on the title slide is centered")).toBe("from now on");
-    expect(preferenceIn("no, not like that")).not.toBe("");
-    expect(preferenceIn("I prefer the darker blue")).toBe("I prefer");
-    expect(preferenceIn("change the second slide's title")).toBe("");
-    expect(preferenceIn("I'd prefer a smaller font")).toBe("I'd prefer");
-    expect(preferenceIn("Fix the build:\nNo such file or directory")).toBe("");
-  });
-
-  it("asks once when a preference turn left the catalogue untouched, and passes a decision: none", () => {
-    const root = dir("prefs-");
-    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
-    mkdirSync(join(root, ".claude"));
-    mkdirSync(join(root, "docs", "patterns"), { recursive: true });
-    writeFileSync(
-      join(root, ".claude", "workflow.md"),
-      '---\nname: Prefs\nui:\n  - "src/**"\ncatalogue: docs/patterns\n---\n',
-    );
-    const audit = join(scripts, "turn-audit.mjs");
-    const run = (mode: string, input: object) =>
-      execFileSync("node", [audit, mode], {
-        input: JSON.stringify(input),
-        encoding: "utf8",
-        env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_OPTION_OWNER: "Javi" },
-      });
-    const turn = (id: string, last: string) => {
-      run("prompt", { session_id: id, prompt: "From now on the title slide is centered" });
-      return run("stop", { session_id: id, stop_hook_active: false, last_assistant_message: last });
-    };
-    const first = turn(`prefs-a-${process.pid}`, "Done.");
-    expect(JSON.parse(first).reason).toContain(
-      'The request reads like a preference or a correction ("From now on").',
-    );
-    expect(JSON.parse(first).reason).toContain("under Javi's name");
-    expect(run("stop", { session_id: `prefs-a-${process.pid}`, stop_hook_active: true })).toBe("");
-    expect(turn(`prefs-b-${process.pid}`, "decision: none (a one-off)")).toBe("");
-    expect(
-      turn(`prefs-c-${process.pid}`, "Recorded: docs/patterns/slides.md: titles centered"),
-    ).toBe("");
-  });
-});
-
 describe("the writing plugin", () => {
   const top = new URL("../", import.meta.url).pathname;
   const skills = join(top, "plugins", "writing", "skills");
@@ -544,5 +496,165 @@ describe("the writing plugin", () => {
         .filter((line) => /JaviAI|\\javi\b/.test(line));
       for (const line of lines) expect(line, file).toContain("note: \\JaviAI");
     }
+  });
+});
+
+describe("the catalogue follow-up", () => {
+  it("accepts ISO dates, per and observed-in tiers, and an id", () => {
+    expect(
+      untiered(`- \`a\` **One.** (Javi, 2026-10-21)
+- **Two.** (per Wheeler, 3 October) [S1] why.
+- \`c\` **Three.** (observed in Limits deck, 2026-10-21)
+- \`d\` **No tier.**
+`),
+    ).toEqual(["`d` **No tier.**"]);
+  });
+
+  it("reads inherits, tools, mcp and a file catalogue", () => {
+    const root = dir("keys-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      `---\nname: Talk\ncatalogue: _talk/decisions.md\ninherits:\n  - ../.claude/decisions\ntools:\n  - "mcp__p__ppt_set_.*"\nmcp:\n  - ../.ppt/mcp.json\n---\n`,
+    );
+    expect(project(root)).toMatchObject({
+      catalogue: "_talk/decisions.md",
+      inherits: ["../.claude/decisions"],
+      tools: ["mcp__p__ppt_set_.*"],
+      mcp: ["../.ppt/mcp.json"],
+    });
+  });
+
+  /** A project with a catalogue of three files: one untiered entry, one duplicate id, one clean. */
+  const linted = (clean = false) => {
+    const root = dir("check-");
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "decisions"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      "---\nname: Check\ncatalogue: decisions\n---\n",
+    );
+    writeFileSync(join(root, "decisions", "a.md"), "- `x` **One.** (Javi, 2026-10-21)\n");
+    if (!clean) {
+      writeFileSync(join(root, "decisions", "b.md"), "- `x` **Two.** (Javi, 2026-10-21)\n");
+      writeFileSync(join(root, "decisions", "c.md"), "- **No tier.**\n");
+    }
+    return root;
+  };
+  const plansIn = (root: string, args: string[]) => {
+    try {
+      return {
+        out: execFileSync("node", [join(scripts, "plan-queue.mjs"), ...args], {
+          encoding: "utf8",
+          env: { ...process.env, CLAUDE_PROJECT_DIR: root, WORKFLOW_LIVE: "[]" },
+        }),
+        code: 0,
+      };
+    } catch (error) {
+      const e = error as { stdout: string; status: number };
+      return { out: e.stdout, code: e.status };
+    }
+  };
+
+  it("plans check prints each fault and exits 1, and reports none on a clean catalogue", () => {
+    const bad = plansIn(linted(), ["check"]);
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain("decisions/c.md: no tier and date: **No tier.**");
+    expect(bad.out).toContain("id x is used twice in decisions");
+    expect(bad.out).toContain("3 entries in 3 files, 2 faults.");
+    const good = plansIn(linted(true), ["check"]);
+    expect(good).toMatchObject({ code: 0 });
+    expect(good.out).toContain("1 entries in 1 file, no faults.");
+  });
+
+  it("plans check reads an override ending a sentence, and faults a catalogue that is not there", () => {
+    const root = dir("override-");
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "ws", "decisions"), { recursive: true });
+    mkdirSync(join(root, "_talk"));
+    writeFileSync(join(root, "ws", "decisions", "title.md"), "- `x` **One.** (Javi, 2026-10-21)\n");
+    writeFileSync(
+      join(root, "_talk", "decisions.md"),
+      "- `x` **Mine.** (Javi, 2026-10-22) overrides title#x.\n",
+    );
+    const file = (extra: string) =>
+      writeFileSync(
+        join(root, ".claude", "workflow.md"),
+        `---\nname: O\ncatalogue: _talk/decisions.md\ninherits:\n  - ws/decisions\n${extra}---\n`,
+      );
+    file("");
+    expect(plansIn(root, ["check"])).toMatchObject({ code: 0 });
+    file("  - gone/decisions\n");
+    const missing = plansIn(root, ["check"]);
+    expect(missing.code).toBe(1);
+    expect(missing.out).toContain("gone/decisions: no such catalogue");
+  });
+
+  it("plans chat --dry prints the maker's command with the project's mcp and inherits", () => {
+    const root = dir("chat-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      "---\nname: Talk\nform: compact\ninherits:\n  - ../ws/decisions\nmcp:\n  - .ppt/mcp.json\n---\n",
+    );
+    const { out } = plansIn(root, ["chat", "--dry", "Change slide 3"]);
+    expect(out).toContain('Would run: claude "--agent" "workflow:maker" "--effort" "high"');
+    expect(out).toContain(
+      `"--mcp-config" "${join(root, ".ppt", "mcp.json")}" "--strict-mcp-config"`,
+    );
+    expect(out).toContain(`"--add-dir" "${join(root, "..", "ws", "decisions")}"`);
+    expect(out).toContain('"Change slide 3"');
+  });
+
+  it("refuses a turn that called a writing tool and recorded nothing, once, and passes decisions: none", () => {
+    const root = dir("calls-");
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "decisions"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\nname: Calls\ncatalogue: decisions\ntools:\n  - "mcp__p__ppt_set_.*"\n---\n',
+    );
+    const audit = join(scripts, "turn-audit.mjs");
+    const run = (mode: string, input: object) =>
+      execFileSync("node", [audit, mode], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+      });
+    const turn = (id: string, last: string) => {
+      run("prompt", { session_id: id, prompt: "Make the title bigger" });
+      run("tool", { session_id: id, tool_name: "mcp__p__ppt_set_text", tool_input: {} });
+      run("tool", { session_id: id, tool_name: "mcp__p__ppt_get_slide", tool_input: {} });
+      return run("stop", { session_id: id, stop_hook_active: false, last_assistant_message: last });
+    };
+    const first = turn(`calls-a-${process.pid}`, "Done.");
+    expect(JSON.parse(first).reason).toBe(
+      "1 call to mcp__p__ppt_set_text was made, and nothing under decisions did. Add or update the entry in decisions in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why).",
+    );
+    expect(run("stop", { session_id: `calls-a-${process.pid}`, stop_hook_active: true })).toBe("");
+    expect(turn(`calls-b-${process.pid}`, "decisions: none (a bug)")).toBe("");
+  });
+
+  it("audits a writing call in a project with no git", () => {
+    const root = dir("nogit-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\nname: NoGit\nform: compact\ncatalogue: decisions.md\ntools:\n  - "mcp__p__ppt_set_.*"\n---\n',
+    );
+    const audit = join(scripts, "turn-audit.mjs");
+    const run = (mode: string, input: object) =>
+      execFileSync("node", [audit, mode], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+      });
+    const id = `nogit-${process.pid}`;
+    run("prompt", { session_id: id, prompt: "Bigger title" });
+    run("tool", { session_id: id, tool_name: "mcp__p__ppt_set_text", tool_input: {} });
+    expect(run("stop", { session_id: id, stop_hook_active: false })).toContain(
+      "1 call to mcp__p__ppt_set_text was made",
+    );
   });
 });
