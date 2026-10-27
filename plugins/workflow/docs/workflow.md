@@ -224,7 +224,9 @@ audited. The refusal is one per turn, so nothing loops.
 repository**, never in the project the chat is in: `/workflow:change`
 keeps a checkout of the plugin's repository beside the project, writes the
 brief or the short plan into that checkout's `plans/` and starts its
-queue. The plugin's repository is itself a project with a
+queue. `plans` acts on the repository it is run in, whatever project the
+chat belongs to, so `cd <checkout> && plans start` is the plugin's queue
+from any chat. The plugin's repository is itself a project with a
 `.claude/workflow.md`, so its own queue builds the change; its CI moves
 `main` on a green run of `test`, and every machine installing from `main`
 picks the change up after its next session starts.

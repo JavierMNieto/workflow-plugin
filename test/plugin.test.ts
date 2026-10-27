@@ -10,6 +10,7 @@ import {
   kindOf,
   owner,
   pathsIn,
+  sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { init, project } from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor } from "../plugins/workflow/scripts/turn-audit.mjs";
@@ -145,6 +146,67 @@ describe("the plugin's queue in any project", () => {
     expect(data({}, "/somewhere/else/scripts")).toMatch(
       /\.claude\/plugins\/data\/workflow-workflow$/,
     );
+  });
+
+  /** Two throwaway repositories, each with a project file and one plan of its own. */
+  const twoProjects = () =>
+    ["a", "b"].map((name) => {
+      const root = dir(`queue-${name}-`);
+      execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+      mkdirSync(join(root, ".claude"));
+      mkdirSync(join(root, "plans"));
+      mkdirSync(join(root, "deep"));
+      writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: Q${name}\n---\n`);
+      writeFileSync(
+        join(root, "plans", `only-in-${name}.md`),
+        `# Plan ${name}\n\nShort plan, 27 October 2026.\n`,
+      );
+      return root;
+    });
+  const queueIn = (command: string, cwd: string, env: Record<string, string>) => {
+    const { WORKFLOW_ROOT: _, ...rest } = process.env;
+    return execFileSync("node", [command], {
+      cwd,
+      env: { ...rest, WORKFLOW_DATA: dir("queue-data-"), WORKFLOW_LIVE: "[]", ...env },
+      encoding: "utf8",
+    });
+  };
+  const bin = new URL("../plugins/workflow/bin/plans", import.meta.url).pathname;
+
+  it("plans reads the folder it runs in, not the chat's project", () => {
+    const [a, b] = twoProjects();
+    const out = queueIn(bin, join(a, "deep"), { CLAUDE_PROJECT_DIR: b });
+    expect(out).toContain("plans/only-in-a.md");
+    expect(out).not.toContain("plans/only-in-b.md");
+  });
+
+  it("plans in a linked worktree reads the checkout that holds plans/", () => {
+    const [a, b] = twoProjects();
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: a, stdio: "ignore" });
+    git("add", ".claude");
+    git("-c", "user.name=T", "-c", "user.email=t@example.org", "commit", "-qm", "start");
+    git("worktree", "add", "-q", join(".claude", "worktrees", "w"));
+    const out = queueIn(bin, join(a, ".claude", "worktrees", "w"), { CLAUDE_PROJECT_DIR: b });
+    expect(out).toContain("plans/only-in-a.md");
+  });
+
+  it("a hook, with no WORKFLOW_ROOT, still takes CLAUDE_PROJECT_DIR", () => {
+    const [a, b] = twoProjects();
+    const out = queueIn(join(scripts, "plan-queue.mjs"), a, { CLAUDE_PROJECT_DIR: b });
+    expect(out).toContain("plans/only-in-b.md");
+    expect(out).not.toContain("plans/only-in-a.md");
+  });
+
+  it("starts a chat without the command's root or another project's directory", () => {
+    expect(
+      sessionEnv({
+        WORKFLOW_ROOT: "/a",
+        CLAUDE_PROJECT_DIR: "/b",
+        CLAUDE_SESSION_ID: "s",
+        PATH: "/bin",
+        HOME: "/h",
+      }),
+    ).toEqual({ PATH: "/bin", HOME: "/h" });
   });
 
   it("finds any path of two segments with an extension, and no address or plan", () => {

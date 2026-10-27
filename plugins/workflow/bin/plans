@@ -1,8 +1,28 @@
 #!/usr/bin/env node
 // `plans`: the workflow's command, on the Bash tool's path while the plugin
 // is enabled (`bin/`). `plans help` prints what it takes.
-import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+// The command acts on the repository it is run in. A chat in one project can
+// run `plans` in another's checkout, and the Bash tool may carry the chat's
+// `CLAUDE_PROJECT_DIR`, so the queue's root is said here, before the import.
+// In a linked worktree (`.claude/worktrees/<name>`) the root is still the
+// checkout that holds `plans/`: the folder above the shared `.git`.
+const git = (...args) =>
+  execFileSync("git", args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+try {
+  const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
+  process.env.WORKFLOW_ROOT =
+    basename(common) === ".git" ? dirname(common) : git("rev-parse", "--show-toplevel");
+} catch {
+  process.env.WORKFLOW_ROOT = process.cwd();
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { main } = await import(pathToFileURL(join(here, "..", "scripts", "plan-queue.mjs")).href);

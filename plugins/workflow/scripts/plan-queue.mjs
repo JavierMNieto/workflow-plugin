@@ -55,11 +55,13 @@ import { shellWrites } from "./turn-audit.mjs";
 import { PROJECT_FILE, init, project } from "./project.mjs";
 
 /**
- * The project: `CLAUDE_PROJECT_DIR` in a hook, the working directory for the
- * command (the Bash tool sets no `CLAUDE_PROJECT_DIR`, so `cd <checkout> &&
- * plans start` acts there).
+ * The project: for the command, the repository it is run in (`bin/plans`
+ * sets `WORKFLOW_ROOT`, since the Bash tool may carry another project's
+ * `CLAUDE_PROJECT_DIR`, so `cd <checkout> && plans start` acts there); for a
+ * hook, `CLAUDE_PROJECT_DIR`. The processes the command spawns inherit the
+ * environment, and with it the root.
  */
-const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const root = process.env.WORKFLOW_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -799,8 +801,25 @@ function startPrompt(paths, plans) {
   return `Build the plans waiting in the queue, oldest first: ${paths.join(", ")}. Then go on by your agent file's "Going on". ${owner()} reads this chat in Remote Control; the plans are the instructions.`;
 }
 
-function detached(command, args) {
-  const child = spawn(command, args, { cwd: root, detached: true, stdio: "ignore" });
+/**
+ * A started chat's environment: this one without the root, which a node child
+ * of the command inherits but a chat must not. Claude Code sets the chat's own
+ * `CLAUDE_PROJECT_DIR`; one carried from the starting chat's project would
+ * reach the new chat's Bash tool, and so would the starting chat's
+ * `CLAUDE_SESSION_ID`, which `plans pause` records.
+ */
+export function sessionEnv(env = process.env) {
+  const {
+    WORKFLOW_ROOT: _root,
+    CLAUDE_PROJECT_DIR: _project,
+    CLAUDE_SESSION_ID: _session,
+    ...rest
+  } = env;
+  return rest;
+}
+
+function detached(command, args, env = process.env) {
+  const child = spawn(command, args, { cwd: root, detached: true, stdio: "ignore", env });
   child.unref();
   return child.pid;
 }
@@ -956,7 +975,7 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
   } catch {
     // Nothing was deferred.
   }
-  detached("claude", args);
+  detached("claude", args, sessionEnv());
   if (!probe) {
     const usage = readJson(files.usage());
     appendFileSync(
