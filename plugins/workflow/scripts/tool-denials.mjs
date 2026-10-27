@@ -18,7 +18,7 @@
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { kindOf, matches, pluginAgents, project } from "./project.mjs";
+import { everyTool, kindOf, matches, pluginAgents, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -73,10 +73,11 @@ function main(mode) {
   // **Two lists hold**: the input's own agent's, and the session's recorded
   // agent's, since a subagent's input names its own type (the hooks
   // reference); a subagent with a list of its own is still held to its
-  // session's. Nothing is written in this mode.
+  // session's. Nothing is written in this mode. A connector named alone
+  // denies its every tool.
   const tool = String(input.tool_name || "");
   const agent = [kindOf(input), readRecorded(input.session_id)].find(
-    (one) => Object.hasOwn(proj.deny, one) && matches(proj.deny[one], tool),
+    (one) => Object.hasOwn(proj.deny, one) && matches(proj.deny[one].map(everyTool), tool),
   );
   if (!agent) return;
   process.stdout.write(

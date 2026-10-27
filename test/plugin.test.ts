@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   canStart,
+  checkDeny,
   data,
   decideStop,
   owner,
@@ -24,6 +25,7 @@ import {
   frontmatter,
   init,
   kindOf,
+  matches,
   project,
 } from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
@@ -701,6 +703,153 @@ describe("the catalogue follow-up", () => {
     const good = plansIn(root, ["check"]);
     expect(good).toMatchObject({ code: 0 });
     expect(good.out).toBe("1 entries in 1 file, no faults.\n");
+  });
+
+  /** The check's output on a project whose frontmatter adds `deny`. */
+  const checkWith = (deny: string) => {
+    const root = linted(true);
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      `---\nname: Check\ncatalogue: decisions\n${deny}---\n`,
+    );
+    return plansIn(root, ["check"]);
+  };
+  /** The deny hook on a project whose frontmatter adds `deny`: its stdout. */
+  const hookWith = (deny: string, mode: string, input: object) => {
+    const root = dir("hook-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: Lab\n${deny}---\n`);
+    return execFileSync("node", [join(scripts, "tool-denials.mjs"), mode], {
+      input: JSON.stringify(input),
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+    });
+  };
+
+  it("an agent with its pattern on one line is read", () => {
+    const root = dir("deny-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\ndeny:\n  assistant: "mcp__lab__.*"   # the owner\'s chat\n  planner:\n    - mcp__x__.*\n---\n',
+    );
+    expect(project(root).deny).toEqual({ assistant: ["mcp__lab__.*"], planner: ["mcp__x__.*"] });
+    const bad = checkWith('deny:\n  assistant "mcp__lab__.*"\n');
+    expect(bad.code).toBe(1);
+    expect(bad.out.split("\n")[0]).toBe(
+      'deny: line 5 is not read: assistant "mcp__lab__.*" (an agent is "name:" with its patterns under it, or "name: pattern")',
+    );
+  });
+
+  it("a mis-indented item is reported", () => {
+    // At the agent's indent, an item is the agent's, as YAML reads it.
+    const root = dir("deny-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\ndeny:\n    assistant:\n    - "mcp__a__.*"\n  - "mcp__b__.*"\n---\n',
+    );
+    expect(project(root).deny).toEqual({ assistant: ["mcp__a__.*"] });
+    const bad = checkWith(
+      'deny:\n    assistant:\n    - "mcp__a__.*"\n  - "mcp__b__.*"\n- "mcp__c__.*"\n',
+    );
+    expect(bad.code).toBe(1);
+    expect(bad.out.split("\n").slice(0, 2)).toEqual([
+      'deny: line 7 is not read: - "mcp__b__.*" (an item goes under its agent\'s name, indented as deep or deeper)',
+      'deny: line 8 is not read: - "mcp__c__.*" (an item goes under its agent\'s name, indented as deep or deeper)',
+    ]);
+  });
+
+  it("a pattern cannot escape the anchors", () => {
+    expect(matches(["mcp__a)|(.*"], "Bash")).toBe(false);
+    expect(matches(["mcp__a)|(.*"], "mcp__a")).toBe(false);
+    expect(matches(["mcp__a__(x|y)"], "mcp__a__y")).toBe(true);
+    const bad = checkWith('deny:\n  assistant:\n    - "mcp__a)|(.*"\n');
+    expect(bad.code).toBe(1);
+    expect(bad.out.split("\n")[0]).toBe("deny: assistant: mcp__a)|(.* is not a regular expression");
+  });
+
+  it("a connector named alone denies its every tool", () => {
+    const deny = 'deny:\n  assistant:\n    - "mcp__(claude_ai_)?lab"\n';
+    for (const tool_name of ["mcp__claude_ai_lab__delete", "mcp__lab__delete"])
+      expect(hookWith(deny, "tool", { agent_type: "workflow:assistant", tool_name })).toContain(
+        '"permissionDecision":"deny"',
+      );
+    expect(
+      hookWith(deny, "tool", { agent_type: "workflow:assistant", tool_name: "mcp__labs__x" }),
+    ).toBe("");
+    const bad = checkWith(deny);
+    expect(bad.code).toBe(1);
+    expect(bad.out.split("\n")[0]).toBe(
+      "deny: assistant: mcp__(claude_ai_)?lab names a connector, not a tool: write `mcp__(claude_ai_)?lab__.*`",
+    );
+  });
+
+  it("a connector named alone is read at its start only, between anchors, in an alternation", () => {
+    const denied = (pattern: string, tool_name: string) =>
+      hookWith(`deny:\n  assistant:\n    - "${pattern}"\n`, "tool", {
+        agent_type: "workflow:assistant",
+        tool_name,
+      }).includes('"permissionDecision":"deny"');
+    // An `mcp__` inside a server's name is no start: this names a tool.
+    expect(denied("mcp__github_mcp__delete", "mcp__github_mcp__delete")).toBe(true);
+    expect(denied("mcp__github_mcp__delete", "mcp__github_mcp__delete__x")).toBe(false);
+    expect(denied("^mcp__lab$", "mcp__lab__x")).toBe(true);
+    expect(denied("mcp__a|mcp__b__c", "mcp__a__x")).toBe(true);
+    expect(denied("mcp__a|mcp__b__c", "mcp__b__c")).toBe(true);
+    expect(denied("mcp__a|mcp__b__c", "mcp__b__d")).toBe(false);
+    expect(checkWith('deny:\n  assistant:\n    - "mcp__github_mcp__delete"\n').code).toBe(0);
+    expect(checkWith('deny:\n  assistant:\n    - "^mcp__lab$"\n').out.split("\n")[0]).toBe(
+      "deny: assistant: ^mcp__lab$ names a connector, not a tool: write `^mcp__lab__.*$`",
+    );
+  });
+
+  it("an agent named twice keeps both lists; a flow list or an empty agent is reported", () => {
+    const root = dir("deny-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      "---\ndeny:\n  executor: mcp__a__x\n  executor: mcp__b__y\n---\n",
+    );
+    expect(project(root).deny).toEqual({ executor: ["mcp__a__x", "mcp__b__y"] });
+    const flow = checkWith("deny:\n  executor: [mcp__a__x, mcp__b__y]\n");
+    expect(flow.code).toBe(1);
+    expect(flow.out.split("\n")[0]).toBe(
+      'deny: line 5 is not read: executor: [mcp__a__x, mcp__b__y] (an agent is "name:" with its patterns under it, or "name: pattern")',
+    );
+    expect(checkWith("deny:\n  executor:\n").out.split("\n")[0]).toBe(
+      "deny: executor: no pattern under it, so it denies nothing",
+    );
+  });
+
+  it("an alternation passes the lint", () => {
+    expect(checkWith('deny:\n  assistant:\n    - "(mcp__a|mcp__b)__.*"\n')).toMatchObject({
+      code: 0,
+    });
+    expect(checkWith('deny:\n  assistant:\n    - "mcp__(a|b)__.*"\n')).toMatchObject({ code: 0 });
+    const bad = checkWith('deny:\n  assistant:\n    - "(Bash|Read)"\n');
+    expect(bad.out.split("\n")[0]).toBe(
+      "deny: assistant: (Bash|Read) names no MCP tool (mcp__<server>__<tool>); deny watches MCP calls only",
+    );
+  });
+
+  it("the deny key is parsed once", () => {
+    // The lint reads the project it is handed, not the file under the root.
+    const root = dir("deny-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "workflow.md"), '---\ndeny:\n  - "mcp__lab__.*"\n---\n');
+    expect(checkDeny(project(root), ["assistant"])).toEqual([
+      "deny: names no agent; each agent's name goes on a line of its own under deny, its patterns under it",
+    ]);
+  });
+
+  it("another plugin's agent of the same name is not held to these lists", () => {
+    const deny = 'deny:\n  assistant:\n    - "mcp__lab__.*"\n';
+    const call = (agent_type: string) =>
+      hookWith(deny, "tool", { agent_type, tool_name: "mcp__lab__delete" });
+    expect(call("other:assistant")).toBe("");
+    expect(call("workflow:assistant")).toContain('"permissionDecision":"deny"');
+    expect(call("assistant")).toContain('"permissionDecision":"deny"');
   });
 
   it("plans check reads an override ending a sentence, and faults a catalogue that is not there", () => {

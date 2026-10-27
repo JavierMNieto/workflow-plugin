@@ -58,7 +58,10 @@ import { shellWrites, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
 import {
   PROJECT_FILE,
-  frontmatter,
+  compiles,
+  connectorAlone,
+  couldNameMcp,
+  everyTool,
   init,
   kindOf,
   owner,
@@ -2422,24 +2425,23 @@ function hook(mode, input) {
   }
 }
 
-/** The project file's `deny` as written, before `project()` drops a shape that names no agent. */
-function writtenDeny(dir = root) {
-  try {
-    return frontmatter(readFileSync(join(dir, PROJECT_FILE), "utf8")).deny;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * **`plans check` lints the `deny` key** (docs/workflow.md, "The project
- * file"): a list or a value with no agent's name over it, an agent the
- * plugin has no file for, a pattern that is not a regular expression, a
- * pattern that cannot name an MCP tool. One line per fault; an absent or
+ * file"), from `project()`'s one parse: a line under the key it could not
+ * read, by line number; a list or a value with no agent's name over it; an
+ * agent the plugin has no file for, or with no pattern; a pattern that does not compile alone; a
+ * connector named alone, which the hook reads as its every tool; a pattern
+ * that could match no MCP tool's name. One line per fault; an absent or
  * empty `deny` says nothing.
  */
-export function checkDeny(project = proj(), agents = pluginAgents(), written = writtenDeny()) {
-  const lines = [];
+export function checkDeny(project = proj(), agents = pluginAgents()) {
+  const written = project.written?.deny;
+  const lines = (project.written?.unread ?? [])
+    .filter((at) => at.under === "deny")
+    .map(
+      (at) =>
+        `deny: line ${at.line} is not read: ${at.text} (${at.item ? "an item goes under its agent's name, indented as deep or deeper" : 'an agent is "name:" with its patterns under it, or "name: pattern"'})`,
+    );
   // A flat list or a value under `deny` denies nothing: say so, or a typo
   // turns every denial off unseen.
   if ((Array.isArray(written) && written.length) || (typeof written === "string" && written))
@@ -2449,14 +2451,14 @@ export function checkDeny(project = proj(), agents = pluginAgents(), written = w
   for (const [agent, patterns] of Object.entries(project.deny)) {
     if (!agents.includes(agent))
       lines.push(`deny: ${agent} is no agent of the plugin (${agents.join(", ")})`);
+    if (!patterns.length) lines.push(`deny: ${agent}: no pattern under it, so it denies nothing`);
     for (const pattern of patterns) {
-      try {
-        new RegExp(`^(?:${pattern})$`);
-      } catch {
-        lines.push(`deny: ${agent}: ${pattern} is not a regular expression`);
-        continue;
-      }
-      if (!pattern.startsWith("mcp__"))
+      if (!compiles(pattern)) lines.push(`deny: ${agent}: ${pattern} is not a regular expression`);
+      else if (connectorAlone(pattern))
+        lines.push(
+          `deny: ${agent}: ${pattern} names a connector, not a tool: write \`${everyTool(pattern)}\``,
+        );
+      else if (!couldNameMcp(pattern))
         lines.push(
           `deny: ${agent}: ${pattern} names no MCP tool (mcp__<server>__<tool>); deny watches MCP calls only`,
         );

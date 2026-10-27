@@ -70,7 +70,18 @@ export function ownRows<R extends { sessionId?: string; cwd?: string }>(
 export function liveSessions(options?: { fresh?: boolean; timeout?: number }): LiveRow[] | null;
 export function data(env?: Record<string, string | undefined>, scriptDir?: string): string;
 export function owner(env?: Record<string, string | undefined>, settings?: string): string;
-export function kindOf(input: { agent_type?: string } | null | undefined): string;
+export function kindOf(input: { agent_type?: string } | null | undefined, plugin?: string): string;
+/** The deny key's faults, one line each, from the project's one parse. */
+export function checkDeny(
+  project?: {
+    deny: Record<string, string[]>;
+    written?: {
+      deny?: unknown;
+      unread?: { line: number; text: string; under: string | null; item: boolean }[];
+    };
+  },
+  agents?: string[],
+): string[];
 /** A started chat's environment, without the root and the hook variables. */
 export function sessionEnv(
   env?: Record<string, string | undefined>,

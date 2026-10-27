@@ -131,7 +131,9 @@ where the config keeps it; `plans chat` prints the path, never the file.
 maps an agent of the plugin (`assistant`, `planner`, `executor`,
 `maker`, `reviewer`) to tool-name patterns, regular expressions matched
 whole as `tools` are, MCP names only (`mcp__server__.*` a whole server,
-`mcp__(claude_ai_)?server__.*` a connector in both its forms); the
+`mcp__(claude_ai_)?server__.*` a connector in both its forms; a
+connector named alone, `mcp__(claude_ai_)?server`, means its every
+tool); the
 plugin's `PreToolUse` hook (`scripts/tool-denials.mjs`) refuses a call
 that matches with the reason, in both forms and in every chat here, and
 a subagent is held to its session's agent's list as well as its own. The
@@ -141,9 +143,10 @@ from a project, and a settings `permissions.deny` holds for every agent
 alike, which is what the setup's whole-connector denies are for: a
 connector no chat here needs is denied there, whole; one that some
 agents here need and others must not reach is `deny`. `plans check`
-lints the key: a list with no agent's name over it, an agent the plugin
-has no file for, a pattern that is not a regular expression or cannot
-name an MCP tool.
+lints the key: a line under it that it cannot read, a list with no
+agent's name over it, an agent the plugin has no file for, a pattern
+that is not a regular expression or cannot name an MCP tool, a connector
+named alone.
 
 The name defaults to the directory's, the branch to the remote's default
 (with no remote, `plans init` writes the branch checked out when the file
