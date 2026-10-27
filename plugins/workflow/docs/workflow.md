@@ -99,6 +99,7 @@ tools:                    # tool names whose calls change what a person sees
 mcp:                      # MCP configs every chat here gets (plans chat, plans start)
   - .mcp/server.json
 form: compact             # one chat decides and builds; omit for the full queue
+reuse: 200000             # the context, in tokens, above which a finished session retires
 reviews:                  # the reviews before a push; omit for all three (none when compact)
   - code-review
 note: \JaviAI             # the writing plugin's note command; omit for notes in the report
@@ -237,10 +238,16 @@ hook takes the lock (`.claude/executor.lock`), and its tool hook refuses
 edits and writing commands to an executor that does not hold it, so one
 checkout has one executor; its Stop hook refuses a stop on a red or
 unfinished run of the session's push (the project's `run`), then names the
-waiting plans to a fresh context (no compaction, or one and a waiting
-plan names a file the batch changed, counted from where the batch's
-first Building line was written) or, to a tired one (two compactions,
-or one with nothing related), retires it and starts a fresh executor;
+waiting plans to a session that may be reused (`mayReuse`: no
+compaction, or one and a waiting plan names a file the batch changed,
+counted from where the batch's first Building line was written; a
+context under the reuse ceiling, the project file's `reuse`, 200k tokens
+by default; a cache still warm, or a context too small to matter), or
+retires the session and starts a fresh executor, since every turn
+re-reads the whole context at the cache-read price and a fresh
+session's first turn is 50k tokens; `plans start` replaces an idle
+session the rule rejects instead of refusing, and `plans` shows each
+live session's context and warmth (`618k context, warm`);
 after a third compaction inside one plan the session hands the plan over
 (work committed on the branch, a "Handing over" section, stop), up to six
 times per plan, and a plan handed over twice at the same step stops and
@@ -300,7 +307,9 @@ a brief, listed under "Briefs, oldest first"; `## Planning, <date>,
 session <id>`, written by the planner as its first edit, marks it taken
 while that session lives. The assistant ends a brief with `plans start
 --agent planner plans/<topic>.md`, which starts a planner as a
-background Remote Control chat at high effort, one at a time, under the
+background Remote Control chat at high effort, one at a time, and a
+second beside a busy one whose context is past the reuse ceiling or gone
+cold, under the
 executor's bounds (the usage windows and the pause shared, the names, the
 quick-death rule and the tripwire counted per kind). The planner writes
 the plan over the brief before it asks its decisions, so a chat stopped
@@ -324,11 +333,24 @@ A decision the plan left to the owner is taken in its "Decided" section
 before that part is built; a question a plan did not foresee goes through
 the question tool in the executor's session, not back to the planner.
 
+**What a context costs.** Every turn re-reads the session's whole
+context at the cache-read price: a plan of about 120 turns reads about
+$1.90 at 80k, $4.80 at 200k and $14.40 at 600k (Opus, the pricing page),
+where a fresh executor costs about $2.60 per plan in all, so the wash is
+near 100k. The default ceiling, 200k, buys a related plan's continuity
+for about $2.40 more; a cold cache adds the rewrite of the whole context.
+
 **The executor works in one thread.** It starts a subagent only in four
-named cases (the review of the diff against the plan, a read-only sweep
-that would flood its context, a failure unexplained after two attempts,
-one long verbose read), at most four per plan and never while a suite
-runs, each with a four-part brief. The project's settings set
+named cases (the review of the diff against the plan, by the plugin's
+`workflow:reviewer` agent; a read-only sweep that would flood its
+context, by the built-in `Explore`; a failure unexplained after two
+attempts and one long verbose read, by the built-in `general-purpose`),
+at most four per plan and never while a suite runs, each with a
+four-part brief. Not two executors in one project: a plan's steps share
+one context (the branch, the files read, the suites), coding has few
+parallel strands, and a multi-agent run costs about fifteen times a
+chat (Anthropic's multi-agent research post); the owner's own trial
+cost more than it saved. The project's settings set
 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` to 1, so no subagent starts
 subagents of its own: instructions are advisory, a setting is not.
 

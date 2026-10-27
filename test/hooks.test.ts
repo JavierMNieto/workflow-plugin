@@ -35,6 +35,9 @@ import {
   decideStop,
   inThisRepo,
   lockHeldByOther,
+  mayReuse,
+  sessionUsage,
+  transcriptOf,
   ownRows,
   takeLock,
   parseDay,
@@ -437,7 +440,7 @@ describe("plan-queue", () => {
       ).toMatchObject({
         refuse: true,
       });
-      expect(decideStop({ compactions: 1, waiting: [plan("plans/a.md")] })).toEqual({
+      expect(decideStop({ compactions: 1, waiting: [plan("plans/a.md")] })).toMatchObject({
         retire: true,
         paths: ["plans/a.md"],
       });
@@ -1157,11 +1160,11 @@ describe("the planner queue", () => {
       refuse: true,
       told: ["plans/newer.md"],
     });
-    expect(decidePlannerStop({ waiting: [older], compactions: 1 })).toEqual({
+    expect(decidePlannerStop({ waiting: [older], compactions: 1 })).toMatchObject({
       retire: true,
       related: false,
     });
-    expect(decidePlannerStop({ waiting: [older, newer], compactions: 2 })).toEqual({
+    expect(decidePlannerStop({ waiting: [older, newer], compactions: 2 })).toMatchObject({
       retire: true,
       related: true,
     });
@@ -2061,5 +2064,233 @@ if (args[0] === "agents") {
         "Started Seen Executor 1",
       );
     });
+  });
+});
+
+/** **The cache-aware queue** (plans/cache-aware-queue.md): reuse by context, not compactions alone. */
+describe("the cache-aware queue", () => {
+  const MIN = 60_000;
+  const now = Date.UTC(2026, 9, 27, 14, 0);
+  const at = (minutes: number, k: number) => ({ context: k * 1000, at: now - minutes * MIN });
+
+  it("mayReuse: by compactions, the ceiling and the cache", () => {
+    expect(mayReuse({ compactions: 0, usage: at(1, 150), now })).toEqual({ reuse: true });
+    expect(mayReuse({ usage: at(1, 250), now }).why).toContain(
+      "its context is 250k tokens, over the reuse ceiling of 200k",
+    );
+    expect(mayReuse({ usage: at(1, 150), now, ceiling: 100_000 }).reuse).toBe(false);
+    expect(mayReuse({ usage: at(70, 200), now }).why).toContain(
+      "its cache has gone cold after 70 minutes idle",
+    );
+    expect(mayReuse({ usage: at(70, 40), now })).toEqual({ reuse: true });
+    expect(mayReuse({ compactions: 2, usage: at(1, 10), now }).reuse).toBe(false);
+    expect(mayReuse({ compactions: 1, related: false, now }).reuse).toBe(false);
+    expect(mayReuse({ compactions: 1, related: true, now })).toEqual({ reuse: true });
+    expect(mayReuse({ compactions: 0 })).toEqual({ reuse: true });
+  });
+
+  it("sessionUsage reads the last assistant turn's context and time, and null without a file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-"));
+    const file = join(dir, "t.jsonl");
+    const turn = (n: number, time: string) =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: time,
+        message: {
+          usage: {
+            input_tokens: n,
+            cache_read_input_tokens: 1000 * n,
+            cache_creation_input_tokens: 10,
+          },
+        },
+      });
+    writeFileSync(
+      file,
+      [
+        turn(1, "2026-10-27T13:00:00Z"),
+        JSON.stringify({ type: "user", message: { content: "hi" } }),
+        turn(2, "2026-10-27T13:30:00Z"),
+        turn(3, "2026-10-27T13:59:00Z"),
+        "",
+      ].join("\n"),
+    );
+    try {
+      expect(sessionUsage(file)).toEqual({
+        context: 3 + 3000 + 10,
+        at: Date.parse("2026-10-27T13:59:00Z"),
+      });
+      expect(sessionUsage(join(dir, "none.jsonl"))).toBeNull();
+      expect(transcriptOf({ sessionId: "s1", cwd: "/home/v/.claude/x" }, "/p")).toBe(
+        "/p/-home-v--claude-x/s1.jsonl",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("decideStop and decidePlannerStop retire with the ceiling's reason", () => {
+    const waiting = [{ path: "plans/a.md", related: true, asks: false }];
+    expect(decideStop({ waiting, usage: at(1, 300), now })).toMatchObject({
+      retire: true,
+      why: expect.stringContaining("over the reuse ceiling"),
+    });
+    expect(decidePlannerStop({ waiting, usage: at(1, 300), now })).toMatchObject({
+      retire: true,
+      why: expect.stringContaining("over the reuse ceiling"),
+    });
+    expect(decideStop({ waiting, usage: at(1, 100), now })).toMatchObject({ refuse: true });
+  });
+
+  const one = (status: string, k: number, kind = "executor", minutes = 1) => ({
+    kind,
+    sessionId: `${kind}-${status}-${k}`,
+    id: "",
+    name: `Test ${kind === "planner" ? "Planner" : "Executor"} 1`,
+    status,
+    usage: at(minutes, k),
+    ceiling: 200_000,
+    where: "checkout",
+    branch: "",
+    holdsLock: false,
+    retired: false,
+    on: "",
+  });
+
+  it("canStart replaces a stale idle session, and refuses a busy or a reusable one", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const replaced = canStart({ now, usage, name: "Test", sessions: [one("idle", 300)] as never });
+    expect(replaced).toMatchObject({ start: true, replace: [{ sessionId: "executor-idle-300" }] });
+    expect(canStart({ now, usage, sessions: [one("busy", 300)] as never })).toMatchObject({
+      refuse: true,
+    });
+    expect(canStart({ now, usage, sessions: [one("idle", 100)] as never }).why).toContain(
+      "An executor is alive",
+    );
+    // A lock the replaced session holds does not refuse the start.
+    expect(
+      canStart({
+        now,
+        usage,
+        alive: () => true,
+        lock: { sessionId: "executor-idle-300", released: false } as never,
+        sessions: [one("idle", 300)] as never,
+      }),
+    ).toMatchObject({ start: true });
+  });
+
+  it("canStart never replaces a session with a plan under way, and skips a synthetic turn", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const building = { ...one("idle", 300), on: "plans/a.md" };
+    expect(canStart({ now, usage, sessions: [building] as never })).toMatchObject({ refuse: true });
+    const dir = mkdtempSync(join(tmpdir(), "synthetic-"));
+    try {
+      const file = join(dir, "t.jsonl");
+      writeFileSync(
+        file,
+        [
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-10-27T13:00:00Z",
+            message: { usage: { input_tokens: 5, cache_read_input_tokens: 500_000 } },
+          }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-10-27T13:05:00Z",
+            message: { model: "<synthetic>", usage: { input_tokens: 0 } },
+          }),
+          "",
+        ].join("\n"),
+      );
+      expect(sessionUsage(file)?.context).toBe(500_005);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("canStart starts a planner beside a busy stale one, and refuses beside a busy one under the ceiling", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const beside = canStart({
+      kind: "planner",
+      now,
+      usage,
+      sessions: [one("busy", 300, "planner")] as never,
+    });
+    expect(beside).toMatchObject({ start: true });
+    expect(beside.note).toContain("Started beside Test Planner 1");
+    expect(beside.note).toContain("busy with a context of 300k");
+    expect(
+      canStart({ kind: "planner", now, usage, sessions: [one("busy", 100, "planner")] as never }),
+    ).toMatchObject({ refuse: true });
+  });
+
+  it("describeSession shows the context and its warmth", () => {
+    const warm = {
+      ...one("busy", 618),
+      ceiling: 700_000,
+      usage: { context: 618_000, at: Date.now() - 2 * MIN },
+    };
+    expect(describeSession(warm as never)).toContain("618k context, warm");
+    const cold = { ...one("idle", 200), usage: { context: 200_000, at: Date.now() - 130 * MIN } };
+    expect(describeSession(cold as never)).toContain("200k context, cold 130 min");
+    expect(describeSession(one("idle", 300) as never)).toContain("over the reuse ceiling");
+  });
+
+  it("plans start --dry retires an idle executor whose transcript is over the ceiling", () => {
+    const repo = mkdtempSync(join(tmpdir(), "reuse-"));
+    const projects = mkdtempSync(join(tmpdir(), "reuse-projects-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      mkdirSync(join(repo, ".claude"));
+      mkdirSync(join(repo, "plans"));
+      writeFileSync(join(repo, ".claude", "workflow.md"), "---\nname: Reuse\nbranch: test\n---\n");
+      const id = "old-executor";
+      const slug = join(projects, repo.replace(/[^a-zA-Z0-9]/g, "-"));
+      mkdirSync(slug, { recursive: true });
+      writeFileSync(
+        join(slug, `${id}.jsonl`),
+        `${JSON.stringify({
+          type: "assistant",
+          timestamp: new Date().toISOString(),
+          message: { usage: { input_tokens: 10, cache_read_input_tokens: 400_000 } },
+        })}\n`,
+      );
+      const out = execFileSync(
+        "node",
+        [join(here, "plan-queue.mjs"), "start", "--dry", "plans/x.md"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: repo,
+            WORKFLOW_PROJECTS: projects,
+            WORKFLOW_LIVE: JSON.stringify([
+              {
+                sessionId: id,
+                name: "Reuse Executor 1",
+                status: "idle",
+                kind: "background",
+                cwd: repo,
+              },
+            ]),
+            WORKFLOW_STARTS_LOG: join(repo, ".claude", "starts.log"),
+            WORKFLOW_USAGE_FILE: join(repo, ".claude", "usage.json"),
+          },
+        },
+      );
+      expect(out).toContain("Would run: claude");
+      expect(out).toContain("Would retire Reuse Executor 1 [old-exec]: its context is 400k tokens");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(projects, { recursive: true, force: true });
+    }
   });
 });

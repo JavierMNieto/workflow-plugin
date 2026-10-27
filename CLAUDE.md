@@ -3,7 +3,8 @@
 This repository is a Claude Code marketplace with two plugins. The
 research-writing skills are `plugins/writing` (six skills, no agents or
 hooks, which a project turns on). The workflow is `plugins/workflow`:
-the assistant, the planner, the executor and the maker (`agents/`), the plan queue, the turn audit and the catalogue's
+the assistant, the planner, the executor, the maker and the reviewer
+(`agents/`), the plan queue, the turn audit and the catalogue's
 edit-time hook (`scripts/`, run by `hooks/hooks.json`), the status line,
 the `/workflow:change` and `design-research` skills and the `plans`
 command (`bin/plans`). The rules the agents follow are

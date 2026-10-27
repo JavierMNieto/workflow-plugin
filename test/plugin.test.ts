@@ -770,3 +770,35 @@ describe("the setup interview", () => {
     );
   });
 });
+
+describe("the reuse ceiling and the reviewer", () => {
+  it("reads reuse, 200000 by default, and the starter names it", () => {
+    const at = (front: string) => {
+      const root = dir("reuse-");
+      mkdirSync(join(root, ".claude"));
+      writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: R\n${front}---\n`);
+      return project(root).reuse;
+    };
+    expect(at("")).toBe(200_000);
+    expect(at("reuse: 120000\n")).toBe(120_000);
+    const fresh = dir("reuse-init-");
+    init(fresh);
+    expect(readFileSync(join(fresh, ".claude", "workflow.md"), "utf8")).toContain(
+      "# reuse: 200000",
+    );
+  });
+
+  it("has the reviewer agent, read-only", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/agents/reviewer.md", import.meta.url),
+      "utf8",
+    );
+    for (const line of [
+      "name: reviewer",
+      "model: opus",
+      "effort: medium",
+      "tools: Read, Grep, Glob, Bash",
+    ])
+      expect(text).toContain(line);
+  });
+});

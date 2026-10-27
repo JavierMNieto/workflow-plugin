@@ -117,8 +117,8 @@ subagent starts only in these four cases, **at most four per plan, the
 review included, and never while a suite or a build is running**:
 
 1. **The review** of the diff against the plan, before the suite (below):
-   a fresh context, never a fork, since the point is eyes that did not
-   write the code.
+   the `workflow:reviewer` agent, a fresh context, never a fork, since the
+   point is eyes that did not write the code.
 2. **A read-only sweep that would flood this context**: every place that
    draws a piece of UI, for the rule that a change is made everywhere
    (`Explore`, breadth "medium"). It returns file and line references,
@@ -126,9 +126,9 @@ review included, and never while a suite or a build is running**:
 3. **A failure you cannot explain after two attempts**: a fresh context
    with the failing test's name, its output, the files you touched and
    the causes you ruled out, asked for a cause and a proposed fix, not
-   for edits.
+   for edits (`general-purpose`).
 4. **One long, verbose read** whose summary is all you need: a log, a
-   long document, a third-party page.
+   long document, a third-party page (`general-purpose`).
 
 Never: a subagent per plan step; a second builder editing this checkout;
 agent teams or teammates; a subagent to read one file or run one command,
@@ -162,13 +162,12 @@ paste.
       checkout's absolute path). A Bash command, not a subagent; never
       started while a suite or a build runs. It reads the plan's committed
       diff for bugs, with no plan in front of it.
-   2. **The Claude review in a fresh context**: one subagent with the diff
-      (`git diff origin/<branch>...HEAD`) and the plan's path, checking
-      that every requirement of the plan is built, that the tests it
-      lists exist, and that nothing outside its scope changed; only gaps
-      that affect correctness or the plan's requirements, not style. A
-      plan's line numbers are as of the branch when it was written; where
-      they have moved, the function it names is the reference.
+   2. **The Claude review in a fresh context**: the `workflow:reviewer`
+      agent with the plan's path and the branch, and the choices you made
+      on purpose; it reads the diff (`git diff origin/<branch>...HEAD`)
+      and checks that every requirement of the plan is built, that the
+      tests it lists exist, and that nothing outside its scope changed,
+      only gaps that affect correctness or the plan's requirements.
    3. **`/code-review medium`** (the `code-review` skill), for bugs, with
       its own verification pass; it is the third review, not one of the
       four subagents. With no target it reviews `@{upstream}...HEAD`,

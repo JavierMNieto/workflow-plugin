@@ -47,6 +47,7 @@ export type StartDecision = {
   until?: number;
   refuse?: true;
   why?: string;
+  replace?: (Session & { why: string })[];
 };
 
 export const QUEUE_SINCE: number;
@@ -114,6 +115,9 @@ export type Session = {
   holds?: string[];
   /** A planner's compactions. */
   compactions?: number;
+  /** Its context and the age of its last turn, from its transcript. */
+  usage?: SessionUsage | null;
+  ceiling?: number;
 };
 export function worktrees(): Tree[];
 export function isSession(
@@ -239,7 +243,27 @@ export function decideStop(facts: {
   current?: { path: string } | null;
   continuing?: boolean;
   refusedRun?: number | null;
+  usage?: SessionUsage | null;
+  ceiling?: number;
+  now?: number;
 }): StopDecision;
+export type SessionUsage = { context: number; at: number };
+export const REUSE_DEFAULT: number;
+export const CACHE_TTL: number;
+export const WARM: number;
+export function sessionUsage(transcriptPath: string): SessionUsage | null;
+export function transcriptOf(row: { cwd?: string; sessionId?: string }, projects?: string): string;
+export function mayReuse(facts: {
+  compactions?: number;
+  related?: boolean;
+  usage?: SessionUsage | null;
+  now?: number;
+  ceiling?: number;
+}): { reuse: true } | { reuse: false; why: string };
+export function usageWords(
+  one: { usage?: SessionUsage | null; ceiling?: number },
+  now?: number,
+): string;
 export function decideResumed(facts: {
   compactions?: number;
   plan?: { path: string; stuck?: boolean } | null;
@@ -256,6 +280,8 @@ export function canStart(facts: {
   sessions?: Session[];
   /** The brief a planner start was asked for, named in the message to send a live planner. */
   brief?: string;
+  name?: string;
+  ceiling?: number;
 }): StartDecision;
 export function cutoffEdit(
   text: string,

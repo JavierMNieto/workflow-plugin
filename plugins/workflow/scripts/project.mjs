@@ -124,6 +124,8 @@ export function project(root) {
     tools: list(front.tools),
     mcp: list(front.mcp),
     form: front.form === "compact" ? "compact" : "full",
+    // The context, in tokens, above which a finished session retires.
+    reuse: Number(front.reuse) > 0 ? Number(front.reuse) : 200_000,
     // The reviews before a push: all three in the full form, none in the
     // compact form, unless the project names its own.
     reviews: front.reviews
@@ -152,6 +154,7 @@ branch: ${defaultBranch(root, { checkedOut: true })}
 # mcp:                   MCP configs every chat here gets (plans chat, plans start)
 #   - .mcp/server.json
 # form: compact          one chat decides and builds; omit for the full queue
+# reuse: 200000          the context, in tokens, above which a finished session retires (the cost wash is near 100000)
 # reviews:               the reviews before a push: plan, code-review, codex, or a plugin skill; omit for all three
 #   - code-review
 ---
