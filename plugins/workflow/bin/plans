@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+// `plans`: the workflow's command, on the Bash tool's path while the plugin
+// is enabled (`bin/`). `plans help` prints what it takes.
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const { main } = await import(pathToFileURL(join(here, "..", "scripts", "plan-queue.mjs")).href);
+main(process.argv.slice(2));

@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git commit --no-verify*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/)",
+      "Bash(rm -rf $HOME)",
+      "Bash(rm -rf ..)",
+      "Bash(rm -rf ../)",
+      "Bash(rm -rf .)",
+      "Bash(rm -rf ./)",
+      "Bash(sudo *)",
+      "Bash(env)",
+      "Bash(printenv)",
+      "Bash(export -p)"
+    ],
+    "ask": ["Bash(git push * main*)", "Bash(git push origin HEAD:main*)", "Bash(gh pr merge *)"]
+  },
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1"
+  },
+  "worktree": {
+    "bgIsolation": "none"
+  }
+}

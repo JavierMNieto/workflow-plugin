@@ -1,0 +1,15 @@
+{
+  "name": "workflow",
+  "description": "An assistant, a planner and an executor with a plan queue: decide, plan, build, in any project.",
+  "author": { "name": "Javier Nieto" },
+  "repository": "https://github.com/JavierMNieto/workflow-plugin",
+  "license": "MIT",
+  "userConfig": {
+    "owner": {
+      "type": "string",
+      "title": "Your name",
+      "description": "How the agents name you in plans and messages",
+      "default": "Javi"
+    }
+  }
+}

@@ -1,0 +1,261 @@
+# The workflow
+
+Three agents and a plan queue, in any project: the assistant answers and
+routes, the planner writes a plan, the executor builds it and pushes. The
+owner's part is the decisions. Each rule below is named by its bold
+lead-in; the agent files cite them by that name.
+
+## The three agents
+
+**Plan, then build, in two sessions.** A change of any size is planned by
+one session and built by another, with the context cleared between, which
+is what Anthropic's own best practices recommend (interview with the
+question tool, write a self-contained spec, execute it in a fresh session)
+and what spec-driven development does without its ceremony: the plan is
+the spec for one change, and the project's docs are the standing context
+that outlives it. The three agents are this plugin's, each run as the
+whole session, since a subagent cannot use the question tool:
+
+- `claude --agent workflow:planner` (Fable, effort high) researches the
+  products people know, grounds the change in the project's docs and
+  code, makes the calls, puts what research cannot settle to the owner
+  through the question tool, and writes one file under `plans/`. It
+  changes nothing else.
+- `claude --agent workflow:executor --effort high` (Opus; the flag, since
+  a settings file's effort for the model outranks the agent file's) is
+  handed the plan's path, or several, and builds them in order on a branch
+  of its own: the plan's steps, the project's checks, three reviews (a
+  fresh subagent's against the plan, `/code-review` and Codex's for bugs),
+  the project's suites once per batch, one commit per plan, the
+  fast-forward push to the project's branch and its run, then a "Built"
+  section in the plan with the deviations. That section ends with "Needs
+  a decision", each item sized ask, assistant or planner.
+- `claude --agent workflow:assistant` (Opus, effort medium) is the
+  conversation before either: it answers from the repository with
+  sources, writes a message for a person the project names, a short plan
+  for the executor or a brief for the planner, and changes nothing else.
+
+The plugin's `settings.json` makes the assistant the default agent of a
+chat opened with no `--agent` flag; the flag overrides it, so the queue's
+starts are unaffected.
+
+**Reading beside a build**: the planner and the assistant stay in the one
+checkout while the executor builds there. One that finds the tree dirty
+at a session's start (`git status`), or is told a file changed on disk,
+reads that file from the project's branch (`git show
+origin/<branch>:<path>`), names functions rather than line numbers for it
+in the plan, and says in the plan which files were read that way. A plan's
+line numbers are as of the branch when it was written.
+
+**The planner and the assistant read the specifics themselves and hand out
+only bounded, read-only sweeps**: a wide question with one answer shape, a
+turn limit, nothing that writes. **A plan is built once it is written**:
+the planner asks about order only when another plan already waits for the
+executor, and a dependency on an earlier plan is written into the plan.
+
+**Which session a topic goes to.** The assistant ends every topic in one
+of four exits: answered; a message for a person the project names, which
+the owner sends; a short plan for the executor; or a brief for the
+planner, which the planner's plan replaces. A change you can describe in a
+few sentences, inside rules the project already holds, with no schema or
+privacy change and no rule a person's name is on reversed, is a short
+plan, as Anthropic's best practices say a diff you can describe in a
+sentence needs no plan; anything else goes to the planner, as Shape Up
+keeps a small batch and a big batch apart, each with one way in.
+
+**Every new topic starts in the assistant's chat.** A planner's chat is
+for the plans it wrote, and the next brief when it has room: each plan
+stays the chat's until an executor starts it; the `## Building` line the
+executor writes is the cut-off, after which the plan is the executor's
+and the planner's chat only points a change to the assistant's. An
+executor's follow-ups, the "Needs a decision" items in its Built section,
+go to the assistant too, through the owner's to-do page when the project's
+memory names one and a message to an idle assistant chat; the owner does
+not carry them. No chat sends the owner a command to run.
+
+## The project file
+
+**A project's part is one file, `.claude/workflow.md`**: frontmatter the
+hooks read and a body the agents read, the shape Claude Code uses for
+agents and skills.
+
+```
+---
+name: Docs                # the project's name in session names
+branch: test              # the branch the executor pushes, fast-forward
+run: checks.yml           # the Actions workflow read after a push; omit for none
+ui:                       # paths a user sees, for the turn audit; omit for none
+  - "src/components/**"
+catalogue: docs/patterns  # the design catalogue the audit asks for; omit for none
+---
+```
+
+The name defaults to the directory's, the branch to the remote's default.
+The body's headings are the executor's steps for this project: **Before a
+build** (installs, generated code), **While working** (which tests to run
+for one change), **Before the push** (screenshots, checks, suites, in
+order), **After the push** (what to watch), **Reading** (which tools read
+code and docs here). It may also name the people whose calls are theirs
+(the assistant's second exit), the tools that publish under the owner's
+name (which no agent calls), and headings of its own for the assistant.
+`plans init` writes a starter. **A project with no project file is not
+the workflow's**: the plugin's hooks do nothing there, `plans` says so and
+`plans start` refuses, so a project with hooks of its own keeps them until
+its file lands.
+
+## The queue
+
+Plans reach the executor without the owner carrying them, with no fourth
+agent and no daemon. A plan's state is in its file: `## Built` is built
+(its commit the first eight-hex word there); `## Building, <date>,
+session <id>`, written by the executor when it starts the plan, is being
+built while that session lives; `## Handing over` with no Built is handed
+over and resumed first; a `Plan only` or `Short plan` header dated 24
+October 2026 or later (as `26 October 2026` or `2026-10-26`) with none of
+these is ready (asking the owner when its "Decisions for <owner>" has a
+numbered item and no "Decided"); older unbuilt plans are listed by path.
+`plans` prints the table, which every executor message ends with. The
+planner and the assistant hand a finished plan over themselves: one
+`SendMessage` to the live executor, which an idle one acts on in seconds,
+or `plans start` when none is alive.
+
+`scripts/plan-queue.mjs` does the rest on the hooks: the executor's prompt
+hook takes the lock (`.claude/executor.lock`), and its tool hook refuses
+edits and writing commands to an executor that does not hold it, so one
+checkout has one executor; its Stop hook refuses a stop on a red or
+unfinished run of the session's push (the project's `run`), then names the
+waiting plans to a fresh context (no compaction, or one and a waiting
+plan names a file the batch changed) or, to a tired one (two compactions,
+or one with nothing related), retires it and starts a fresh executor;
+after a third compaction inside one plan the session hands the plan over
+(work committed on the branch, a "Handing over" section, stop), up to six
+times per plan, and a plan handed over twice at the same step stops and
+asks the owner.
+
+Starts are bounded, as every loop over model calls is: one executor at a
+time; none while the five-hour window is above 80 percent or the
+seven-day above 95, deferred by a timer to two minutes after the reset
+(the status line writes the numbers to `usage.json` in the plugin's data
+directory; with no recent numbers a start goes ahead and says usage is
+unknown); none after an executor that ended within ten minutes with
+nothing built for another reason; a tripwire at twenty-four starts a day;
+and `plans pause` and `plans resume`, which "pause the queue" and "resume
+the queue" from the owner mean in any session. A usage limit mid-build
+(`StopFailure`, `rate_limit`) releases the lock, hands the plan over and
+defers its resumption to the reset.
+
+Sessions the queue starts are Remote Control chats named after the
+project, `<Project> Executor 2, 3, ...` and `<Project> Planner 2, 3,
+...`, started by `claude --bg --remote-control`, counted per project. A
+retired background executor is stopped a few minutes later, and `claude
+agents` and `claude rm` tidy old ones. **A background session works in
+the checkout**: the project's settings turn Claude Code's worktree guard
+off (`worktree.bgIsolation: "none"`), and one executor at a time holds the
+lock while the planner and the assistant read beside it; the queue still
+counts a session in any worktree of the repository as alive. The executor
+line lists every live executor session, from `claude agents --json`: its
+status, its worktree and branch, the plan its Building line names,
+whether it holds the lock and whether it is retired. `plans start`
+refuses while any unretired executor is alive, lock or not. `plans` lists
+the worktrees under `.claude/worktrees/` with who is in each. `plans
+sync` moves a clean, detached checkout to the branch, and `plans start`
+does the same before it starts anything; an executor detaches the
+checkout at `origin/<branch>` after its batch's last push.
+
+**Briefs are queued like plans**: a file headed `Brief for the planner` is
+a brief, listed under "Briefs, oldest first"; `## Planning, <date>,
+session <id>`, written by the planner as its first edit, marks it taken
+while that session lives. The assistant ends a brief with `plans start
+--agent planner plans/<topic>.md`, which starts a planner as a
+background Remote Control chat at high effort, one at a time, under the
+executor's bounds (the usage windows and the pause shared, the names, the
+quick-death rule and the tripwire counted per kind). The planner writes
+the plan over the brief before it asks its decisions, so a chat stopped
+unanswered leaves the plan in the queue as asking. **A planner with room
+left takes the next brief**: its Stop hook applies the executor's rule to
+briefs, so with a brief waiting a planner that has not compacted takes the
+oldest, one that has compacted once takes the oldest related brief (the
+brief names a file one of its plans names, `plans/` and `.claude/` paths
+included, or one of those plans), and one that has compacted twice, or
+once with nothing related waiting, is retired and the hook starts the
+next planner; a brief it was named and did not take goes to a fresh
+planner at its next stop. With nothing waiting it stays alive, idle and
+unretired, and `plans start --agent planner` refuses beside it and prints
+the message to send it, which the assistant sends with `SendMessage`. A
+chat holds every plan it wrote: it may still edit each until an
+executor's Building line takes it, and the hook tells it on every prompt
+where each plan stands; a retired chat is stopped when every plan of its
+own is taken or the next planner starts.
+
+A decision the plan left to the owner is taken in its "Decided" section
+before that part is built; a question a plan did not foresee goes through
+the question tool in the executor's session, not back to the planner.
+
+**The executor works in one thread.** It starts a subagent only in four
+named cases (the review of the diff against the plan, a read-only sweep
+that would flood its context, a failure unexplained after two attempts,
+one long verbose read), at most four per plan and never while a suite
+runs, each with a four-part brief. The project's settings set
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` to 1, so no subagent starts
+subagents of its own: instructions are advisory, a setting is not.
+
+**A second model reviews every plan's diff.** Codex, OpenAI's agent, reads
+the branch in a throwaway worktree, outside its own sandbox (which cannot
+start in a devcontainer without user namespaces), told to change nothing,
+with the shell environment cut to the core variables and no `.env` in its
+worktree, and writes bugs only to `plans/<topic>/codex-review.md`;
+`scripts/codex-review.sh` bounds the call with a timeout and runs it once
+per plan. The executor confirms each finding against the code before
+acting; its "Built" section lists every finding with its verdict. Codex
+comments and never gates: when it is not installed, not signed in, over
+its limit or past the timeout, the script says so and the build goes on.
+
+**The turn audit** (`scripts/turn-audit.mjs`): once per turn, a session
+that changed more than one file is asked, at its Stop, to say why each
+file was needed; and when the project names the paths a user sees and its
+catalogue, a turn that changed one of those paths without the catalogue
+is asked for the entry, or a `patterns: none (<why>)` line. A session is
+charged only with its own writes; the planner and the assistant are never
+audited. The refusal is one per turn, so nothing loops.
+
+## Changing the workflow
+
+**A change to the workflow is planned and built in the plugin's own
+repository**, never in the project the chat is in: `/workflow:change`
+keeps a checkout of the plugin's repository beside the project, writes the
+brief or the short plan into that checkout's `plans/` and starts its
+queue. The plugin's repository is itself a project with a
+`.claude/workflow.md`, so its own queue builds the change; its CI moves
+`main` on a green run of `test`, and every machine installing from `main`
+picks the change up after its next session starts.
+
+## Installing
+
+```
+claude plugin marketplace add JavierMNieto/workflow-plugin
+claude plugin install workflow@workflow
+```
+
+and, in the user settings (`~/.claude/settings.json`):
+
+```json
+"extraKnownMarketplaces": {
+  "workflow": {
+    "source": { "source": "github", "repo": "JavierMNieto/workflow-plugin" },
+    "autoUpdate": true
+  }
+},
+"enabledPlugins": { "workflow@workflow": true },
+"statusLine": {
+  "type": "command",
+  "command": "node \"$HOME/.claude/plugins/data/workflow-workflow/statusline.mjs\""
+},
+"worktree": { "bgIsolation": "none" },
+"env": { "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1" }
+```
+
+A plugin cannot set `statusLine`, and its own path changes with every
+version, so a SessionStart hook copies the status line script into the
+plugin's data directory, which the setting runs. The owner's name is the
+plugin option `owner` (`claude plugin install workflow@workflow --config
+owner=<name>`).

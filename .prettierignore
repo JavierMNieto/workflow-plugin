@@ -1,0 +1,4 @@
+node_modules
+package-lock.json
+# Prose, hand-wrapped at about 78 characters.
+*.md
