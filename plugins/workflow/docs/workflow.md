@@ -146,7 +146,9 @@ in a line. Run again, it keeps the answers as the defaults. **A
 project turns off the connectors it does not use**: the setup asks which
 of the session's claude.ai connectors a chat here needs and denies the
 rest, whole (`mcp__claude_ai_<connector>`), in the project's
-`.claude/settings.json`, since the account's connectors otherwise reach
+`.claude/settings.json`, or its `.claude/settings.local.json` when the
+first is tracked in a public or shared repository (the names would be
+published), since the account's connectors otherwise reach
 every chat in every project, and a project setting holds for every chat
 there and nowhere else. It adds and removes only whole-connector
 entries, so every other deny stays, and a connector added to the

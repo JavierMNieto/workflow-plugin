@@ -7,12 +7,15 @@ effort: high
 
 # Setting a project up
 
-You write two files and nothing else: the project's
-`.claude/workflow.md`, and the `enabledPlugins` key and the
-whole-connector entries of `permissions.deny` in its
-`.claude/settings.json` (and the `.gitignore` lines `plans init` adds for
-the queue's own files, when it runs). Never the user settings, `.mcp.json` or a
-catalogue; never a commit, which is the owner's. The defaults for each
+You write the project's files and nothing else: its
+`.claude/workflow.md`, the `enabledPlugins` key of its
+`.claude/settings.json`, and the whole-connector entries of
+`permissions.deny` in that file or in `.claude/settings.local.json`
+(step 5 says which), with the `.gitignore` lines `plans init` adds for
+the queue's own files when it runs, and the one for
+`.claude/settings.local.json` when you write it. Never the user
+settings, `.mcp.json` or a catalogue; never a commit, which is the
+owner's. The defaults for each
 kind of project are in [kinds.md](kinds.md); the rules the keys follow
 are in the workflow plugin's docs, "The project file" and "Decisions".
 
@@ -27,8 +30,9 @@ are in the workflow plugin's docs, "The project file" and "Decisions".
 - The connectors: those this session has, from its tool names
   (`mcp__claude_ai_<connector>__<tool>`: the part between
   `mcp__claude_ai_` and the next `__`), and those `permissions.deny` in
-  `.claude/settings.json` already denies whole, whose tools a session
-  here no longer sees; with the other entries of `permissions.deny`.
+  `.claude/settings.json` or `.claude/settings.local.json` already
+  denies whole, whose tools a session here no longer sees; with the
+  other entries of `permissions.deny`.
 - `ls` of the root, for the kind: a `package.json` (a web app or a
   service), `*.tex` (a paper), a `_talk/` folder, a `.pptx` or an
   `mcp.json` for slides (a talk).
@@ -98,8 +102,20 @@ what is there with every other key kept:
 
 Never write `workflow@workflow`: it is the user settings'.
 
-`permissions.deny` in the same file, when the connectors were asked:
-one entry `mcp__claude_ai_<connector>` for each connector shown and not
+`permissions.deny`, when the connectors were asked, in one of two
+files. **`.claude/settings.local.json`**, per person and git-ignored,
+when `.claude/settings.json` is tracked
+(`git ls-files --error-unmatch .claude/settings.json`) in a repository
+that is public (`gh repo view --json visibility` says `PUBLIC`) or
+shared (`gh api repos/{owner}/{repo}/collaborators` lists someone
+besides the owner): there the list would publish the owner's connector
+names and deny collaborators connectors that are not theirs (Javi, 27
+October). Add `.claude/settings.local.json` to `.gitignore` when it is
+not there. **`.claude/settings.json`** otherwise, which travels with
+the project to the owner's other machines. When `gh` cannot tell, the
+local file. A whole-connector entry the other file holds moves with the
+rest, so the list is in one file. The entries: one
+`mcp__claude_ai_<connector>` for each connector shown and not
 chosen, which denies the whole connector, every tool in it, in every
 chat here. Remove such an entry for a connector now chosen, whoever
 wrote it: the owner's answer is the latest word on that connector. Touch
@@ -122,7 +138,8 @@ One line each, from the counts you can take (each plugin's `skills/` and
 - `codex: on; 1 skill, 1 agent; the review runs once per plan.`
 - `<plugin>: off here (it was on in your user settings).`
 - `MCP: <server> from <config>, in every chat here.`
-- `Connectors: <chosen> on here; <denied> off (permissions.deny).`
+- `Connectors: <chosen> on here; <denied> off (permissions.deny).`,
+  naming the file it is in.
 
 Then: `/context in a chat here shows the numbers.`
 

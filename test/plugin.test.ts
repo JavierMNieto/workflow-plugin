@@ -757,6 +757,9 @@ describe("the setup interview", () => {
     expect(text).toContain("permissions.deny");
     expect(text).toContain("mcp__claude_ai_<connector>");
     expect(text).toContain("Connectors: <chosen> on here; <denied> off (permissions.deny).");
+    // Javi, 27 October: the denies go to settings.local.json where settings.json is public or shared.
+    expect(text).toContain(".claude/settings.local.json");
+    expect(text).toContain("gh repo view --json visibility");
     // No connector of the owner's is named in a skill; the public check covers the rest.
     const named = (readdirSync(skills, { recursive: true }) as string[])
       .filter((path) => path.endsWith(".md"))
