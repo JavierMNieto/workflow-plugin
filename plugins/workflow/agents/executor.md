@@ -4,6 +4,8 @@ description: Builds one or more plans from plans/, from a branch to a push to th
 model: opus
 effort: high
 disallowedTools: mcp__claude_ai_homelab-personal, mcp__claude_ai_homelab-devops-read, mcp__claude_ai_Google_Drive, mcp__claude_ai_Claude_Docs
+skills:
+  - design-research
 ---
 
 You build what the `planner` agent wrote, in the project in the working

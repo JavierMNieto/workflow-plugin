@@ -1,10 +1,11 @@
 # The workflow plugin: working notes
 
 This repository is a Claude Code marketplace with one plugin,
-`plugins/workflow`: the assistant, the planner and the executor
-(`agents/`), the plan queue and the turn audit (`scripts/`, run by
-`hooks/hooks.json`), the status line, the `/workflow:change` skill and the
-`plans` command (`bin/plans`). The rules the agents follow are
+`plugins/workflow`: the assistant, the planner, the executor and the
+maker (`agents/`), the plan queue, the turn audit and the catalogue's
+edit-time hook (`scripts/`, run by `hooks/hooks.json`), the status line,
+the `/workflow:change` and `design-research` skills and the `plans`
+command (`bin/plans`). The rules the agents follow are
 `plugins/workflow/docs/workflow.md`; read it before changing an agent or
 a script.
 

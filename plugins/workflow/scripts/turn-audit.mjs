@@ -17,7 +17,8 @@
 // executor's files. The paths its editing tools wrote are judged; a shell
 // command that could write makes it answer for the whole tree, as before,
 // since only a building session does that; a session whose tools wrote
-// nothing, and the planner and the assistant always, are not audited.
+// nothing is asked only whether a request that read like a preference
+// decided anything, and the planner and the assistant are never audited.
 //
 // The agent is the judge; the hook makes sure the question is asked. The
 // refusal is one per turn: the second Stop passes (stop_hook_active, and the
@@ -27,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { project } from "./project.mjs";
+import { owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -62,10 +63,19 @@ export function globToRegExp(glob) {
   return new RegExp("^" + re + "$");
 }
 
-/** The paths a user sees and the catalogue that records them, from the project file. */
-function uiRule() {
+/** The paths a user sees, the catalogue that records them and the catalogue's changed files' text. */
+function uiRule(changed = []) {
   const { ui, catalogue } = project(root);
-  return { ui: ui.map(globToRegExp), catalogue };
+  const under = `${catalogue.replace(/\/$/, "")}/`;
+  const texts = {};
+  for (const file of catalogue ? changed.filter((f) => f.startsWith(under)) : []) {
+    try {
+      texts[file] = readFileSync(join(root, file), "utf8");
+    } catch {
+      // Deleted this turn: no rules to check.
+    }
+  }
+  return { ui: ui.map(globToRegExp), catalogue, texts, who: owner() };
 }
 
 function statePath(sessionId) {
@@ -182,8 +192,57 @@ export function listToJudge(state, now) {
   return changed.filter((file) => wrote.has(file));
 }
 
+/** A rule's tier and date, as the catalogue writes them (the first project's check). */
+const TIER =
+  /\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as .+? do(?:es)?|the agent's choice), \d{1,2} [A-Z][a-z]+(?: \d{4})?(?:,[^)]*)?\)/u;
+
+/**
+ * The rules of a catalogue file without their tier and date: each rule is a
+ * list item opening with bold text, read as its first paragraph (its
+ * continuation lines, up to a nested item).
+ */
+export function untiered(text) {
+  const lines = text.split("\n");
+  const missing = [];
+  lines.forEach((line, i) => {
+    if (!/^- \*\*/.test(line)) return;
+    let rule = line;
+    for (
+      let j = i + 1;
+      j < lines.length && /^ {2}\S/.test(lines[j]) && !/^ {2}- /.test(lines[j]);
+      j++
+    )
+      rule += " " + lines[j].trim();
+    if (!TIER.test(rule)) missing.push(rule.slice(2));
+  });
+  return missing;
+}
+
+/**
+ * **A request that reads like a preference or a correction**: the words that
+ * matched, or "". A list, like the shell's: what it does not know is not
+ * asked about.
+ */
+export function preferenceIn(prompt) {
+  const m =
+    /\b(always|never|from now on|every time|as a rule|in general|i(?:'d)? prefer|i (?:don't |do not )?like|not like that)\b|^\s*no\b/i.exec(
+      prompt,
+    );
+  return m ? m[0].trim() : "";
+}
+
+/** Today as a catalogue entry writes it: "27 October". */
+function entryDay(now = new Date()) {
+  return now.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+}
+
 /** The reason to refuse the stop, or "" to let it pass. */
-export function reasonFor(changed, prompt, lastMessage, { ui: uiPaths = [], catalogue = "" } = {}) {
+export function reasonFor(
+  changed,
+  prompt,
+  lastMessage,
+  { ui: uiPaths = [], catalogue = "", texts = {}, who = "the owner", day = entryDay() } = {},
+) {
   const reasons = [];
   const outside = changed.length > 1 && changed.some((f) => dirname(f) !== dirname(changed[0]));
   if (changed.length > 1 || outside) {
@@ -198,6 +257,31 @@ export function reasonFor(changed, prompt, lastMessage, { ui: uiPaths = [], cata
   if (ui.length && !recorded && !/patterns: none/.test(lastMessage)) {
     reasons.push(
       `${ui.length} file${ui.length === 1 ? "" : "s"} a user sees changed (${ui.slice(0, 4).join(", ")}${ui.length > 4 ? ", ..." : ""}) and nothing under ${under} did. Add or update the entry there, as the catalogue's rules say, or say why not in your final message with the line: patterns: none (why)`,
+    );
+  }
+  // **A decision said in chat is recorded** (Javi, 27 October): a request
+  // that reads like one, in a turn that left the catalogue untouched and
+  // whose final message neither records nor declines, is asked once.
+  const said = catalogue ? preferenceIn(prompt) : "";
+  if (said && !recorded && !/Recorded:|decision: none/.test(lastMessage)) {
+    reasons.push(
+      `The request reads like a preference or a correction ("${said}"). If it decided how something looks, behaves or is worded, add the rule to ${under} under ${who}'s name with today's date, in this turn, and say Recorded: <file>: <rule> in your final message; if it decided nothing, say: decision: none (why).`,
+    );
+  }
+  // **Every rule carries its tier and date**: a catalogue file this turn
+  // changed, with a rule that does not, is asked for them.
+  // The README explains the format and holds no tiered rules of its own.
+  const ruleFiles = catalogue
+    ? changed.filter((f) => f.startsWith(under) && basename(f) !== "README.md")
+    : [];
+  // The name the tier suggests is one the check accepts.
+  const person = /^\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*$/u.test(who) ? who : "<a person's name>";
+  for (const file of ruleFiles) {
+    const missing = untiered(texts[file] || "");
+    if (!missing.length) continue;
+    const first = missing[0].length > 80 ? `${missing[0].slice(0, 77)}...` : missing[0];
+    reasons.push(
+      `${file} has ${missing.length} rule${missing.length === 1 ? "" : "s"} without a tier and date: "${first}". Every rule ends with who it rests on and when: (${person}, ${day}), (as GitHub does, ${day}) or (the agent's choice, ${day}).`,
     );
   }
   return reasons.join("\n\n");
@@ -261,15 +345,23 @@ function main() {
   state.audited = true;
   writeFileSync(path, JSON.stringify(state));
   const reader = READERS.has(state.agent || kindOf(input));
-  if (reader || (!state.shell && !(state.wrote || []).length)) return;
-  let now;
-  try {
-    now = treeFiles();
-  } catch {
-    return;
+  if (reader) return;
+  // A turn whose tools wrote nothing is judged on nothing but its request: a
+  // preference said in chat is still asked about.
+  let changed = [];
+  if (state.shell || (state.wrote || []).length) {
+    try {
+      changed = listToJudge(state, treeFiles());
+    } catch {
+      return;
+    }
   }
-  const changed = listToJudge(state, now);
-  const reason = reasonFor(changed, state.prompt, input.last_assistant_message || "", uiRule());
+  const reason = reasonFor(
+    changed,
+    state.prompt,
+    input.last_assistant_message || "",
+    uiRule(changed),
+  );
   if (reason) process.stdout.write(JSON.stringify({ decision: "block", reason }));
 }
 

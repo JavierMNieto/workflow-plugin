@@ -54,7 +54,9 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shellWrites } from "./turn-audit.mjs";
-import { PROJECT_FILE, init, project } from "./project.mjs";
+import { PROJECT_FILE, init, owner, project } from "./project.mjs";
+
+export { owner };
 
 /** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
 const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff"];
@@ -89,17 +91,6 @@ export function data(env = process.env, scriptDir = here) {
   );
   if (cached) return join(cached[1], "data", `${cached[3]}-${cached[2]}`);
   return join(homedir(), ".claude", "plugins", "data", "workflow-workflow");
-}
-
-/**
- * **The person the agents work for**, by the plugin's `owner` option:
- * exported to hooks as `CLAUDE_PLUGIN_OPTION_OWNER`, else read from the user
- * settings' `pluginConfigs`, else "the owner".
- */
-export function owner(env = process.env, settings = join(homedir(), ".claude", "settings.json")) {
-  if (env.CLAUDE_PLUGIN_OPTION_OWNER) return env.CLAUDE_PLUGIN_OPTION_OWNER;
-  const read = readJson(settings);
-  return read?.pluginConfigs?.["workflow@workflow"]?.options?.owner || "the owner";
 }
 
 /** The project's part, read once per process. */
@@ -143,6 +134,9 @@ const files = {
 
 /** What `plans` says, and `plans start` refuses with, in a project with no project file. */
 const NO_PROJECT = `No ${PROJECT_FILE} here: plans init writes one.`;
+/** What `plans` says, and `plans start` refuses with, in a project in the compact form. */
+const COMPACT =
+  "This project is in the compact form (form: compact): one chat decides and builds, and there is no queue.";
 
 const MONTHS =
   "January February March April May June July August September October November December".split(
@@ -1047,6 +1041,7 @@ function defer(until, why, paths, replace = "", agent = "executor") {
 export function start(paths, options = {}) {
   // A project that is not the workflow's is left as it is (Codex, 27 October).
   if (!proj().found) return NO_PROJECT;
+  if (proj().form === "compact") return COMPACT;
   // **The checkout follows test first** (part 3 of plans/queue-counts-any-
   // executor.md), so the executor started runs the queue's newest hooks; not
   // for a dry run or a deferred one, which nobody is watching. A start that
@@ -1139,13 +1134,14 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
     prompt,
   ];
   if (dry) return `Would run: claude ${args.map((a) => JSON.stringify(a)).join(" ")}`;
+  const seen = launch(args, decision.name, kind);
+  // A launch that failed keeps the deferral, and with it the timer's pid.
+  if (seen !== true && seen !== "unread") return seen;
   try {
     unlinkSync(files.deferred(kind));
   } catch {
     // Nothing was deferred.
   }
-  const seen = launch(args, decision.name, kind);
-  if (seen !== true && seen !== "unread") return seen;
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
   if (!probe) {
@@ -1301,7 +1297,10 @@ export function versionLine(
 }
 
 /** The table `plans` prints. */
-export function list({ all = false, live = liveSessions() } = {}) {
+export function list({ all = false, live } = {}) {
+  // **The compact form has no queue**: one line, and no session is read.
+  if (proj().found && proj().form === "compact") return COMPACT;
+  live = live === undefined ? liveSessions() : live;
   const plans = readPlans(join(root, "plans"), liveIds(live));
   const lock = readJson(files.lock());
   const nameOf = (id) => live?.find((row) => row.sessionId === id)?.name || String(id).slice(0, 8);
@@ -1976,6 +1975,9 @@ function hook(mode, input) {
   // if it has any, run alone (a project moving onto the plugin keeps its old
   // queue until its file lands).
   if (!proj().found) return;
+  // **The compact form has no queue**: the maker is one chat, and the queue's
+  // hooks do nothing (the catalogue's hooks run in both forms).
+  if (proj().form === "compact") return;
   const sessionId = input.session_id;
   const executor = kindOf(input) === "executor";
   const statePath = files.state(sessionId);

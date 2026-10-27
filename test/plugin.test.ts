@@ -13,7 +13,12 @@ import {
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { init, project } from "../plugins/workflow/scripts/project.mjs";
-import { globToRegExp, reasonFor } from "../plugins/workflow/scripts/turn-audit.mjs";
+import {
+  globToRegExp,
+  preferenceIn,
+  reasonFor,
+  untiered,
+} from "../plugins/workflow/scripts/turn-audit.mjs";
 
 const scripts = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
 const made: string[] = [];
@@ -300,5 +305,167 @@ describe("the status line's copy", () => {
     expect(JSON.parse(readFileSync(join(target, "usage.json"), "utf8")).five_hour).toMatchObject({
       used_percentage: 3,
     });
+  });
+});
+
+describe("the two forms", () => {
+  const compact = () => {
+    const root = dir("compact-");
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "workflow.md"), "---\nname: Slides\nform: compact\n---\n");
+    return root;
+  };
+  const queue = (root: string, args: string[], input?: object) =>
+    execFileSync("node", [join(scripts, "plan-queue.mjs"), ...args], {
+      input: input ? JSON.stringify(input) : "",
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root, WORKFLOW_LIVE: "[]" },
+    });
+  const line =
+    "This project is in the compact form (form: compact): one chat decides and builds, and there is no queue.";
+
+  it("reads form: compact, and the full form when absent", () => {
+    expect(project(compact()).form).toBe("compact");
+    const full = dir("full-");
+    expect(project(full).form).toBe("full");
+    init(full);
+    expect(readFileSync(join(full, ".claude", "workflow.md"), "utf8")).toContain(
+      "# form: compact          one chat decides and builds; omit for the full queue",
+    );
+  });
+
+  it("has no queue in the compact form: plans says so, a start refuses, a prompt hook is silent", () => {
+    const root = compact();
+    expect(queue(root, []).trim()).toBe(line);
+    expect(queue(root, ["start", "--dry", "plans/x.md"]).trim()).toBe(line);
+    expect(queue(root, ["prompt"], { session_id: "compact-1", agent_type: "executor" })).toBe("");
+  });
+
+  it("has a maker agent, and every agent but the assistant names the design-research skill", () => {
+    const agents = new URL("../plugins/workflow/agents/", import.meta.url).pathname;
+    const maker = readFileSync(join(agents, "maker.md"), "utf8");
+    for (const key of ["name: maker", "model: opus", "effort: high", "skills:"])
+      expect(maker).toContain(key);
+    for (const agent of ["maker", "planner", "executor"]) {
+      const front = /^---\n([\s\S]*?)\n---/.exec(
+        readFileSync(join(agents, `${agent}.md`), "utf8"),
+      )![1];
+      expect(front, agent).toMatch(/skills:\n {2}- design-research/);
+    }
+    const assistant = /^---\n([\s\S]*?)\n---/.exec(
+      readFileSync(join(agents, "assistant.md"), "utf8"),
+    )![1];
+    expect(assistant).not.toContain("design-research");
+    expect(
+      existsSync(new URL("../plugins/workflow/skills/design-research/SKILL.md", import.meta.url)),
+    ).toBe(true);
+  });
+});
+
+describe("the audit's tier check", () => {
+  it("finds a rule without its tier and passes one with each of the three", () => {
+    const text = `# Buttons
+
+- **Icon buttons carry a tooltip.** (Javi, 3 September)
+- **Load more sits under the feed.** (as GitHub does, 10 October) The reason.
+- **Keys are drawn as a grid,
+  four to a row.** (the agent's choice, 11 October)
+- **A button with no tier.** It says why.
+- ~~**A struck rule.**~~ (retired)
+`;
+    expect(untiered(text)).toEqual(["**A button with no tier.** It says why."]);
+    expect(
+      untiered("- **A rule.** (Mary Jane, 27 October)\n- **Another.** (José, 2 May)\n"),
+    ).toEqual([]);
+  });
+
+  it("checks no README, and suggests a tier the check accepts", () => {
+    const rule = {
+      catalogue: "docs/patterns",
+      texts: {
+        "docs/patterns/README.md": "- **paths**: the globs a file governs\n",
+        "docs/patterns/a.md": "- **No tier.**\n",
+      },
+      day: "27 October",
+    };
+    expect(reasonFor(["docs/patterns/README.md"], "", "", rule)).toBe("");
+    expect(reasonFor(["docs/patterns/a.md"], "", "", { ...rule, who: "the owner" })).toContain(
+      "(<a person's name>, 27 October)",
+    );
+    expect(reasonFor(["docs/patterns/a.md"], "", "", { ...rule, who: "Javi" })).toContain(
+      "(Javi, 27 October)",
+    );
+  });
+
+  it("refuses a stop once when a catalogue file changed with an untiered rule", () => {
+    const root = dir("tiers-");
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "docs", "patterns"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\nname: Tiers\nui:\n  - "src/**"\ncatalogue: docs/patterns\n---\n',
+    );
+    const audit = join(scripts, "turn-audit.mjs");
+    const run = (mode: string, input: object) =>
+      execFileSync("node", [audit, mode], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_OPTION_OWNER: "Javi" },
+      });
+    const id = `tiers-${process.pid}`;
+    run("prompt", { session_id: id, prompt: "Record the rule" });
+    const file = join(root, "docs", "patterns", "buttons.md");
+    writeFileSync(file, "# Buttons\n\n- **A button with no tier.**\n");
+    run("tool", { session_id: id, tool_name: "Write", tool_input: { file_path: file } });
+    const first = run("stop", { session_id: id, stop_hook_active: false });
+    expect(JSON.parse(first).reason).toContain(
+      'docs/patterns/buttons.md has 1 rule without a tier and date: "**A button with no tier.**". Every rule ends with who it rests on and when: (Javi,',
+    );
+    expect(run("stop", { session_id: id, stop_hook_active: true })).toBe("");
+  });
+});
+
+describe("the audit's preference check", () => {
+  it("reads a preference or a correction, and not a plain request", () => {
+    expect(preferenceIn("from now on the title slide is centered")).toBe("from now on");
+    expect(preferenceIn("no, not like that")).not.toBe("");
+    expect(preferenceIn("I prefer the darker blue")).toBe("I prefer");
+    expect(preferenceIn("change the second slide's title")).toBe("");
+    expect(preferenceIn("I'd prefer a smaller font")).toBe("I'd prefer");
+    expect(preferenceIn("Fix the build:\nNo such file or directory")).toBe("");
+  });
+
+  it("asks once when a preference turn left the catalogue untouched, and passes a decision: none", () => {
+    const root = dir("prefs-");
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "docs", "patterns"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\nname: Prefs\nui:\n  - "src/**"\ncatalogue: docs/patterns\n---\n',
+    );
+    const audit = join(scripts, "turn-audit.mjs");
+    const run = (mode: string, input: object) =>
+      execFileSync("node", [audit, mode], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_OPTION_OWNER: "Javi" },
+      });
+    const turn = (id: string, last: string) => {
+      run("prompt", { session_id: id, prompt: "From now on the title slide is centered" });
+      return run("stop", { session_id: id, stop_hook_active: false, last_assistant_message: last });
+    };
+    const first = turn(`prefs-a-${process.pid}`, "Done.");
+    expect(JSON.parse(first).reason).toContain(
+      'The request reads like a preference or a correction ("From now on").',
+    );
+    expect(JSON.parse(first).reason).toContain("under Javi's name");
+    expect(run("stop", { session_id: `prefs-a-${process.pid}`, stop_hook_active: true })).toBe("");
+    expect(turn(`prefs-b-${process.pid}`, "decision: none (a one-off)")).toBe("");
+    expect(
+      turn(`prefs-c-${process.pid}`, "Recorded: docs/patterns/slides.md: titles centered"),
+    ).toBe("");
   });
 });

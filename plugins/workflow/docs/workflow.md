@@ -34,6 +34,11 @@ whole session, since a subagent cannot use the question tool:
   conversation before either: it answers from the repository with
   sources, writes a message for a person the project names, a short plan
   for the executor or a brief for the planner, and changes nothing else.
+- `claude --agent workflow:maker` (Opus, effort high) is the compact
+  form's one chat, for a project whose file says `form: compact`: it
+  decides as the planner does and builds as the executor does, with no
+  queue, no batch branch and no plan file, the owner's message being the
+  plan, and records every decision in the catalogue.
 
 The plugin's `settings.json` makes the assistant the default agent of a
 chat opened with no `--agent` flag; the flag overrides it, so the queue's
@@ -87,15 +92,25 @@ run: checks.yml           # the Actions workflow read after a push; omit for non
 ui:                       # paths a user sees, for the turn audit; omit for none
   - "src/components/**"
 catalogue: docs/patterns  # the design catalogue the audit asks for; omit for none
+form: compact             # one chat decides and builds; omit for the full queue
 ---
 ```
+
+**`form: compact` is the compact form**: one chat, `workflow:maker`,
+decides and builds; the queue's hooks do nothing, and `plans` says so.
+Absent, the full form: the three agents and the queue. A project moves
+between them by this line alone: the catalogue, the project file's
+headings and the branch are the same in both, so nothing is converted,
+and the maker says when a change has outgrown the compact form.
 
 The name defaults to the directory's, the branch to the remote's default.
 The body's headings are the executor's steps for this project: **Before a
 build** (installs, generated code), **While working** (which tests to run
 for one change), **Before the push** (screenshots, checks, suites, in
 order), **After the push** (what to watch), **Reading** (which tools read
-code and docs here). It may also name the people whose calls are theirs
+code and docs here), **Products** (one line per kind of thing the project
+makes, the product people know for it, which the `design-research` skill
+follows first). It may also name the people whose calls are theirs
 (the assistant's second exit), the tools that publish under the owner's
 name (which no agent calls), and headings of its own for the assistant.
 `plans init` writes a starter. **A project with no project file is not
@@ -103,10 +118,49 @@ the workflow's**: the plugin's hooks do nothing there, `plans` says so and
 `plans start` refuses, so a project with hooks of its own keeps them until
 its file lands.
 
+## Decisions
+
+**The catalogue is the record.** The project file's `catalogue` names a
+directory: a `README.md` with the rules that apply everywhere and a table
+of the files, then one file per kind of thing a person sees, each rule a
+bold list item ending with its tier and date. What is not there was not
+decided, as far as the next agent can tell. The long reasoning is in
+`plans/`; the entry names the plan when there is one.
+
+**The tier says who may change a rule.** A person's name is their call; a
+named product (`as GitHub does`) is replaced only by a better-grounded
+standard, named; `the agent's choice` is changed with a reason. A
+replaced rule stays struck through under its replacement with its date; a
+retired one is struck through with "retired". (MADR's accepted,
+superseded and deprecated, in the catalogue's shape.)
+
+**A rule whose reason is gone is put to the owner, not followed**: the
+component deleted, the bug impossible, the product changed. The agent
+asks keep, change or retire with the question tool, and the rule stands
+until the answer. A plan that deletes or replaces a thing lists the rules
+resting on it first.
+
+**A decision is recognized in three places**: a plan's "Decided" section
+and the entries it drafts; an edit under `ui`, where the turn audit asks
+for the entry; and the chat, where a correction or a preference from the
+owner is recorded under their name in the same turn, and the audit asks
+once when a turn that read like one left the catalogue untouched.
+
+**A decision is found again in three ways**: the README's everywhere
+rules, which `CLAUDE.md` or a rule file without `paths` loads always; a
+catalogue file's `paths` and `signals`, which the plugin's edit-time hook
+(`scripts/catalogue-context.mjs`) matches before an edit; and the
+`design-research` skill, which the agent reaches for when nothing covers
+a thing.
+
+**The audit's checks**: a UI path changed without the catalogue; a rule
+written without its tier and date; a turn that read like a preference
+and recorded nothing. Each is refused once, and the second stop passes.
+
 ## The queue
 
-Plans reach the executor without the owner carrying them, with no fourth
-agent and no daemon. A plan's state is in its file: `## Built` is built
+Plans reach the executor without the owner carrying them, with no agent
+and no daemon of their own. A plan's state is in its file: `## Built` is built
 (its commit the first eight-hex word there); `## Building, <date>,
 session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
@@ -233,7 +287,12 @@ its limit or past the timeout, the script says so and the build goes on.
 that changed more than one file is asked, at its Stop, to say why each
 file was needed; and when the project names the paths a user sees and its
 catalogue, a turn that changed one of those paths without the catalogue
-is asked for the entry, or a `patterns: none (<why>)` line. A session is
+is asked for the entry, or a `patterns: none (<why>)` line; a catalogue
+file changed with a rule that lacks its tier and date is asked to add
+them; and a request that reads like a preference or a correction ("from
+now on", "never", "I prefer", "no, ...") in a turn that left the
+catalogue untouched is asked whether it decided anything, answered by a
+`Recorded: <file>: <rule>` line or `decision: none (<why>)`. A session is
 charged only with its own writes; the planner and the assistant are never
 audited. The refusal is one per turn, so nothing loops.
 

@@ -5,6 +5,7 @@
 // plugin needs no dependency.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 export const PROJECT_FILE = join(".claude", "workflow.md");
@@ -40,6 +41,22 @@ function unquote(value) {
   return quoted ? quoted[2] : value;
 }
 
+/**
+ * **The person the agents work for**, by the plugin's `owner` option:
+ * exported to hooks as `CLAUDE_PLUGIN_OPTION_OWNER`, else read from the user
+ * settings' `pluginConfigs`, else "the owner".
+ */
+export function owner(env = process.env, settings = join(homedir(), ".claude", "settings.json")) {
+  if (env.CLAUDE_PLUGIN_OPTION_OWNER) return env.CLAUDE_PLUGIN_OPTION_OWNER;
+  let read = null;
+  try {
+    read = JSON.parse(readFileSync(settings, "utf8"));
+  } catch {
+    // No settings: the default.
+  }
+  return read?.pluginConfigs?.["workflow@workflow"]?.options?.owner || "the owner";
+}
+
 /** The remote's default branch (`origin/HEAD`), or "main". */
 export function defaultBranch(root) {
   try {
@@ -55,9 +72,10 @@ export function defaultBranch(root) {
 }
 
 /**
- * `{ name, branch, run, ui, catalogue, body, found }` for the project at
- * `root`: the name defaults to the directory's, the branch to the remote's
- * default, `run`, `ui` and `catalogue` to none.
+ * `{ name, branch, run, ui, catalogue, form, body, found }` for the project
+ * at `root`: the name defaults to the directory's, the branch to the
+ * remote's default, `run`, `ui` and `catalogue` to none, `form` to "full"
+ * ("compact" when the frontmatter says so: one chat, no queue).
  */
 export function project(root) {
   const file = join(root, PROJECT_FILE);
@@ -81,6 +99,7 @@ export function project(root) {
     run: typeof front.run === "string" ? front.run : "",
     ui: list(front.ui),
     catalogue: typeof front.catalogue === "string" ? front.catalogue : "",
+    form: front.form === "compact" ? "compact" : "full",
     body: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
     found: Boolean(text),
   };
@@ -95,6 +114,7 @@ branch: ${defaultBranch(root)}
 # ui:                    paths a user sees, for the turn audit; omit for none
 #   - "src/components/**"
 # catalogue: docs/patterns   the design catalogue the audit asks for; omit for none
+# form: compact          one chat decides and builds; omit for the full queue
 ---
 
 # This project's part of the workflow

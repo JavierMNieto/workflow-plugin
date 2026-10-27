@@ -18,4 +18,17 @@ export function changedSince(snapshot: Files, now: Files): string[];
 export function shellWrites(command: string): boolean;
 export function recordTool<S extends TurnState>(state: S, input: ToolEvent, dir?: string): S;
 export function listToJudge(state: TurnState, now: Files): string[];
-export function reasonFor(changed: string[], prompt: string, lastMessage: string): string;
+export function untiered(text: string): string[];
+export function preferenceIn(prompt: string): string;
+export function reasonFor(
+  changed: string[],
+  prompt: string,
+  lastMessage: string,
+  rule?: {
+    ui?: RegExp[];
+    catalogue?: string;
+    texts?: Record<string, string>;
+    who?: string;
+    day?: string;
+  },
+): string;

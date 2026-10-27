@@ -1,7 +1,17 @@
 {
-  "description": "The plan queue, the turn audit and the status line copy.",
+  "description": "The plan queue, the turn audit, the catalogue's edit-time context and the status line copy.",
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/catalogue-context.mjs\"",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [
