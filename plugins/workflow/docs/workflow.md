@@ -140,9 +140,12 @@ directory; with no recent numbers a start goes ahead and says usage is
 unknown); none after an executor that ended within ten minutes with
 nothing built for another reason; a tripwire at twenty-four starts a day;
 and `plans pause` and `plans resume`, which "pause the queue" and "resume
-the queue" from the owner mean in any session. A usage limit mid-build
+the queue" from the owner mean in any session; a pause holds the
+deferred starts and the resume re-arms them. A usage limit mid-build
 (`StopFailure`, `rate_limit`) releases the lock, hands the plan over and
-defers its resumption to the reset.
+defers its resumption to the reset. A start waits ten seconds to see its
+session in `claude agents`, and says why when it does not appear, logging
+nothing.
 
 Sessions the queue starts are Remote Control chats named after the
 project, `<Project> Executor 2, 3, ...` and `<Project> Planner 2, 3,
@@ -161,6 +164,22 @@ the worktrees under `.claude/worktrees/` with who is in each. `plans
 sync` moves a clean, detached checkout to the branch, and `plans start`
 does the same before it starts anything; an executor detaches the
 checkout at `origin/<branch>` after its batch's last push.
+
+**Each project's queue runs apart from every other, in parallel.** A
+change to the workflow goes through the plugin's own queue, never the
+queue of the project it was noticed in, and the two run at the same
+time. What is a project's is in its checkout (`.claude/executor.lock`,
+`executor.pause`, the deferrals) or named after it (its sessions,
+`<Project> Executor n`); what is the subscription's is shared on
+purpose (the usage numbers); and a queue counts a session as its own
+only when the session's working directory is in its checkout or one
+of its worktrees, or its own files name the session. A session the
+queue starts gets a clean environment: the project and plugin
+variables a hook exports are not handed down, and `plans` run as a
+command acts in the working directory. A start waits up to ten
+seconds to see its session in `claude agents`, and says why when it
+does not appear (an untrusted folder, most often) instead of logging
+a start that never ran.
 
 **Briefs are queued like plans**: a file headed `Brief for the planner` is
 a brief, listed under "Briefs, oldest first"; `## Planning, <date>,

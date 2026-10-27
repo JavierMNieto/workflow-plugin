@@ -17,6 +17,21 @@ project this chat is in.
    When present, clean and detached, `git fetch origin && git checkout
    --detach origin/test`; when it is on a branch or has changes, leave it
    and say so (an executor is in it).
+
+   **Then its trust.** The queue's sessions start with `claude --bg`, which
+   exits with `Workspace not trusted` in a folder nobody has trusted, since
+   no dialog can appear there. Read `~/.claude.json`; when
+   `projects["<checkout path>"].hasTrustDialogAccepted` is not `true`, ask
+   the owner with the question tool, one question: `Trust the plugin's
+   checkout at <path> for the queue?`, options `Yes, trust it
+   (Recommended)` and `No`. On yes, set that flag to `true` in
+   `~/.claude.json` with every other key kept (read the whole file, change
+   the one key, write it back), then read it back to check it took: this
+   is the manual route in Claude Code's permissions docs, keyed by the
+   repository root. On no, write the brief at step 3 but do not run `plans
+   start` at step 4, and say in the final message that the queue's
+   sessions cannot start there until the folder is trusted in the Claude
+   app. The flag is written only on a yes: trust is the owner's.
 2. **Ground the change in the plugin's files there**: the agent files, the
    scripts, `plugins/workflow/docs/workflow.md`, its `plans/`; not in the
    project the chat is in. What the project showed is the example in "What
@@ -30,4 +45,5 @@ project this chat is in.
    n` in Remote Control; they build, test, validate and push `test` there;
    CI moves `main`; the plugin updates after the next session starts.
 5. **Say in the final message** that the change is in the workflow's own
-   queue, with the path.
+   queue, with the path, and whether the checkout was trusted at step 1,
+   or left untrusted and the queue not started.

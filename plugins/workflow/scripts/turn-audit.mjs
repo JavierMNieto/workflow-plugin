@@ -88,8 +88,15 @@ export function treeFiles(dir = root) {
     encoding: "utf8",
   });
   const files = {};
-  for (const entry of out.split("\0").filter(Boolean)) {
-    const path = entry.slice(3).split(" -> ").pop();
+  // With -z, a rename or a copy is `R  <new>\0<old>\0`: the old path is the
+  // next field, never ` -> ` (git-status, "Porcelain Format Version 1").
+  const fields = out.split("\0");
+  for (let i = 0; i < fields.length; i++) {
+    const entry = fields[i];
+    if (!entry) continue;
+    // In either status column: a rename against the index or the worktree.
+    if (/^[RC]|^.[RC]/.test(entry)) i++;
+    const path = entry.slice(3);
     try {
       const s = statSync(join(dir, path));
       files[path] = [s.size, Math.round(s.mtimeMs)];
@@ -128,9 +135,13 @@ const EDITORS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
  * the audit run as it always did.
  */
 const READ_ONLY =
-  /^(cd|pwd|echo|cat|head|tail|sed -n|grep|rg|ls|wc|find|sort|uniq|cut|tr|jq|git (status|log|diff|show|branch|fetch|merge-base|rev-parse|ls-files|grep)|node --input-type=module|npm (ls|view))\b/;
+  /^(cd|pwd|echo|cat|head|tail|sed -n|grep|rg|ls|wc|find|sort|uniq|cut|tr|jq|git(?: -C \S+| --no-pager)* (status|log|diff|show|fetch|merge-base|rev-parse|ls-files|grep)|npm (ls|view))\b|^git(?: -C \S+| --no-pager)* branch(?: --show-current| --list| -[avr]+| --contains \S+| --merged)?\s*$/;
+// What runs other code or writes by a flag also counts as writing: command
+// substitution and process substitution, `eval`, `exec`, `source` and `.`,
+// `--output`, `sort -o`, and find's `-execdir`, `-ok` and `-fprint`; `node`
+// is not on the list at all, since it runs whatever it is given.
 const WRITES =
-  />|\|\s*(tee|sed -i)|\bsed -i\b|\bmv |\bcp |\brm |-delete\b|-exec\b|\bnpm (run|install|ci)\b|\bnpx\b|\bgit (add|commit|push|switch|checkout|reset|rebase|stash|worktree)\b/;
+  />|\|\s*(tee|sed -i)|\bsed -i\b|\bmv |\bcp |\brm |-delete\b|-exec\b|-execdir\b|-ok(dir)?\b|-fprint|\$\(|`|<\(|\beval\b|\bexec\b|\bsource\b|^\s*\.\s|--output|\bsort\b[^|;&\n]*\s-o\b|\bnpm (run|install|ci)\b|\bnpx\b|\bgit (add|commit|push|switch|checkout|reset|rebase|stash|worktree)\b/m;
 
 /** Whether a shell command could write to the tree: every command of a pipeline or a list must read only. */
 export function shellWrites(command) {

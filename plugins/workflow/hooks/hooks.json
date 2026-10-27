@@ -62,7 +62,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" stop",
-            "timeout": 20
+            "timeout": 90
           }
         ]
       }
@@ -107,7 +107,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" cutoff",
-            "timeout": 20
+            "timeout": 90
           }
         ]
       }

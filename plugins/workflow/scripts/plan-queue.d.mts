@@ -61,6 +61,25 @@ export function stateOf(
 export function pathsIn(text: string): string[];
 /** Whether a session's working directory is this checkout, one of its worktrees, or under one. */
 export function inThisRepo(cwd: string | undefined, paths: string[]): boolean;
+/** The rows a project counts as its own: in its checkout or worktrees, or named by its lock or plans. */
+export function ownRows<R extends { sessionId?: string; cwd?: string }>(
+  rows: R[],
+  options?: { paths?: string[]; lockId?: string; named?: string[] },
+): R[];
+export function liveSessions(options?: { fresh?: boolean; timeout?: number }): LiveRow[] | null;
+export function data(env?: Record<string, string | undefined>, scriptDir?: string): string;
+export function owner(env?: Record<string, string | undefined>, settings?: string): string;
+export function kindOf(input: { agent_type?: string } | null | undefined): string;
+/** A started chat's environment, without the root and the hook variables. */
+export function sessionEnv(
+  env?: Record<string, string | undefined>,
+): Record<string, string | undefined>;
+export function takeLock(
+  sessionId: string,
+  live: LiveRow[] | null,
+  options?: { path?: string; alive?: ((lock: Lock) => boolean) | null },
+): boolean;
+export function changedFiles(state: { sessionId: string; base?: string }, dir?: string): string[];
 export function related(text: string, changed: string[]): boolean;
 export function briefPaths(text: string): string[];
 export function relatedBrief(briefText: string, ownTexts?: string[], ownPaths?: string[]): boolean;
@@ -215,10 +234,11 @@ export function decideStop(facts: {
   handed?: Handed[];
   run?: Run | null;
   told?: string[];
-  runTold?: number[];
   paused?: boolean | string;
   retired?: boolean;
   current?: { path: string } | null;
+  continuing?: boolean;
+  refusedRun?: number | null;
 }): StopDecision;
 export function decideResumed(facts: {
   compactions?: number;

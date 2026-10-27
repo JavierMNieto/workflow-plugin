@@ -37,7 +37,9 @@
 // directory.
 import { execFileSync, spawn } from "node:child_process";
 import {
+  closeSync,
   existsSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -54,26 +56,34 @@ import { fileURLToPath } from "node:url";
 import { shellWrites } from "./turn-audit.mjs";
 import { PROJECT_FILE, init, project } from "./project.mjs";
 
+/** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
+const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff"];
+
 /**
- * The project: for the command, the repository it is run in (`bin/plans`
- * sets `WORKFLOW_ROOT`, since the Bash tool may carry another project's
- * `CLAUDE_PROJECT_DIR`, so `cd <checkout> && plans start` acts there); for a
- * hook, `CLAUDE_PROJECT_DIR`. The processes the command spawns inherit the
- * environment, and with it the root.
+ * The project: for a hook, `CLAUDE_PROJECT_DIR`, which Claude Code sets for
+ * it; for the command, the repository it is run in (`bin/plans` sets
+ * `WORKFLOW_ROOT`, since the Bash tool may carry another project's
+ * `CLAUDE_PROJECT_DIR`, so `cd <checkout> && plans start` acts there). The
+ * processes the command spawns inherit the environment, and with it the root;
+ * a hook never reads `WORKFLOW_ROOT`.
  */
-const root = process.env.WORKFLOW_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const root =
+  (HOOK_MODES.includes(process.argv[2]) ? "" : process.env.WORKFLOW_ROOT) ||
+  process.env.CLAUDE_PROJECT_DIR ||
+  process.cwd();
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * **The plugin's data directory**, kept across updates: `CLAUDE_PLUGIN_DATA`
- * in a hook; from the script's own path when run from the cache
- * (`<plugins>/cache/<marketplace>/<plugin>/<version>/scripts` gives
- * `<plugins>/data/<plugin>-<marketplace>`); else the default for this
- * plugin. `WORKFLOW_DATA` for the tests.
+ * **The plugin's data directory**, kept across updates: from the script's own
+ * path when run from the cache (`<plugins>/cache/<marketplace>/<plugin>/
+ * <version>/scripts` gives `<plugins>/data/<plugin>-<marketplace>`); else the
+ * default for this plugin. `WORKFLOW_DATA` for the tests. Never
+ * `CLAUDE_PLUGIN_DATA`: in a Bash call, and in a session started from one, it
+ * names whichever plugin exported it last, and it named the Codex plugin's
+ * directory here.
  */
 export function data(env = process.env, scriptDir = here) {
   if (env.WORKFLOW_DATA) return env.WORKFLOW_DATA;
-  if (env.CLAUDE_PLUGIN_DATA) return env.CLAUDE_PLUGIN_DATA;
   const cached = /^(.*)[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/][^\\/]+[\\/]scripts$/.exec(
     scriptDir,
   );
@@ -178,10 +188,16 @@ function sectionAfter(text, heading) {
  * Building line as live: the safe side.
  */
 export function stateOf(text, { mtime = 0, live = null } = {}) {
+  // **A plan is a plan before it is a brief**: its header is read first, and
+  // the brief's line only at a line's start, so a plan whose first lines
+  // mention the brief it replaced reads as the plan.
+  const header = new RegExp(`^(Plan only|Short plan), (${DAY})`, "m").exec(
+    text.split("\n").slice(0, 12).join("\n"),
+  );
   const head = text.split("\n").slice(0, 6).join("\n");
   // **A brief is queued like a plan** (plans/planner-queue.md): one a
   // planner is working on carries its Planning line, live while its session is.
-  const brief = new RegExp(`Brief for the planner(?:, (${DAY}))?`).exec(head);
+  const brief = header ? null : new RegExp(`^Brief for the planner(?:, (${DAY}))?`, "m").exec(head);
   if (brief) {
     const day = brief[1] || "";
     const base = { kind: "Brief", day, date: day ? parseDay(day) : 0, mtime };
@@ -190,9 +206,6 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
       return { ...base, state: "planning", session: planning[2], since: planning[1] };
     return { ...base, state: "brief", stale: Boolean(planning) };
   }
-  const header = new RegExp(`^(Plan only|Short plan), (${DAY})`, "m").exec(
-    text.split("\n").slice(0, 12).join("\n"),
-  );
   if (!header) return null;
   const plan = { kind: header[1], day: header[2], date: parseDay(header[2]), mtime };
   const built = /^## Built(?:, ([^\n]+))?/m.exec(text);
@@ -216,7 +229,10 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
   const handed = /^## Handing over/m.test(text);
   if (handed) {
     const section = sectionAfter(text, /^## Handing over/m);
-    const branch = /branch `?([\w./-]+?)`?(?=[\s.,;:]|$)/m.exec(section);
+    // The name runs to whitespace, a trailing full stop or comma dropped; a
+    // backticked name is taken whole (`feat/v1.2` is not `feat/v1`).
+    const named = /branch `([^`\n]+)`|branch ([\w./-]+?)(?=[.,;:]?(?:\s|$))/m.exec(section);
+    const branch = named ? [named[1] || named[2]] : null;
     const step = /^Step in hand: ([^\n]+)/m.exec(section);
     return {
       ...plan,
@@ -224,7 +240,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
       stale,
       resumed,
       stuck,
-      branch: branch ? branch[1] : "",
+      branch: branch ? branch[0] : "",
       step: step ? step[1].trim() : "",
     };
   }
@@ -297,22 +313,76 @@ export function readPlans(dir = join(root, "plans"), live = null) {
   );
 }
 
-/** The sessions in this checkout, from `claude agents --json`; null when it cannot be read. */
-export function liveSessions() {
-  // The tests' sessions, so a hook run in a child process sees rows of their own.
-  if (process.env.WORKFLOW_LIVE) return JSON.parse(process.env.WORKFLOW_LIVE);
+/**
+ * **The rows a project counts as its own** (each project's queue runs apart):
+ * a session whose working directory is in its checkout or one of its
+ * worktrees, or one its own files name, the lock's holder or a `Building` or
+ * `Planning` line's session, wherever it works.
+ */
+export function ownRows(rows, { paths = [], lockId = "", named = [] } = {}) {
+  return rows.filter(
+    (row) =>
+      inThisRepo(row.cwd, paths) ||
+      Boolean(row.sessionId && (row.sessionId === lockId || named.includes(row.sessionId))),
+  );
+}
+
+/** The sessions the plans name in their `Building` and `Planning` lines, read from the files. */
+function namedSessions(dir = join(root, "plans")) {
+  const ids = [];
+  let names = [];
   try {
-    const out = execFileSync("claude", ["agents", "--json"], {
-      cwd: root,
-      encoding: "utf8",
-      timeout: 8000,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const paths = worktreePaths();
-    return JSON.parse(out).filter((row) => inThisRepo(row.cwd, paths));
+    names = readdirSync(dir).filter((name) => name.endsWith(".md"));
   } catch {
-    return null;
+    return ids;
   }
+  for (const name of names) {
+    let text = "";
+    try {
+      text = readFileSync(join(dir, name), "utf8");
+    } catch {
+      continue;
+    }
+    for (const m of text.matchAll(/^## (?:Building|Planning), [^,\n]+, session ([^\s,]+)/gm))
+      ids.push(m[1]);
+  }
+  return ids;
+}
+
+/** The `claude` the queue runs: `WORKFLOW_CLAUDE` in the tests, a script in its place. */
+const claudeBin = () => process.env.WORKFLOW_CLAUDE || "claude";
+
+/** `claude agents`, read once per process; the start's wait asks it fresh. */
+let liveRead;
+
+/** This project's sessions, from `claude agents --json` (`ownRows`); null when it cannot be read. */
+export function liveSessions({ fresh = false, timeout = 8000 } = {}) {
+  if (!fresh && liveRead !== undefined) return liveRead;
+  let rows = null;
+  // The tests' sessions, so a hook run in a child process sees rows of their own.
+  if (process.env.WORKFLOW_LIVE) rows = JSON.parse(process.env.WORKFLOW_LIVE);
+  else {
+    try {
+      rows = JSON.parse(
+        execFileSync(claudeBin(), ["agents", "--json"], {
+          cwd: root,
+          encoding: "utf8",
+          timeout,
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      );
+    } catch {
+      rows = null;
+    }
+  }
+  liveRead =
+    rows &&
+    ownRows(rows, {
+      paths: worktreePaths(),
+      lockId: readJson(files.lock())?.sessionId || "",
+      named: namedSessions(),
+    });
+  return liveRead;
 }
 
 /**
@@ -322,6 +392,14 @@ export function liveSessions() {
  * first edit, so a session counted only in the checkout read as gone.
  */
 export function worktrees() {
+  treesRead ??= readWorktrees();
+  return treesRead;
+}
+
+/** `git worktree list`, read once per process. */
+let treesRead;
+
+function readWorktrees() {
   let out = "";
   try {
     out = execFileSync("git", ["worktree", "list", "--porcelain"], {
@@ -475,9 +553,9 @@ function sessionsLine(kind, alive) {
   return `The ${word}${alive.length === 1 ? "" : "s"}: ${alive.map(describeSession).join("; ")}.`;
 }
 
-/** Whether a session's working directory is this checkout, one of its worktrees, or under one. */
+/** Whether a session's working directory is this checkout, one of its worktrees, or under one; no directory is no repository's. */
 export function inThisRepo(cwd, paths) {
-  return !cwd || paths.some((path) => cwd === path || cwd.startsWith(`${path}/`));
+  return Boolean(cwd) && paths.some((path) => cwd === path || cwd.startsWith(`${path}/`));
 }
 
 function pidAlive(pid) {
@@ -519,7 +597,6 @@ function readState(sessionId) {
   return withPlans({
     compactions: 0,
     told: [],
-    runTold: [],
     retired: false,
     ...readJson(files.state(sessionId)),
   });
@@ -566,21 +643,31 @@ export function decideStop({
   handed = [],
   run = null,
   told = [],
-  runTold = [],
   paused = false,
   retired = false,
   current = null,
+  continuing = false,
+  refusedRun = null,
 }) {
   if (retired) return null;
-  if (run && run.onHead && !(run.status === "completed" && run.conclusion === "success")) {
-    if (!runTold.includes(run.id)) {
-      const how = run.status === "completed" ? "failed" : "in progress";
-      return {
-        refuse: true,
-        runId: run.id,
-        reason: `The ${run.workflow || "Actions"} run on your push (${run.id}) is ${how}. Read it before you stop: \`gh run watch ${run.id} --exit-status\`, then on a failure the job's log (\`gh api repos/{owner}/{repo}/actions/jobs/<job>/logs\`), fix it, push, and read the new run. A green push is not a deploy until the run says so.`,
-      };
-    }
+  // **A red or unfinished run refuses the first stop of every turn**. On a
+  // stop the turn reached by continuing after a stop hook (`stop_hook_active`,
+  // `continuing`), only a run other than the one last refused (`refusedRun`):
+  // that is the loop guard, with Claude Code's own cap, and a new push's run
+  // is still asked about. The rest decides on any stop: the plans have `told`.
+  const askedAlready = continuing && refusedRun === run?.id;
+  if (
+    run &&
+    !askedAlready &&
+    run.onHead &&
+    !(run.status === "completed" && run.conclusion === "success")
+  ) {
+    const how = run.status === "completed" ? "failed" : "in progress";
+    return {
+      refuse: true,
+      runId: run.id,
+      reason: `The ${run.workflow || "Actions"} run on your push (${run.id}) is ${how}. Read it before you stop: \`gh run watch ${run.id} --exit-status\`, then on a failure the job's log (\`gh api repos/{owner}/{repo}/actions/jobs/<job>/logs\`), fix it, push, and read the new run. A green push is not a deploy until the run says so.`,
+    };
   }
   // A session with a plan of its own still being built is not done: it is
   // neither handed more nor retired until it writes Built or hands it over.
@@ -778,6 +865,11 @@ export function plannerPrompt(path) {
   return `Plan ${path}: it is a brief. Read it whole, then your agent file: research the products, ground it in the project's docs and code, write the plan over the brief, put what research cannot settle to ${owner()} with the question tool in the same turn, and hand the plan to the executor by "The final message". ${owner()} reads this chat in Remote Control.`;
 }
 
+/** "plans/a.md, plans/b.md (until 14:02)", a deferral as the pause and the resume say it. */
+function deferredWords(deferred) {
+  return `${(deferred.paths || []).join(", ")} (until ${new Date(deferred.until).toTimeString().slice(0, 5)})`;
+}
+
 function pausedSince() {
   const pause = readJson(files.pause());
   return pause ? pause.at || "earlier" : existsSync(files.pause()) ? "earlier" : false;
@@ -802,20 +894,84 @@ function startPrompt(paths, plans) {
 }
 
 /**
- * A started chat's environment: this one without the root, which a node child
- * of the command inherits but a chat must not. Claude Code sets the chat's own
- * `CLAUDE_PROJECT_DIR`; one carried from the starting chat's project would
- * reach the new chat's Bash tool, and so would the starting chat's
- * `CLAUDE_SESSION_ID`, which `plans pause` records.
+ * A started chat's environment: this one without five variables. A node
+ * child of the command inherits them all, a chat none: `WORKFLOW_ROOT` is the
+ * command's; `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT` and
+ * `CLAUDE_PLUGIN_DATA` are what a hook is exported, and a carried one reaches
+ * the new chat's Bash tool naming another project or plugin (the plugin data
+ * named the Codex plugin's directory, and the starts log went there); and
+ * `CLAUDE_SESSION_ID`, which `plans pause` records, is the starting chat's.
  */
 export function sessionEnv(env = process.env) {
   const {
     WORKFLOW_ROOT: _root,
     CLAUDE_PROJECT_DIR: _project,
+    CLAUDE_PLUGIN_ROOT: _pluginRoot,
+    CLAUDE_PLUGIN_DATA: _pluginData,
     CLAUDE_SESSION_ID: _session,
     ...rest
   } = env;
   return rest;
+}
+
+/** Blocks for `ms`: the hooks and the command are synchronous, and print their answer on return. */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const START_WAIT = 10;
+
+/**
+ * **A start sees its session, or says why not**: `claude --bg` returns at
+ * once, and where no trust dialog can appear it exits with `Workspace not
+ * trusted`. Its output goes to `.claude/<kind>.started`, and `claude agents`
+ * is asked once a second for ten seconds for a row of the new name. True when
+ * seen; else the line to say, and nothing is logged.
+ */
+function launch(args, name, kind) {
+  const out = join(root, ".claude", `${kind}.started`);
+  const fd = openSync(out, "w");
+  try {
+    const child = spawn(claudeBin(), args, {
+      cwd: root,
+      detached: true,
+      stdio: ["ignore", fd, fd],
+      env: sessionEnv(),
+    });
+    child.on("error", () => {
+      // A launcher that cannot run says so in nothing: the wait reports it.
+    });
+    child.unref();
+  } finally {
+    closeSync(fd);
+  }
+  // Ten seconds by the clock, each ask cut to the time left, so a slow
+  // `claude agents` cannot hold the Stop hook past its own timeout.
+  const deadline = Date.now() + START_WAIT * 1000;
+  let read = false;
+  for (;;) {
+    sleep(Math.max(0, Math.min(1000, deadline - Date.now())));
+    const left = deadline - Date.now();
+    if (left <= 0) break;
+    const rows = liveSessions({ fresh: true, timeout: left });
+    if (rows) read = true;
+    if (rows?.some((row) => row.name === name)) return true;
+  }
+  // Nothing could be read: the start is not known to have failed.
+  if (!read) return "unread";
+  let said = "";
+  try {
+    said =
+      readFileSync(out, "utf8")
+        .split("\n")
+        .map((line) => line.trim())
+        .find(Boolean) || "";
+  } catch {
+    // No output file: as if it said nothing.
+  }
+  return said
+    ? `${name} was not started: ${said.replace(/[.\s]+$/, "")}.`
+    : `${name} was started, but has not appeared in claude agents after ten seconds; its output is in .claude/${kind}.started.`;
 }
 
 function detached(command, args, env = process.env) {
@@ -839,7 +995,11 @@ function stopLater(sessionId, live) {
   ]);
 }
 
-/** Defers a start to `until` (ms): one timer at a time, the deferral written where `plans` shows it. */
+/**
+ * Defers a start to `until` (ms): one timer at a time, the deferral written
+ * where `plans` shows it. **Paused, the deferral is held**: the file is
+ * written with no timer (`pid: null`), and `resume` re-arms it.
+ */
 function defer(until, why, paths, replace = "", agent = "executor") {
   const old = readJson(files.deferred(agent));
   if (old?.pid) {
@@ -855,17 +1015,28 @@ function defer(until, why, paths, replace = "", agent = "executor") {
   const all = [...new Set([...(old?.paths || []), ...paths])];
   const when = Math.max(until, old?.until || 0, Date.now() + MINUTE);
   const stop = replace || old?.replace || "";
-  const pid = detached(process.execPath, [
-    join(here, "plan-queue.mjs"),
-    "start",
-    "--timer",
-    String(when),
-    ...(stop ? ["--replace", stop] : []),
-    ...(agent === "executor" ? [] : ["--agent", agent]),
-    ...all,
-  ]);
+  const held = Boolean(pausedSince());
+  // The timer runs as the command, so its root is said: this project's.
+  const pid = held
+    ? null
+    : detached(
+        process.execPath,
+        [
+          join(here, "plan-queue.mjs"),
+          "start",
+          "--timer",
+          String(when),
+          ...(stop ? ["--replace", stop] : []),
+          ...(agent === "executor" ? [] : ["--agent", agent]),
+          ...all,
+        ],
+        { ...process.env, WORKFLOW_ROOT: root },
+      );
   writeJson(files.deferred(agent), { until: when, why, paths: all, pid, replace: stop });
-  return `Deferred until ${new Date(when).toTimeString().slice(0, 5)}: ${why}; ${all.join(", ")}.`;
+  const hhmm = new Date(when).toTimeString().slice(0, 5);
+  return held
+    ? `Deferred until ${hhmm}, held while the queue is paused: ${why}; ${all.join(", ")}.`
+    : `Deferred until ${hhmm}: ${why}; ${all.join(", ")}.`;
 }
 
 /**
@@ -923,11 +1094,9 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
     paths = [asked];
   }
   const paused = pausedSince();
-  if (at && at > Date.now()) {
-    if (paused)
-      return `The queue is paused since ${paused} ("resume the queue" in any session lifts it).`;
+  // Paused, the deferral is held (no timer), so the resume re-arms it.
+  if (at && at > Date.now())
     return defer(at, `the usage limit cut the last ${kind} off`, paths, replace, kind);
-  }
   const probe = agent !== "executor" && agent !== "planner";
   const decision = probe
     ? { start: true, name: `Probe ${Date.now() % 1000}`, note: "" }
@@ -975,7 +1144,10 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
   } catch {
     // Nothing was deferred.
   }
-  detached("claude", args, sessionEnv());
+  const seen = launch(args, decision.name, kind);
+  if (seen !== true && seen !== "unread") return seen;
+  const unread =
+    seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
   if (!probe) {
     const usage = readJson(files.usage());
     appendFileSync(
@@ -990,7 +1162,7 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
   // A planner started by the assistant, with nothing to replace, still ends
   // the retired planners' chats: the next planner starting is their cut-off.
   if (kind === "planner") stopRetiredPlanners(live, { except: replace });
-  return `${decision.name} was started on: ${paths.join(", ")}.${decision.note ? ` ${decision.note}` : ""}`;
+  return `${decision.name} was started on: ${paths.join(", ")}.${unread}${decision.note ? ` ${decision.note}` : ""}`;
 }
 
 /** "on main" once a built commit reached `main`, else "on <branch>" (/code-review, 27 October). */
@@ -1024,8 +1196,9 @@ function git(args, options = {}) {
  * either way.
  *
  * Always the primary checkout, the one the hooks run from, even when run
- * from inside a worktree. `fetch: false` inside a hook, which Claude Code
- * gives twenty seconds: a slow fetch there would kill the Stop hook after it
+ * from inside a worktree. `fetch: false` inside a hook, which the plugin's
+ * `hooks.json` gives ninety seconds (the Stop and StopFailure hooks) or twenty
+ * (the prompt hook): a slow fetch there would kill the Stop hook after it
  * retired its session and before it started the next. Worktrees share the
  * repository's refs, so `origin/<branch>` is as new as the last push or fetch
  * from any of them.
@@ -1174,7 +1347,7 @@ export function list({ all = false, live = liveSessions() } = {}) {
     const deferred = readJson(files.deferred(kind));
     if (deferred)
       out.push(
-        `Deferred until ${new Date(deferred.until).toTimeString().slice(0, 5)}: ${deferred.paths.join(", ")}`,
+        `Deferred until ${new Date(deferred.until).toTimeString().slice(0, 5)}: ${deferred.paths.join(", ")}${deferred.pid ? "" : ", held while the queue is paused"}`,
       );
   }
   const width = Math.max(40, ...plans.map((p) => p.path.length + 2));
@@ -1231,20 +1404,42 @@ export function list({ all = false, live = liveSessions() } = {}) {
   return out.join("\n");
 }
 
-function changedFiles(state) {
-  let changed = [];
-  try {
-    changed = execFileSync("git", ["diff", "--name-only", `origin/${branch()}...HEAD`], {
-      cwd: root,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .filter(Boolean);
-  } catch {
-    // No origin/<branch> here: judge by the session's own writes.
-  }
+/**
+ * **The files this session's batches changed**, which survive the push and the
+ * detach: from `base`, the branch's tip at the session's first prompt, to
+ * HEAD and to `origin/<branch>` (one executor at a time pushes the branch, so
+ * everything after `base` there is this session's), and the turn's writes.
+ * With no `base`, the branch's diff to HEAD.
+ */
+export function changedFiles(state, dir = root) {
+  const diff = (range) => {
+    try {
+      return execFileSync("git", ["diff", "--name-only", range], {
+        cwd: dir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .split("\n")
+        .filter(Boolean);
+    } catch {
+      // No such ref here: judge by what else there is.
+      return [];
+    }
+  };
+  const changed = state.base
+    ? [...diff(`${state.base}..HEAD`), ...diff(`${state.base}..origin/${branch()}`)]
+    : diff(`origin/${branch()}...HEAD`);
   const turn = readJson(join(tmpdir(), `workflow-turn-${state.sessionId}.json`));
-  return [...changed, ...(turn?.wrote || [])];
+  return [...new Set([...changed, ...(turn?.wrote || [])])];
+}
+
+/** The branch's tip, for a session's `base`; "" when the ref is missing. */
+function branchTip() {
+  try {
+    return git(["rev-parse", `origin/${branch()}`]);
+  } catch {
+    return "";
+  }
 }
 
 /** The project's run on its branch (`run` in the project file); null with none, or unread. */
@@ -1290,23 +1485,86 @@ function hookOutput(event, context) {
   );
 }
 
-function takeLock(sessionId, live) {
-  const lock = readJson(files.lock());
-  if (lock && lock.sessionId === sessionId && !lock.released) return;
-  const row = live?.find((r) => r.sessionId === sessionId);
-  writeJson(files.lock(), {
-    sessionId,
-    pid: row?.pid || null,
-    name: row?.name || "",
-    taken: Date.now(),
-    released: false,
-  });
+/**
+ * **One lock holder, by an atomic create**: true when this session holds the
+ * lock on return, false when another does. The read, the judgement and the
+ * write happen while holding a guard file created exclusively (`wx`), so two
+ * claimants of a released, dead or missing lock cannot both win; a bare
+ * read-then-write could, and so could renaming a stale lock aside, which can
+ * move a lock another claimant has just made.
+ */
+export function takeLock(sessionId, live, { path = files.lock(), alive = null } = {}) {
+  const guard = `${path}.guard`;
+  if (!takeGuard(guard)) {
+    const lock = readJson(path);
+    return Boolean(lock && lock.sessionId === sessionId && !lock.released);
+  }
+  try {
+    const lock = readJson(path);
+    if (lock && lock.sessionId === sessionId && !lock.released) return true;
+    const holderLives = alive ?? ((held) => holderAlive(held, live));
+    if (lock && !lock.released && holderLives(lock)) return false;
+    const row = live?.find((r) => r.sessionId === sessionId);
+    writeJson(path, {
+      sessionId,
+      pid: row?.pid || null,
+      name: row?.name || "",
+      taken: Date.now(),
+      released: false,
+    });
+    return true;
+  } finally {
+    try {
+      unlinkSync(guard);
+    } catch {
+      // Gone already.
+    }
+  }
+}
+
+/**
+ * The lock's guard, created exclusively; waits up to three seconds for
+ * another claimant to finish. A guard older than ten seconds is a crashed
+ * claimant's and is removed (the critical section takes milliseconds).
+ */
+function takeGuard(guard) {
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    try {
+      writeFileSync(guard, String(process.pid), { flag: "wx" });
+      return true;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    try {
+      if (Date.now() - statSync(guard).mtimeMs > 10_000) {
+        unlinkSync(guard);
+        continue;
+      }
+    } catch {
+      // Released between the create and the look: try again.
+      continue;
+    }
+    if (Date.now() > deadline) return false;
+    sleep(25);
+  }
 }
 
 function release(sessionId) {
-  const lock = readJson(files.lock());
-  if (lock && lock.sessionId === sessionId)
-    writeJson(files.lock(), { ...lock, released: Date.now() });
+  const guard = `${files.lock()}.guard`;
+  const guarded = takeGuard(guard);
+  try {
+    const lock = readJson(files.lock());
+    if (lock && lock.sessionId === sessionId)
+      writeJson(files.lock(), { ...lock, released: Date.now() });
+  } finally {
+    if (guarded)
+      try {
+        unlinkSync(guard);
+      } catch {
+        // Gone already.
+      }
+  }
 }
 
 /**
@@ -1782,9 +2040,17 @@ function hook(mode, input) {
       );
       return;
     }
-    takeLock(sessionId, live);
-    // An executor the owner started by hand has no `Executor n` name; this marks it.
-    if (state.agent !== "executor") writeJson(statePath, { ...state, agent: "executor" });
+    if (!takeLock(sessionId, live)) {
+      // Another prompt hook took it between the check above and the create.
+      process.stdout.write(
+        JSON.stringify({ decision: "block", reason: blockReason(readJson(files.lock()) || {}) }),
+      );
+      return;
+    }
+    // An executor the owner started by hand has no `Executor n` name; this
+    // marks it, and the first mark records where its batches start.
+    if (state.agent !== "executor")
+      writeJson(statePath, { ...state, agent: "executor", base: branchTip() });
     hookOutput(
       "UserPromptSubmit",
       `Plans in the queue (plans):\n${list({ live })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times; the rule is in your agent file under "Going on".`,
@@ -1835,7 +2101,7 @@ function hook(mode, input) {
     // The sweep: a Building line written another way (a shell command, a
     // hook that failed) still stops the retired planner whose plan it took.
     stopTakenPlanners(live);
-    const changed = changedFiles({ sessionId });
+    const changed = changedFiles({ ...state, sessionId });
     const waiting = plans
       .filter((p) => p.state === "ready")
       .map((p) => ({ ...p, related: related(p.text, changed) }));
@@ -1847,13 +2113,14 @@ function hook(mode, input) {
       handed,
       run: imageRun(),
       told: state.told,
-      runTold: state.runTold,
       paused: Boolean(pausedSince()),
       retired: state.retired,
+      continuing: Boolean(input.stop_hook_active),
+      refusedRun: state.runRefused ?? null,
     });
     if (!decision) return;
     if (decision.refuse) {
-      if (decision.runId) state.runTold.push(decision.runId);
+      if (decision.runId) state.runRefused = decision.runId;
       if (decision.told) state.told.push(...decision.told);
       writeJson(statePath, state);
       process.stdout.write(JSON.stringify({ decision: "block", reason: decision.reason }));
@@ -1891,8 +2158,6 @@ plans pause | resume  stop and restart starting sessions
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project`;
 
-const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff"];
-
 export function main(args = process.argv.slice(2)) {
   const [mode, ...rest] = args;
   if (!mode || mode === "list" || mode === "--all") {
@@ -1912,26 +2177,28 @@ export function main(args = process.argv.slice(2)) {
     return;
   }
   if (mode === "pause") {
+    // **A pause holds the deferred starts**: each timer is killed and its
+    // deferral kept, with no timer, for the resume to re-arm.
+    const held = [];
     for (const kind of ["executor", "planner"]) {
       const deferred = readJson(files.deferred(kind));
-      if (!deferred?.pid) continue;
-      try {
-        process.kill(deferred.pid);
-      } catch {
-        // The timer is gone already.
+      if (!deferred) continue;
+      if (deferred.pid) {
+        try {
+          process.kill(deferred.pid);
+        } catch {
+          // The timer is gone already.
+        }
+        writeJson(files.deferred(kind), { ...deferred, pid: null });
       }
-      try {
-        unlinkSync(files.deferred(kind));
-      } catch {
-        // Nothing was deferred.
-      }
+      held.push(deferredWords(deferred));
     }
     writeJson(files.pause(), {
       at: new Date().toString().slice(0, 21),
       by: process.env.CLAUDE_SESSION_ID || "",
     });
     process.stdout.write(
-      "The queue is paused: no executor is started or handed plans until 'resume the queue' in any session.\n",
+      `The queue is paused: no executor is started or handed plans until 'resume the queue' in any session.${held.length ? ` Held: ${held.join("; ")}.` : ""}\n`,
     );
     return;
   }
@@ -1941,7 +2208,17 @@ export function main(args = process.argv.slice(2)) {
     } catch {
       // It was not paused.
     }
-    process.stdout.write("The queue is running again.\n");
+    const armed = [];
+    for (const kind of ["executor", "planner"]) {
+      const deferred = readJson(files.deferred(kind));
+      if (!deferred) continue;
+      // A timer at the later of its time and a minute from now.
+      defer(deferred.until, deferred.why, deferred.paths || [], deferred.replace || "", kind);
+      armed.push(deferredWords(readJson(files.deferred(kind)) || deferred));
+    }
+    process.stdout.write(
+      `The queue is running again.${armed.length ? ` Re-armed: ${armed.join("; ")}.` : ""}\n`,
+    );
     return;
   }
   if (mode === "start") {

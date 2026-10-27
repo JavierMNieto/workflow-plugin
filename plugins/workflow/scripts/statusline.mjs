@@ -20,12 +20,12 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * The plugin's data directory, as `plan-queue.mjs`'s `data()` finds it; kept
- * here so the copy in that directory needs nothing beside it.
+ * The plugin's data directory, as `plan-queue.mjs`'s `data()` finds it, never
+ * from `CLAUDE_PLUGIN_DATA` (which can name another plugin's); kept here so
+ * the copy in that directory needs nothing beside it.
  */
 function data(env = process.env, scriptDir = here) {
   if (env.WORKFLOW_DATA) return env.WORKFLOW_DATA;
-  if (env.CLAUDE_PLUGIN_DATA) return env.CLAUDE_PLUGIN_DATA;
   const cached = /^(.*)[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/][^\\/]+[\\/]scripts$/.exec(
     scriptDir,
   );

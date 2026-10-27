@@ -135,8 +135,15 @@ describe("the plugin's queue in any project", () => {
     expect(owner({}, settings)).toBe("Grace");
   });
 
-  it("finds the data directory from the environment, the cache path, or the default", () => {
-    expect(data({ CLAUDE_PLUGIN_DATA: "/d" })).toBe("/d");
+  it("finds the data directory from WORKFLOW_DATA, the cache path, or the default, never CLAUDE_PLUGIN_DATA", () => {
+    expect(data({ WORKFLOW_DATA: "/w", CLAUDE_PLUGIN_DATA: "/d" })).toBe("/w");
+    // Another plugin's directory, as the Bash tool carried it: never taken.
+    expect(
+      data(
+        { CLAUDE_PLUGIN_DATA: "/h/.claude/plugins/data/codex-openai-codex" },
+        "/h/.claude/plugins/cache/workflow/workflow/abc123/scripts",
+      ),
+    ).toBe("/h/.claude/plugins/data/workflow-workflow");
     expect(data({}, "/h/.claude/plugins/cache/workflow/workflow/abc123/scripts")).toBe(
       "/h/.claude/plugins/data/workflow-workflow",
     );
@@ -203,6 +210,8 @@ describe("the plugin's queue in any project", () => {
         WORKFLOW_ROOT: "/a",
         CLAUDE_PROJECT_DIR: "/b",
         CLAUDE_SESSION_ID: "s",
+        CLAUDE_PLUGIN_ROOT: "/r",
+        CLAUDE_PLUGIN_DATA: "/d",
         PATH: "/bin",
         HOME: "/h",
       }),
