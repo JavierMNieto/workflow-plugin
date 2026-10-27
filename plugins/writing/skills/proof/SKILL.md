@@ -10,7 +10,7 @@ paths:
 # Checking proofs
 
 You report; you do not change the proofs. The full pass adds
-`\JaviAI` notes.
+notes in the paper.
 
 **The project's writing decisions come first.** A rule the owner gives
 in chat (a word they prefer, a citation style, how an introduction opens)
@@ -53,16 +53,27 @@ Minor in the full pass only), each finding as
 `Fix hint:`. Then `CLEAN AXES:`. A clean proof: "All axes clean. No
 blocking, major, or minor issues found."
 
-## `\JaviAI` notes (the full pass)
+## Notes in the paper (the full pass)
 
-**Notes go in only where they compile.** Before the first
-`\JaviAI` note, check that the project defines `\JaviAI` and `\javi`
-(its preamble or a style file it loads); where it does not, put no note in
-the file and list each one in the report instead, with its file and line.
-In a `.md` file a note is an HTML comment, `<!-- JaviAI: ... -->`.
+Notes use the two commands the project file names in its frontmatter:
+`note:` (the command a note is written with) and `reply:` (the command
+the author answers with), as in `note: \JaviAI` and `reply: \javi`.
+With no `note` key, no notes are written into the paper (the skill's own
+edits still are) and the notes go in the report; with no `reply` key, no
+answers are looked for, and a command beneath an earlier note is still
+left as it is. Below, `\<note>` and `\<reply>` stand for them.
 
-`\JaviAI{<type>: <diagnosis>. <action>.}` right after the step, the
+**Notes go in only where they compile.** Before the first note, check
+that the project defines the `note` command, and the `reply` command
+when one is named (its preamble or a style file it loads); where it does
+not, put no note in the file and list each one in the report instead,
+with its file and line. In a `.md` file a
+note is an HTML comment carrying the command's name without its
+backslash, `<!-- <note>: ... -->`.
+
+`\<note>{<type>: <diagnosis>. <action>.}` right after the step, the
 type one of gap, error, assumption, simplification, notation,
-edge-case; in a `.md` file `<!-- JaviAI [type]: diagnosis. action. -->`.
-About fifteen per file at most. The owner answers with `\javi{...}`
-beneath, and the thread goes on downward; never edit or delete a note.
+edge-case; in a `.md` file `<!-- <note> [type]: diagnosis. action. -->`.
+About fifteen per file at most. The author answers with
+`\<reply>{...}` beneath, and the thread goes on downward; never edit or
+delete a note or an answer.

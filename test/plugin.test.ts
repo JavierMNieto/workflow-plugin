@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -12,7 +20,7 @@ import {
   pathsIn,
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
-import { init, project } from "../plugins/workflow/scripts/project.mjs";
+import { frontmatter, init, project } from "../plugins/workflow/scripts/project.mjs";
 import {
   globToRegExp,
   preferenceIn,
@@ -32,6 +40,17 @@ afterAll(() => {
 });
 
 describe("the project file", () => {
+  it("reads a backslashed value back as written", () => {
+    const root = dir("note-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      "---\nname: Paper\nnote: \\JaviAI   # the note command\nreply: \\javi\n---\n",
+    );
+    const text = readFileSync(join(root, ".claude", "workflow.md"), "utf8");
+    expect(frontmatter(text)).toMatchObject({ note: "\\JaviAI", reply: "\\javi" });
+  });
+
   it("reads name, branch, run, ui and catalogue", () => {
     const root = dir("project-");
     mkdirSync(join(root, ".claude"));
@@ -512,5 +531,18 @@ describe("the writing plugin", () => {
     expect(names("review")).toEqual(["semantic-review.md", "narrative-and-pedagogy.md"]);
     expect(names("edit")).toEqual(["copyedit-and-grammar.md", "latex-style.md"]);
     expect(names("draft")).toEqual(["prose-drafting.md"]);
+  });
+
+  it("names no person's note commands but in the one example sentence", () => {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
+      );
+    for (const file of walk(join(top, "plugins", "writing"))) {
+      const lines = readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => /JaviAI|\\javi\b/.test(line));
+      for (const line of lines) expect(line, file).toContain("note: \\JaviAI");
+    }
   });
 });

@@ -93,6 +93,8 @@ ui:                       # paths a user sees, for the turn audit; omit for none
   - "src/components/**"
 catalogue: docs/patterns  # the design catalogue the audit asks for; omit for none
 form: compact             # one chat decides and builds; omit for the full queue
+note: \JaviAI             # the writing plugin's note command; omit for notes in the report
+reply: \javi              # the command the author answers notes with
 ---
 ```
 

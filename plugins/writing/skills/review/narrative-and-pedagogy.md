@@ -73,18 +73,18 @@ These rules are diagnostic lenses for narrative review. A document that violates
 
 ---
 
-## The annotation system: `\JaviAI`
+## The annotation system: the project's note command
 
-The `narrative-flow-reviewer` annotates findings inline rather than rewriting. Every finding gets a `\JaviAI{...}` annotation placed immediately after the sentence or paragraph it critiques.
+The `narrative-flow-reviewer` annotates findings inline rather than rewriting. Every finding gets an annotation with the project's `note` command (the `note:` line of `.claude/workflow.md`; with none, the annotations go in the report) placed immediately after the sentence or paragraph it critiques.
 
 **Format:**
 ```latex
-\JaviAI{<one-sentence diagnosis>: <concrete suggested action>.}
+\<note>{<one-sentence diagnosis>: <concrete suggested action>.}
 ```
 
 For non-`.tex` files (e.g., `.md` notes):
 ```html
-<!-- JaviAI: <one-sentence diagnosis>: <concrete suggested action>. -->
+<!-- <note>: <one-sentence diagnosis>: <concrete suggested action>. -->
 ```
 
 **What makes a good annotation:**

@@ -54,22 +54,32 @@ more than one mechanical edit is not made; it goes under "Skipped
 (`\alpha` to `\beta`) is a change of meaning. When unsure whether a
 change alters meaning, do not make it.
 
-## `\JaviAI` notes
+## Notes in the paper
 
-**Notes go in only where they compile.** Before the first
-`\JaviAI` note, check that the project defines `\JaviAI` and `\javi`
-(its preamble or a style file it loads); where it does not, put no note in
-the file and list each one in the report instead, with its file and line.
-In a `.md` file a note is an HTML comment, `<!-- JaviAI: ... -->`.
+Notes use the two commands the project file names in its frontmatter:
+`note:` (the command a note is written with) and `reply:` (the command
+the author answers with), as in `note: \JaviAI` and `reply: \javi`.
+With no `note` key, no notes are written into the paper (the skill's own
+edits still are) and the notes go in the report; with no `reply` key, no
+answers are looked for, and a command beneath an earlier note is still
+left as it is. Below, `\<note>` and `\<reply>` stand for them.
+
+**Notes go in only where they compile.** Before the first note, check
+that the project defines the `note` command, and the `reply` command
+when one is named (its preamble or a style file it loads); where it does
+not, put no note in the file and list each one in the report instead,
+with its file and line. In a `.md` file a
+note is an HTML comment carrying the command's name without its
+backslash, `<!-- <note>: ... -->`.
 
 A small change goes in silently. A large one (a sentence of meaning or
 more: it changes the claim, reorders sentences, merges or splits across
 a clause, adds or removes evidence or a citation) is followed by
-`\JaviAI{<one short clause for why>}`, for example
-`\JaviAI{passive voice hid the agent; made it active}`. The mechanical
-passes (checks 4 and 5) never annotate. The owner answers with
-`\javi{...}` beneath; reply with a new `\JaviAI{...}` beneath that.
-Never edit or delete a `\JaviAI` or `\javi` note.
+a note, `\<note>{<one short clause for why>}`, for example
+`\<note>{passive voice hid the agent; made it active}`. The mechanical
+passes (checks 4 and 5) never annotate. The author answers with
+`\<reply>{...}` beneath; reply with a new note beneath that. Never edit
+or delete a note or an answer.
 
 ## The report
 

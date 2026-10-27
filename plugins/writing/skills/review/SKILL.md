@@ -12,7 +12,7 @@ paths:
 
 You review; you do not rewrite. The review is written to
 `_reviews/review-<venue>-<date>.md`; the narrative pass is the one
-exception that touches the paper, and only with `\JaviAI` notes.
+exception that touches the paper, and only with notes.
 
 **The project's writing decisions come first.** A rule the owner gives
 in chat (a word they prefer, a citation style, how an introduction opens)
@@ -81,19 +81,29 @@ conclusion; precision and claim against evidence).
 - **Narrative**: the files annotated, the top structural findings (seven
   at most), global changes (three at most), the sections that are clean.
 
-## `\JaviAI` notes (the narrative pass)
+## Notes in the paper (the narrative pass)
 
-**Notes go in only where they compile.** Before the first
-`\JaviAI` note, check that the project defines `\JaviAI` and `\javi`
-(its preamble or a style file it loads); where it does not, put no note in
-the file and list each one in the report instead, with its file and line.
-In a `.md` file a note is an HTML comment, `<!-- JaviAI: ... -->`.
+Notes use the two commands the project file names in its frontmatter:
+`note:` (the command a note is written with) and `reply:` (the command
+the author answers with), as in `note: \JaviAI` and `reply: \javi`.
+With no `note` key, no notes are written into the paper (the skill's own
+edits still are) and the notes go in the report; with no `reply` key, no
+answers are looked for, and a command beneath an earlier note is still
+left as it is. Below, `\<note>` and `\<reply>` stand for them.
 
-`\JaviAI{<the diagnosis in a sentence>: <a concrete action>.}` right
+**Notes go in only where they compile.** Before the first note, check
+that the project defines the `note` command, and the `reply` command
+when one is named (its preamble or a style file it loads); where it does
+not, put no note in the file and list each one in the report instead,
+with its file and line. In a `.md` file a
+note is an HTML comment carrying the command's name without its
+backslash, `<!-- <note>: ... -->`.
+
+`\<note>{<the diagnosis in a sentence>: <a concrete action>.}` right
 after the sentence or paragraph; in a `.md` file
-`<!-- JaviAI: <diagnosis>: <action>. -->`. About fifteen per file at
+`<!-- <note>: <diagnosis>: <action>. -->`. About fifteen per file at
 most; past that, say the paper needs a rewrite. Never rewrite or delete
-text, and never edit or delete a `\JaviAI` or `\javi` note.
+text, and never edit or delete a note or an answer.
 
 The reference files were written for the agents these skills replace:
 read `narrative-flow-reviewer`, `writing-review-high` and
