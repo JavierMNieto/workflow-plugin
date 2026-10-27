@@ -1,0 +1,194 @@
+[
+  {
+    "id": "plugin-code-1",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which function decides whether a finished executor is handed the waiting plans, and in which file?",
+    "expect": ["\\bdecideStop\\b", "plan-queue\\.mjs"],
+    "oracle": "decideStop, in plugins/workflow/scripts/plan-queue.mjs"
+  },
+  {
+    "id": "plugin-code-2",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which script and function match the text an Edit writes against a catalogue file's signals?",
+    "expect": ["catalogue-context\\.mjs", "\\bcontextFor\\b"],
+    "oracle": "contextFor, in plugins/workflow/scripts/catalogue-context.mjs"
+  },
+  {
+    "id": "plugin-code-3",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which function reads a session's context size from the last assistant turn of its transcript, and in which file?",
+    "expect": ["\\bsessionUsage\\b", "plan-queue\\.mjs"],
+    "oracle": "sessionUsage, in plugins/workflow/scripts/plan-queue.mjs"
+  },
+  {
+    "id": "plugin-code-4",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which constant sets the percent of the five-hour usage window above which no executor starts, what is its value, and in which file?",
+    "expect": ["\\bFIVE_HOUR_MAX\\b", "\\b80\\b", "plan-queue\\.mjs"],
+    "oracle": "FIVE_HOUR_MAX = 80, in plugins/workflow/scripts/plan-queue.mjs"
+  },
+  {
+    "id": "plugin-code-5",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which function takes the hook variables out of the environment of a chat the queue starts, and in which file?",
+    "expect": ["\\bsessionEnv\\b", "plan-queue\\.mjs"],
+    "oracle": "sessionEnv, in plugins/workflow/scripts/plan-queue.mjs"
+  },
+  {
+    "id": "plugin-code-6",
+    "repo": "plugin",
+    "kind": "code",
+    "prompt": "Which function turns a glob from the project file's ui list into a regular expression, and in which file is it defined?",
+    "expect": ["\\bglobToRegExp\\b", "turn-audit\\.mjs"],
+    "oracle": "globToRegExp, defined in plugins/workflow/scripts/turn-audit.mjs"
+  },
+  {
+    "id": "plugin-docs-1",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "Under which bold rule of docs/workflow.md is a brief said to be taken by a planner, and what heading marks it taken?",
+    "expect": ["Briefs are queued like plans", "\\bPlanning\\b"],
+    "oracle": "Briefs are queued like plans; the planner's \"## Planning, <date>, session <id>\" line marks it taken"
+  },
+  {
+    "id": "plugin-docs-2",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "Which key of the project file, set to compact, makes one chat decide and build, and which agent is that chat?",
+    "expect": ["\\bform\\b", "\\bmaker\\b"],
+    "oracle": "form: compact in .claude/workflow.md; the chat is workflow:maker"
+  },
+  {
+    "id": "plugin-docs-3",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "Which skill sets a project up in a short interview, and which file holds the defaults for each kind of project?",
+    "expect": ["\\bsetup\\b", "kinds\\.md"],
+    "oracle": "/workflow:setup (plugins/workflow/skills/setup/SKILL.md); the defaults are in skills/setup/kinds.md"
+  },
+  {
+    "id": "plugin-docs-4",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "In the workflow's docs, what is the default context ceiling above which a finished session retires, and about what does a fresh executor cost per plan?",
+    "expect": ["\\b200(k|,000| ?000)\\b", "2\\.60"],
+    "oracle": "200k tokens (reuse); about $2.60 per plan, docs/workflow.md \"What a context costs\""
+  },
+  {
+    "id": "plugin-docs-5",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "Per the workflow's docs, which script bounds Codex's review with a timeout, and which file does Codex write its findings to?",
+    "expect": ["codex-review\\.sh", "codex-review\\.md"],
+    "oracle": "scripts/codex-review.sh; it writes plans/<topic>/codex-review.md"
+  },
+  {
+    "id": "plugin-docs-6",
+    "repo": "plugin",
+    "kind": "docs",
+    "prompt": "Under which bold rule of docs/workflow.md does an agent ask keep, change or retire with the question tool?",
+    "expect": ["rule whose reason is gone"],
+    "oracle": "A rule whose reason is gone is put to the owner, not followed (docs/workflow.md)"
+  },
+  {
+    "id": "project-code-1",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which component draws the forum feed's load-more button, and which file under docs/patterns holds the rule for that button's label?",
+    "expect": ["\\bMoreOnScroll\\b", "buttons\\.md"],
+    "oracle": "MoreOnScroll (packages/ui/src/components/MoreOnScroll.tsx); its rule is in docs/patterns/buttons.md"
+  },
+  {
+    "id": "project-code-2",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which constant caps how deep the forum's feed can be paged, what is its value, and in which file is it defined?",
+    "expect": ["\\bMAX_FEED_PAGE\\b", "\\b50\\b", "lib/feed\\.ts"],
+    "oracle": "MAX_FEED_PAGE = 50, in apps/forum/src/lib/feed.ts"
+  },
+  {
+    "id": "project-code-3",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which function removes every context element from a lesson's source before it reaches the student's browser, and in which file is it defined?",
+    "expect": ["\\bstripContext\\b", "strip\\.ts"],
+    "oracle": "stripContext, in packages/format/src/strip.ts"
+  },
+  {
+    "id": "project-code-4",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which function decides whether a signed session is still good after its owner signed out everywhere, and in which file is it defined?",
+    "expect": ["\\bstillValid\\b", "session-token\\.ts"],
+    "oracle": "stillValid, in packages/server/src/session-token.ts"
+  },
+  {
+    "id": "project-code-5",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which constant limits how many turns of a conversation are sent to the tutor, what is its value, and in which file is it defined?",
+    "expect": ["\\bMAX_TURNS\\b", "\\b40\\b", "limits\\.ts"],
+    "oracle": "MAX_TURNS = 40, in packages/format/src/limits.ts"
+  },
+  {
+    "id": "project-code-6",
+    "repo": "project",
+    "kind": "code",
+    "prompt": "Which function signs the links sent by email, and in which file is it defined?",
+    "expect": ["\\bsignLink\\b", "link-token\\.ts"],
+    "oracle": "signLink, in packages/server/src/link-token.ts"
+  },
+  {
+    "id": "project-docs-1",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "Which section of docs/contributing.md says a rule whose reason is gone is put to Javi?",
+    "expect": ["Design decisions"],
+    "oracle": "\"Design decisions\" in docs/contributing.md"
+  },
+  {
+    "id": "project-docs-2",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "What does .claude/workflow.md say to run before the push, in order?",
+    "expect": ["npm run format", "typecheck", "lint", "npm test"],
+    "oracle": "Screenshots, the three reviews, then npm run format, npm run typecheck && npm run lint, npm test, a production build, the browser suites"
+  },
+  {
+    "id": "project-docs-3",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "According to docs/privacy.md, which one file answers privacy questions, and which function decides whether a reply can be read?",
+    "expect": ["visibility\\.ts", "\\bcanReadReply\\b"],
+    "oracle": "lib/visibility.ts; canReadReply"
+  },
+  {
+    "id": "project-docs-4",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "According to docs/search.md, which four search indexes are there?",
+    "expect": ["\\bposts\\b", "\\bcomments\\b", "\\busers\\b", "\\bsources\\b"],
+    "oracle": "posts, comments, users and sources (docs/search.md)"
+  },
+  {
+    "id": "project-docs-5",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "According to docs/copy.md, which two names may a sort have everywhere on the site?",
+    "expect": ["\\bLatest\\b", "\\bTop\\b"],
+    "oracle": "Latest or Top (docs/copy.md)"
+  },
+  {
+    "id": "project-docs-6",
+    "repo": "project",
+    "kind": "docs",
+    "prompt": "According to docs/search.md, which function applies the index settings lazily on first use, and which one refills an index found empty?",
+    "expect": ["\\bensureSearchIndexOnce\\b", "\\bbackfillEmptyIndexes\\b"],
+    "oracle": "ensureSearchIndexOnce; backfillEmptyIndexes (docs/search.md)"
+  }
+]

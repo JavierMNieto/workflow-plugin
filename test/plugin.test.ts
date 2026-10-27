@@ -725,7 +725,7 @@ describe("the setup interview", () => {
     );
   });
 
-  it("has the setup skill at fable, and the kinds table's five rows of six columns", () => {
+  it("has the setup skill at fable, and the kinds table's five rows of seven columns", () => {
     const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
     const text = readFileSync(join(skill, "SKILL.md"), "utf8");
     expect(text).toMatch(/^model: fable$/m);
@@ -740,7 +740,9 @@ describe("the setup interview", () => {
       "Personal tool or script",
       "Something else",
     ]);
-    for (const row of rows) expect(row.split("|").length - 2, row).toBe(6);
+    for (const row of rows) expect(row.split("|").length - 2, row).toBe(7);
+    // The reading-tools trial's outcome (plans/reading-tools-trial.md, 5c): none for every kind.
+    for (const row of rows) expect(row.split("|")[7].trim(), row).toBe("none");
   });
 
   it("passes the project's mcp to a started chat", () => {
@@ -800,5 +802,160 @@ describe("the reuse ceiling and the reviewer", () => {
       "tools: Read, Grep, Glob, Bash",
     ])
       expect(text).toContain(line);
+  });
+});
+
+describe("the reading-tools trial", () => {
+  const trial = new URL("../trials/reading-tools/", import.meta.url).pathname;
+
+  it("prints the pilot's four commands on --dry and runs nothing", () => {
+    const results = join(dir("trial-"), "results.jsonl");
+    const out = execFileSync("node", [join(trial, "run.mjs"), "--pilot", "--dry"], {
+      encoding: "utf8",
+      env: { ...process.env, READING_TRIAL_RESULTS: results },
+    });
+    const lines = out.trim().split("\n");
+    expect(lines).toHaveLength(4);
+    for (const line of lines)
+      expect(line).toMatch(
+        /\) claude -p --output-format stream-json --verbose --max-budget-usd 1 /,
+      );
+    expect(lines.filter((l) => l.includes("--mcp-config"))).toHaveLength(2);
+    expect(lines.filter((l) => l.includes("--append-system-prompt"))).toHaveLength(2);
+    expect(existsSync(results)).toBe(false);
+  });
+
+  it("passes every task's oracle answer and fails an empty answer and the prompt itself", async () => {
+    const { check, readTasks } = await import("../trials/reading-tools/run.mjs");
+    const tasks = readTasks();
+    expect(tasks).toHaveLength(24);
+    for (const repo of ["plugin", "project"]) {
+      const own = tasks.filter((t: { repo: string }) => t.repo === repo);
+      expect(own.filter((t: { kind: string }) => t.kind === "code")).toHaveLength(6);
+      expect(own.filter((t: { kind: string }) => t.kind === "docs")).toHaveLength(6);
+    }
+    for (const task of tasks) {
+      expect(check(task, task.oracle), task.id).toBe(true);
+      expect(check(task, ""), task.id).toBe(false);
+      expect(check(task, null), task.id).toBe(false);
+      expect(check(task, task.prompt), task.id).toBe(false);
+    }
+  });
+
+  it("orders every task and rep for both arms, alternating which goes first", async () => {
+    const { schedule } = await import("../trials/reading-tools/run.mjs");
+    const tasks = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const runs = schedule(tasks, { reps: 2 });
+    expect(runs).toHaveLength(12);
+    expect(runs.map((r: { arm: string }) => r.arm).slice(0, 4)).toEqual([
+      "native",
+      "tools",
+      "tools",
+      "native",
+    ]);
+    expect(schedule(tasks, { reps: 2 })).toEqual(runs);
+    expect(schedule(tasks, { reps: 1, arms: ["tools"] })).toHaveLength(3);
+  });
+
+  it("reports the means, the medians and the delta from eight lines", async () => {
+    const { summarize, format } = await import("../trials/reading-tools/report.mjs");
+    const run = (arm: string, ok: boolean, creation: number, input: number, cost: number) => ({
+      kind: "run",
+      repo: "plugin",
+      arm,
+      id: "x",
+      rep: 1,
+      ok,
+      cost,
+      usage: { input, cache_read: 1000, cache_creation: creation, output: 100 },
+      turns: 4,
+      seconds: 10,
+      error: null,
+    });
+    const lines = [
+      run("native", true, 10_000, 0, 0.2),
+      run("native", true, 12_000, 0, 0.2),
+      run("native", true, 14_000, 0, 0.2),
+      run("native", false, 16_000, 0, 0.2),
+      run("tools", true, 6_000, 0, 0.1),
+      run("tools", true, 8_000, 0, 0.1),
+      run("tools", true, 10_000, 0, 0.1),
+      run("tools", true, 12_000, 0, 0.1),
+      { ...run("tools", true, 1, 0, 9), pilot: true },
+      {
+        kind: "index",
+        repo: "plugin",
+        seconds: { code: 1, docs: 2 },
+        bytes: { code: 2048, docs: 1024 },
+      },
+    ];
+    const summary = summarize(lines);
+    const r = summary.repos.plugin;
+    expect(r.native.runs).toBe(4);
+    expect(r.tools.runs).toBe(4);
+    expect(r.native.T.mean).toBe(13_000);
+    expect(r.tools.T.mean).toBe(9_000);
+    expect(r.native.T.median).toBe(13_000);
+    expect(r.delta.T).toBeCloseTo(-30.77, 1);
+    expect(r.delta.cost).toBeCloseTo(-50, 5);
+    expect(r.delta.success).toBe(25);
+    expect(r.noise).toBe(50);
+    expect(summary.outcome).toBe("everywhere");
+    const text = format(summary);
+    expect(text).toContain("| T | 13,000 (median 13,000) | 9,000 (median 9,000) | -30.8% |");
+    expect(text).toContain("| success | 75% | 100% | +25.0 points |");
+    expect(text).toContain("| plugin | 1 s, 2 KB | 2 s, 1 KB |");
+    expect(text).toContain("**Outcome by the rule: everywhere.**");
+  });
+});
+
+describe("the reading-tools trial's stream", () => {
+  it("reads the result line and counts the tools a run called", async () => {
+    const { readStream } = await import("../trials/reading-tools/run.mjs");
+    const tool = (name: string) => ({ type: "tool_use", name });
+    const stream = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({ type: "assistant", message: { content: [tool("Grep"), tool("Read")] } }),
+      JSON.stringify({ type: "assistant", message: { content: [tool("mcp__jcodemunch__order")] } }),
+      JSON.stringify({ type: "assistant", message: { content: [tool("Read"), { type: "text" }] } }),
+      JSON.stringify({ type: "result", result: "decideStop", total_cost_usd: 0.1 }),
+      '{"type":"assist',
+    ].join("\n");
+    const { result, tools } = readStream(stream);
+    expect(result.result).toBe("decideStop");
+    expect(tools).toEqual({ Grep: 1, Read: 2, mcp__jcodemunch__order: 1 });
+    expect(readStream("")).toEqual({ result: null, tools: {} });
+  });
+});
+
+describe("the reading-tools trial's guards", () => {
+  it("says the outcome is incomplete when an arm has no runs", async () => {
+    const { summarize } = await import("../trials/reading-tools/report.mjs");
+    const run = { kind: "run", repo: "plugin", arm: "native", id: "x", rep: 1, ok: true };
+    const summary = summarize([{ ...run, cost: 0.1, usage: null, turns: 2, seconds: 5 }]);
+    expect(summary.repos.plugin.delta.success).toBeNull();
+    expect(summary.repos.plugin.keeps).toBe(false);
+    expect(summary.outcome).toBe("incomplete: an arm has no runs");
+  });
+
+  it("reads the window from usage.json and says when the reading is stale", async () => {
+    const { windowOf } = await import("../trials/reading-tools/run.mjs");
+    const path = join(dir("usage-"), "usage.json");
+    const now = Date.UTC(2026, 9, 27, 15);
+    const at = (minutesAgo: number, used: number) =>
+      writeFileSync(
+        path,
+        JSON.stringify({
+          at: now / 1000 - minutesAgo * 60,
+          five_hour: { used_percentage: used, resets_at: now / 1000 + 3600 },
+        }),
+      );
+    at(1, 61);
+    expect(windowOf(path, now)).toEqual({ over: 61, stale: false });
+    at(1, 40);
+    expect(windowOf(path, now)).toEqual({ over: null, stale: false });
+    at(45, 40);
+    expect(windowOf(path, now)).toEqual({ over: null, stale: true });
+    expect(windowOf(join(path, "missing"), now)).toEqual({ over: null, stale: true });
   });
 });

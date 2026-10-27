@@ -60,7 +60,8 @@ question the table answers is not asked.
 `mcp`, `reviews`), the commented lines of keys not used left in place,
 and only the body's empty or missing headings filled with what step 1
 found: **While working** from `package.json` scripts or a Makefile,
-**Reading** from the tools on, **Products** empty with its explaining
+**Reading** from the tools on (the kinds table's reading tools, none
+for every kind: then the built-in Grep, Glob and Read), **Products** empty with its explaining
 line. On a run again, every key the answers did not change and every
 heading's text stay as they are. A talk or a paper synced with Overleaf
 names no `branch`: take out the `branch:` line `plans init` wrote, so

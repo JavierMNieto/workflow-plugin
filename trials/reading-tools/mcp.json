@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "jcodemunch": { "type": "stdio", "command": "jcodemunch-mcp", "args": ["serve"] },
+    "jdocmunch": { "type": "stdio", "command": "jdocmunch-mcp", "args": ["serve"] }
+  }
+}
