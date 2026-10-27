@@ -10,6 +10,11 @@
       "title": "Your name",
       "description": "How the agents name you in plans and messages",
       "default": "Javi"
+    },
+    "machine": {
+      "type": "string",
+      "title": "This machine's name",
+      "description": "Names this machine in the sessions the queue starts, as in Workflow Executor 2 (lab); letters, digits, underscores, dots and hyphens. Unset, the hostname."
     }
   }
 }

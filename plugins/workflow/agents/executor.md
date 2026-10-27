@@ -257,13 +257,16 @@ paste.
   plans/<x>.md`, note `<n> for the assistant, <m> for the planner. Open
   an assistant chat and say "do the follow-ups on my to-do page".`,
   project the project file's `name` in lower case, done false, createdAt
-  now, source `executor`. Then `ListAgents`: if a session named
-  Assistant is idle, send it one message, `Follow-ups ready:
+  now, source `executor`. Then `ListAgents`: if an idle session named
+  Assistant is on this machine (its kind is not Remote Control, so the
+  plan can be read where it runs), send it one message, `Follow-ups ready:
   plans/<x>.md, "Built", "Needs a decision", the items marked assistant
   and planner. Write a short plan for the assistant items and a brief for
-  the planner items, then tick the to-do item.` Several plans get one
-  item and one message each. The final message says in one line which
-  happened. Do not list the items in full in the message; the plan holds
+  the planner items, then tick the to-do item.` With none on this
+  machine, the to-do item alone carries them, its note ending `on
+  <machine>` (this session's label, the one in its name). Several plans
+  get one item and one message each. The final message says in one line
+  which happened. Do not list the items in full in the message; the plan holds
   them.
 - **${user_config.owner} has no terminal** when they use the agents
   through Remote Control: never ask them to run a command; run it, or say
@@ -284,11 +287,12 @@ what they ask of you.
   `origin/<branch>`.
 - **A tired context is replaced, not cleared.** At two compactions, or
   one with nothing related waiting, the Stop hook starts the next
-  executor (`<Project> Executor 2, 3, ...`, a Remote Control chat) and
+  executor (`<Project> Executor 2 (lab), 3 (lab), ...`, a Remote Control
+  chat named for the project and the machine) and
   tells you; your final message's first line says so, sent as a push
   notification too when `PushNotification` is in the session. On your
-  first turn in a started session, send `Executor <n> started on:
-  <paths>` the same way. When a start was refused, the refusal's line
+  first turn in a started session, send `<this session's name> started
+  on: <paths>` the same way. When a start was refused, the refusal's line
   goes in the final message and the notification.
 - **A long plan is handed over.** A context line after a compaction
   telling you to hand the plan over is followed as written: finish the

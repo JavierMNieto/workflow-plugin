@@ -41,9 +41,13 @@ project this chat is in.
 4. **Hand it on from that directory**: `cd <checkout> && plans start
    --agent planner plans/<topic>.md` for a brief; `cd <checkout> && plans`
    then the message, or `plans start plans/<topic>.md`, for a short plan.
-   The sessions it starts are `Workflow Planner n` and `Workflow Executor
-   n` in Remote Control; they build, test, validate and push `test` there;
-   CI moves `main`; the plugin updates after the next session starts.
+   The sessions it starts are `Workflow Planner n (<machine>)` and
+   `Workflow Executor n (<machine>)` in Remote Control; they build, test,
+   validate and push `test` there; CI moves `main`; the plugin updates
+   after the next session starts. The change goes to the checkout beside
+   this project, on this machine, whose queue builds it; another machine's
+   checkout sees it in `test` after its next fetch, and in its plugin
+   after its next session starts.
 5. **Say in the final message** that the change is in the workflow's own
    queue, with the path, and whether the checkout was trusted at step 1,
    or left untrusted and the queue not started.

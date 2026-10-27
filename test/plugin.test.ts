@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -16,7 +16,11 @@ import {
   checkDeny,
   data,
   decideStop,
+  isSession,
+  machine,
   owner,
+  parseName,
+  sessionName,
   pathsIn,
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
@@ -259,6 +263,104 @@ describe("the plugin's queue in any project", () => {
       JSON.stringify({ pluginConfigs: { "workflow@workflow": { options: { owner: "Grace" } } } }),
     );
     expect(owner({}, settings)).toBe("Grace");
+  });
+
+  it("reads the machine from the option, then the settings, then the hostname", () => {
+    const settings = join(dir("settings-"), "settings.json");
+    expect(machine({ CLAUDE_PLUGIN_OPTION_MACHINE: "lab" }, settings)).toEqual({
+      name: "lab",
+      set: true,
+      rejected: "",
+    });
+    expect(machine({}, settings)).toEqual({ name: hostname(), set: false, rejected: "" });
+    writeFileSync(
+      settings,
+      JSON.stringify({ pluginConfigs: { "workflow@workflow": { options: { machine: "lab" } } } }),
+    );
+    expect(machine({}, settings)).toEqual({ name: "lab", set: true, rejected: "" });
+    // A label that is not one is passed over for the next, then the hostname.
+    expect(machine({ CLAUDE_PLUGIN_OPTION_MACHINE: "my box" }, settings)).toEqual({
+      name: "lab",
+      set: true,
+      rejected: "",
+    });
+    expect(machine({ CLAUDE_PLUGIN_OPTION_MACHINE: "my box" }, `${settings}.none`)).toEqual({
+      name: hostname(),
+      set: false,
+      rejected: "my box",
+    });
+  });
+
+  it("names a session by project, kind, number and machine, and reads the name back", () => {
+    const names: [string, { project?: string; machine?: string }][] = [
+      ["Workflow Executor 2 (lab)", { project: "Workflow", machine: "lab" }],
+      ["Workflow Executor 2", { project: "Workflow" }],
+      ["Executor 2", {}],
+    ];
+    for (const [name, options] of names) {
+      expect(sessionName("executor", 2, options)).toBe(name);
+      expect(parseName(name)).toEqual({
+        project: options.project || "",
+        kind: "executor",
+        n: 2,
+        machine: options.machine || "",
+      });
+    }
+    for (const name of ["Assistant", "Assistant (Anton merge)", "Executor"])
+      expect(parseName(name)).toBeNull();
+  });
+
+  it("numbers a start per machine, from the log and the live list", () => {
+    const log = [
+      { at: 0, name: "Test Executor 1" },
+      { at: 0, name: "Other Executor 9" },
+    ];
+    expect(canStart({ log, name: "Test", machine: "lab" })).toMatchObject({
+      start: true,
+      name: "Test Executor 2 (lab)",
+    });
+    expect(
+      canStart({
+        kind: "planner",
+        log: [{ at: 0, name: "Workflow Planner 1 (lab)" }],
+        taken: ["Workflow Planner 3 (lab)", "Workflow Executor 2 (lab)", "Assistant"],
+        name: "Workflow",
+        machine: "lab",
+      }),
+    ).toMatchObject({ start: true, name: "Workflow Planner 4 (lab)" });
+  });
+
+  it("tells the queue's sessions by name, with or without the machine", () => {
+    expect(isSession("executor", { name: "Workflow Executor 2 (lab)" })).toBe(true);
+    expect(isSession("executor", { name: "Workflow Executor 2" })).toBe(true);
+    expect(isSession("planner", { name: "Workflow Planner 1 (lab)", kind: "background" })).toBe(
+      true,
+    );
+    expect(isSession("executor", { name: "Assistant (Anton merge)" })).toBe(false);
+  });
+
+  it("says the machine in plans' first line, and how to name it while the hostname stands in", () => {
+    const root = dir("machine-");
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "workflow.md"), "---\nname: Lab\n---\n");
+    const { CLAUDE_PLUGIN_OPTION_MACHINE: _, ...rest } = process.env;
+    const plans = (env: Record<string, string>) =>
+      execFileSync("node", [join(scripts, "plan-queue.mjs")], {
+        encoding: "utf8",
+        // A home of its own, so the user settings name no machine.
+        env: { ...rest, HOME: root, CLAUDE_PROJECT_DIR: root, WORKFLOW_LIVE: "[]", ...env },
+      });
+    const named = plans({ CLAUDE_PLUGIN_OPTION_MACHINE: "lab" });
+    expect(named).toMatch(/^Plans on lab, /);
+    expect(named).not.toContain("named by its hostname");
+    expect(plans({ CLAUDE_PLUGIN_OPTION_MACHINE: "my box" })).toContain(
+      `The plugin's "machine" option, "my box", is no label (letters, digits, underscores, dots and hyphens), so this machine is named by its hostname;`,
+    );
+    const unset = plans({});
+    expect(unset.startsWith(`Plans on ${hostname()}, `)).toBe(true);
+    expect(unset.trimEnd().split("\n").at(-1)).toBe(
+      `This machine is named by its hostname; the plugin's "machine" option names it: /plugin configure workflow in a chat, or echo '{"machine":"<label>"}' | claude plugin configure workflow@workflow --values-stdin.`,
+    );
   });
 
   it("finds the data directory from WORKFLOW_DATA, the cache path, or the default, never CLAUDE_PLUGIN_DATA", () => {

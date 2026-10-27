@@ -5,7 +5,7 @@
 // hand so the plugin needs no dependency.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -94,20 +94,51 @@ function unquote(value) {
   return quoted ? quoted[2] : value;
 }
 
+const USER_SETTINGS = join(homedir(), ".claude", "settings.json");
+
+/** A plugin option's values, first that wins: exported to hooks as `CLAUDE_PLUGIN_OPTION_<KEY>`, then the user settings' `pluginConfigs`; the unset ones left out. */
+function optionValues(key, env, settings) {
+  let read = null;
+  try {
+    read = JSON.parse(readFileSync(settings, "utf8"));
+  } catch {
+    // No settings: unset there.
+  }
+  return [
+    env[`CLAUDE_PLUGIN_OPTION_${key.toUpperCase()}`],
+    read?.pluginConfigs?.["workflow@workflow"]?.options?.[key],
+  ]
+    .filter(Boolean)
+    .map(String);
+}
+
 /**
  * **The person the agents work for**, by the plugin's `owner` option:
  * exported to hooks as `CLAUDE_PLUGIN_OPTION_OWNER`, else read from the user
  * settings' `pluginConfigs`, else "the owner".
  */
-export function owner(env = process.env, settings = join(homedir(), ".claude", "settings.json")) {
-  if (env.CLAUDE_PLUGIN_OPTION_OWNER) return env.CLAUDE_PLUGIN_OPTION_OWNER;
-  let read = null;
-  try {
-    read = JSON.parse(readFileSync(settings, "utf8"));
-  } catch {
-    // No settings: the default.
-  }
-  return read?.pluginConfigs?.["workflow@workflow"]?.options?.owner || "the owner";
+export function owner(env = process.env, settings = USER_SETTINGS) {
+  return optionValues("owner", env, settings)[0] || "the owner";
+}
+
+/**
+ * **This machine's name in session names**, by the plugin's `machine`
+ * option, read as `owner` is; unset, the hostname, which is what Claude
+ * Code names a Remote Control session by. `{ name, set, rejected }`: the
+ * first value of a hostname's characters (letters, digits, underscores,
+ * dots and hyphens) is used; one that is not is passed over and named in
+ * `rejected`, and the hostname gets the same characters, so a name the
+ * queue gives is always one it reads back.
+ */
+export function machine(env = process.env, settings = USER_SETTINGS) {
+  const values = optionValues("machine", env, settings);
+  const label = values.find((one) => /^[\w.-]+$/.test(one));
+  if (label) return { name: label, set: true, rejected: "" };
+  return {
+    name: hostname().replace(/[^\w.-]+/g, "-") || "this-machine",
+    set: false,
+    rejected: values[0] || "",
+  };
 }
 
 /** This plugin's name, its agents' prefix (`workflow:executor`), from its manifest beside `scripts/`. */

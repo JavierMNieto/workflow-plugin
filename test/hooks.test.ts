@@ -65,6 +65,7 @@ const audit = join(here, "turn-audit.mjs");
 
 // The plugin's `owner` option, as Claude Code exports it to a hook.
 process.env.CLAUDE_PLUGIN_OPTION_OWNER = "Javi";
+process.env.CLAUDE_PLUGIN_OPTION_MACHINE = "lab";
 
 /** What the session's own Write tool did, as `PostToolUse` reports it. */
 function wrote(sessionId: string, path: string) {
@@ -658,7 +659,7 @@ describe("plan-queue", () => {
       encoding: "utf8",
       env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
     });
-    expect(out).toMatch(/^Plans, .*The executor: none alive\./);
+    expect(out).toMatch(/^Plans on lab, .*The executor: none alive\./);
     expect(out.indexOf("Ready, oldest first")).toBeLessThan(out.indexOf("Built today"));
     expect(out).toContain("plans/ready.md");
     expect(out).toContain("0123abcd");
@@ -1977,9 +1978,19 @@ describe("the queue's faults, closed", () => {
           WORKFLOW_STARTS_LOG: log,
           WORKFLOW_USAGE_FILE: join(b, ".claude", "usage.json"),
         });
-      expect(dry()).toContain('Would run: claude "--bg" "--remote-control" "B Executor 1"');
+      expect(dry()).toContain('Would run: claude "--bg" "--remote-control" "B Executor 1 (lab)"');
+      // A session of the same name in another checkout still takes its number.
+      expect(
+        runIn(b, ["start", "--dry", "plans/x.md"], {
+          WORKFLOW_LIVE: JSON.stringify([
+            { sessionId: "elsewhere", name: "B Executor 1 (lab)", kind: "background", cwd: "/x" },
+          ]),
+          WORKFLOW_STARTS_LOG: log,
+          WORKFLOW_USAGE_FILE: join(b, ".claude", "usage.json"),
+        }),
+      ).toContain('"--remote-control" "B Executor 2 (lab)"');
       writeFileSync(join(a, ".claude", "executor.pause"), JSON.stringify({ at: "now" }));
-      expect(dry()).toContain('"B Executor 1"');
+      expect(dry()).toContain('"B Executor 1 (lab)"');
     });
     it("counts no session with no working directory, unless its own files name it", () => {
       expect(inThisRepo(undefined, ["/w/a"])).toBe(false);
@@ -2049,19 +2060,19 @@ if (args[0] === "agents") {
       const dir = fixture("Untrusted");
       const { script, rows } = stub();
       const said = startIn(dir, { WORKFLOW_CLAUDE: script, STUB_ROWS: rows, STUB: "untrusted" });
-      expect(said).toContain("Untrusted Executor 1 was not started: Workspace not trusted.");
+      expect(said).toContain("Untrusted Executor 1 (lab) was not started: Workspace not trusted.");
       expect(existsSync(join(dir, ".claude", "starts.log"))).toBe(false);
     });
     it("logs a start whose session appears", { timeout: 30_000 }, () => {
       const dir = fixture("Seen");
       const { script, rows } = stub();
       const said = startIn(dir, { WORKFLOW_CLAUDE: script, STUB_ROWS: rows });
-      expect(said).toContain("Seen Executor 1 was started on: plans/x.md.");
+      expect(said).toContain("Seen Executor 1 (lab) was started on: plans/x.md.");
       expect(readFileSync(join(dir, ".claude", "starts.log"), "utf8")).toContain(
-        '"name":"Seen Executor 1"',
+        '"name":"Seen Executor 1 (lab)"',
       );
       expect(readFileSync(join(dir, ".claude", "executor.started"), "utf8")).toContain(
-        "Started Seen Executor 1",
+        "Started Seen Executor 1 (lab)",
       );
     });
   });

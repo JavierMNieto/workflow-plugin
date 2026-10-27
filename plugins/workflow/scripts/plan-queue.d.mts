@@ -70,6 +70,10 @@ export function ownRows<R extends { sessionId?: string; cwd?: string }>(
 export function liveSessions(options?: { fresh?: boolean; timeout?: number }): LiveRow[] | null;
 export function data(env?: Record<string, string | undefined>, scriptDir?: string): string;
 export function owner(env?: Record<string, string | undefined>, settings?: string): string;
+export function machine(
+  env?: Record<string, string | undefined>,
+  settings?: string,
+): { name: string; set: boolean; rejected: string };
 export function kindOf(input: { agent_type?: string } | null | undefined, plugin?: string): string;
 /** The deny key's faults, one line each, from the project's one parse. */
 export function checkDeny(
@@ -131,6 +135,16 @@ export type Session = {
   ceiling?: number;
 };
 export function worktrees(): Tree[];
+export const SESSION_NAME: RegExp;
+/** `<Project> <Kind> <n> (<machine>)`, the project and the machine optional. */
+export function sessionName(
+  kind: string,
+  n: number,
+  options?: { project?: string; machine?: string },
+): string;
+export function parseName(
+  name: string,
+): { project: string; kind: string; n: number; machine: string } | null;
 export function isSession(
   kind: "executor" | "planner",
   row: LiveRow,
@@ -293,6 +307,8 @@ export function canStart(facts: {
   brief?: string;
   name?: string;
   ceiling?: number;
+  taken?: string[];
+  machine?: string;
 }): StartDecision;
 export function cutoffEdit(
   text: string,

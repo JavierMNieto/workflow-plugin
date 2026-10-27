@@ -303,8 +303,11 @@ session in `claude agents`, and says why when it does not appear, logging
 nothing.
 
 Sessions the queue starts are Remote Control chats named after the
-project, `<Project> Executor 2, 3, ...` and `<Project> Planner 2, 3,
-...`, started by `claude --bg --remote-control`, counted per project. A
+project and the machine, `<Project> Executor 2 (lab)`, `<Project>
+Planner 3 (lab)`, started by `claude --bg --remote-control`, counted per
+project and per machine from the starts log and the live list; the
+machine's label is the plugin's `machine` option, the hostname when
+unset, and `plans` names it in its first line. A
 retired background executor is stopped a few minutes later, and `claude
 agents` and `claude rm` tidy old ones. **A background session works in
 the checkout**: the project's settings turn Claude Code's worktree guard
@@ -325,7 +328,7 @@ change to the workflow goes through the plugin's own queue, never the
 queue of the project it was noticed in, and the two run at the same
 time. What is a project's is in its checkout (`.claude/executor.lock`,
 `executor.pause`, the deferrals) or named after it (its sessions,
-`<Project> Executor n`); what is the subscription's is shared on
+`<Project> Executor n (<machine>)`); what is the subscription's is shared on
 purpose (the usage numbers); and a queue counts a session as its own
 only when the session's working directory is in its checkout or one
 of its worktrees, or its own files name the session. A session the
@@ -334,7 +337,12 @@ variables a hook exports are not handed down, and `plans` run as a
 command acts in the working directory. A start waits up to ten
 seconds to see its session in `claude agents`, and says why when it
 does not appear (an untrusted folder, most often) instead of logging
-a start that never ran.
+a start that never ran. **A checkout is a queue**: the same repository
+checked out on two machines is two queues, each with its `plans/`, its
+lock and its log, both pushing the project's branch, each executor
+branching from a fresh `origin/<branch>`; nothing is shared between
+them, and what crosses is a message, so an executor's follow-ups go to
+an assistant on its own machine.
 
 **Briefs are queued like plans**: a file headed `Brief for the planner` is
 a brief, listed under "Briefs, oldest first"; `## Planning, <date>,
@@ -422,7 +430,10 @@ chat belongs to, so `cd <checkout> && plans start` is the plugin's queue
 from any chat. The plugin's repository is itself a project with a
 `.claude/workflow.md`, so its own queue builds the change; its CI moves
 `main` on a green run of `test`, and every machine installing from `main`
-picks the change up after its next session starts.
+picks the change up after its next session starts. On a second machine,
+`/workflow:change` keeps a second checkout, and that machine's queue
+builds what is written there; the plugin's `main` carries it to the
+other.
 
 ## Installing
 
@@ -458,7 +469,10 @@ SessionStart hook copies the status line script into the plugin's data
 directory, which the setting runs; a background session works in the
 checkout (`bgIsolation`), as "The queue" says; and a subagent starts no
 subagent of its own. The owner's name is the plugin option `owner`
-(`claude plugin install workflow@workflow --config owner=<name>`).
+(`claude plugin install workflow@workflow --config owner=<name>`), and
+the machine's label in session names is the option `machine`, set once
+per machine (`echo '{"machine":"<label>"}' | claude plugin configure
+workflow@workflow --values-stdin`).
 
 **A push needs a token in the container.** The queue's chats run where
 no VS Code window may be, and VS Code's git credential helper answers

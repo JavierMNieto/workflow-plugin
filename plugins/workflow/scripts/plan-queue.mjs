@@ -64,12 +64,13 @@ import {
   everyTool,
   init,
   kindOf,
+  machine,
   owner,
   pluginAgents,
   project,
 } from "./project.mjs";
 
-export { owner };
+export { machine, owner };
 
 /** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
 const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff"];
@@ -356,6 +357,18 @@ const claudeBin = () => process.env.WORKFLOW_CLAUDE || "claude";
 let liveRead;
 
 /** This project's sessions, from `claude agents --json` (`ownRows`); null when it cannot be read. */
+let liveAll = null;
+
+/**
+ * The names of every live session on this machine, in any checkout: a
+ * start's number counts them all, since two checkouts of one project share
+ * its names (Codex, plans/session-names-across-machines.md).
+ */
+function liveNames() {
+  liveSessions();
+  return (liveAll || []).map((row) => row.name || "");
+}
+
 export function liveSessions({ fresh = false, timeout = 8000 } = {}) {
   if (!fresh && liveRead !== undefined) return liveRead;
   let rows = null;
@@ -375,6 +388,7 @@ export function liveSessions({ fresh = false, timeout = 8000 } = {}) {
       rows = null;
     }
   }
+  liveAll = rows;
   liveRead =
     rows &&
     ownRows(rows, {
@@ -446,16 +460,36 @@ function treeOf(cwd, trees) {
  * planner chats are his, not the queue's.
  */
 export function isSession(kind, row, state, lock) {
-  if (kind === "planner")
-    return (
-      row.kind === "background" &&
-      (/(^|\s)Planner \d+$/.test(row.name || "") || state?.agent === "planner")
-    );
+  const named = parseName(row.name || "")?.kind === kind;
+  if (kind === "planner") return row.kind === "background" && (named || state?.agent === "planner");
   return (
-    /(^|\s)Executor \d+$/.test(row.name || "") ||
+    named ||
     state?.agent === "executor" ||
     Boolean(lock && !lock.released && lock.sessionId === row.sessionId)
   );
+}
+
+/**
+ * **A session's name** (plans/session-names-across-machines.md):
+ * `<Project> <Kind> <n> (<machine>)`, `Workflow Executor 2 (lab)`, the
+ * project and the machine optional, so a session started before the
+ * machine was in the name still counts as the queue's.
+ */
+export const SESSION_NAME = /^(?:(.+) )?(Executor|Planner) (\d+)(?: \(([\w.-]+)\))?$/;
+
+/** The name the queue gives a session it starts. */
+export function sessionName(kind, n, { project = "", machine = "" } = {}) {
+  return [project, kind === "planner" ? "Planner" : "Executor", n, machine && `(${machine})`]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** `{ project, kind, n, machine }` from a session's name, or null when the queue gave no such name. */
+export function parseName(name) {
+  const m = SESSION_NAME.exec(name);
+  return m
+    ? { project: m[1] || "", kind: m[2].toLowerCase(), n: Number(m[3]), machine: m[4] || "" }
+    : null;
 }
 
 /** A row's status as the queue says it: "waiting for input" when it waits on the owner. */
@@ -855,7 +889,9 @@ function windowOver(usage, now = Date.now()) {
  * the starts' log (both kinds, told apart by name), `progressAt` the newest
  * Building, Handing over, Built or plan in the plans, `usage` the status
  * line's numbers with their `at` (epoch seconds), `sessions` the live,
- * unretired sessions of the kind. The usage windows and the pause are shared.
+ * unretired sessions of the kind, `taken` the names of this machine's live
+ * sessions, `machine` this machine's label. The usage windows and the
+ * pause are shared.
  */
 export function canStart({
   kind = "executor",
@@ -870,12 +906,18 @@ export function canStart({
   brief = "",
   name = "",
   ceiling = REUSE_DEFAULT,
+  taken = [],
+  machine = "",
 }) {
-  // **Session names carry the project** (`Docs Executor 2`), and the
-  // count is per project, so two projects' executors number apart.
-  const Name = `${name ? `${name} ` : ""}${kind === "planner" ? "Planner" : "Executor"}`;
-  const ofKind = new RegExp(`^${Name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} (\\d+)$`);
-  const log = all.filter((line) => ofKind.test(line.name || ""));
+  // **Session names carry the project and the machine** (`Docs Executor 2
+  // (lab)`), and the count is per project and per machine (the log is this
+  // machine's), so two projects' executors number apart and two machines'
+  // sessions never share a name (plans/session-names-across-machines.md).
+  const ours = (one) => {
+    const parsed = parseName(one || "");
+    return parsed && parsed.project === name && parsed.kind === kind ? parsed : null;
+  };
+  const log = all.filter((line) => ours(line.name));
   if (paused)
     return {
       refuse: true,
@@ -963,7 +1005,10 @@ export function canStart({
     };
   }
   // From 1 in a project with none started yet (/code-review, 27 October).
-  const n = Math.max(0, ...log.map((line) => Number(ofKind.exec(line.name)?.[1] || 0))) + 1;
+  // The live list counts too: the log can be reset (a marketplace move) while
+  // a session it named is still alive.
+  const n =
+    Math.max(0, ...[...log.map((line) => line.name), ...taken].map((one) => ours(one)?.n || 0)) + 1;
   const besideNote = beside
     .map(
       (one) =>
@@ -972,7 +1017,7 @@ export function canStart({
     .join(" ");
   return {
     start: true,
-    name: `${Name} ${n}`,
+    name: sessionName(kind, n, { project: name, machine }),
     note: [note, besideNote].filter(Boolean).join(" "),
     ...(replace.length ? { replace } : {}),
   };
@@ -1289,6 +1334,8 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
         brief: kind === "planner" ? paths[0] : "",
         name: proj().name,
         ceiling: proj().reuse,
+        taken: liveNames(),
+        machine: machine().name,
       });
   if (decision.refuse) return decision.why;
   if (decision.defer) return defer(decision.until, decision.why, paths, replace, kind);
@@ -1542,7 +1589,8 @@ export function list({ all = false, live } = {}) {
     );
   else if (lock && !lock.released)
     executor = `The executor: ${lock.name || nameOf(lock.sessionId)} [${String(lock.sessionId).slice(0, 8)}], status unknown.`;
-  out.push(`Plans, ${today(now)} ${now.toTimeString().slice(0, 5)}. ${executor}`);
+  const here = machine();
+  out.push(`Plans on ${here.name}, ${today(now)} ${now.toTimeString().slice(0, 5)}. ${executor}`);
   // **The planner line** (plans/planner-queue.md): the queue's planners only.
   if (live)
     out.push(
@@ -1631,6 +1679,13 @@ export function list({ all = false, live } = {}) {
     out.push(
       "",
       `Older, by path only: ${old} plan${old === 1 ? "" : "s"} dated before 24 October with no Built`,
+    );
+  // **The label is said where the queue is read** (plans/session-names-
+  // across-machines.md), while the hostname stands in for it.
+  if (!here.set)
+    out.push(
+      "",
+      `${here.rejected ? `The plugin's "machine" option, "${here.rejected}", is no label (letters, digits, underscores, dots and hyphens), so this machine` : "This machine"} is named by its hostname; the plugin's "machine" option names it: /plugin configure workflow in a chat, or echo '{"machine":"<label>"}' | claude plugin configure workflow@workflow --values-stdin.`,
     );
   return out.join("\n");
 }
