@@ -72,8 +72,8 @@ export function defaultBranch(root) {
 }
 
 /**
- * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, form, body,
- * found }` for the project
+ * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, form, reviews,
+ * body, found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
  * remote's default, `run`, `ui` and `catalogue` to none, `form` to "full"
  * ("compact" when the frontmatter says so: one chat, no queue).
@@ -101,13 +101,20 @@ export function project(root) {
     ui: list(front.ui),
     // A directory or one `.md` file; `inherits` the catalogues it overrides
     // by id, farthest first; `tools` the tool names (regular expressions)
-    // whose calls change what a person sees; `mcp` the MCP configs a chat
-    // here needs, which `plans chat` passes.
+    // whose calls change what a person sees; `mcp` the MCP configs every chat
+    // here gets, from `plans chat` or `plans start`.
     catalogue: typeof front.catalogue === "string" ? front.catalogue : "",
     inherits: list(front.inherits),
     tools: list(front.tools),
     mcp: list(front.mcp),
     form: front.form === "compact" ? "compact" : "full",
+    // The reviews before a push: all three in the full form, none in the
+    // compact form, unless the project names its own.
+    reviews: front.reviews
+      ? list(front.reviews)
+      : front.form === "compact"
+        ? []
+        : ["plan", "code-review", "codex"],
     body: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
     found: Boolean(text),
   };
@@ -126,9 +133,11 @@ branch: ${defaultBranch(root)}
 #   - ../.claude/decisions
 # tools:                 tool names whose calls change what a person sees
 #   - "mcp__server__write_.*"
-# mcp:                   MCP configs a chat here needs, passed by plans chat
+# mcp:                   MCP configs every chat here gets (plans chat, plans start)
 #   - .mcp/server.json
 # form: compact          one chat decides and builds; omit for the full queue
+# reviews:               the reviews before a push: plan, code-review, codex, or a plugin skill; omit for all three
+#   - code-review
 ---
 
 # This project's part of the workflow

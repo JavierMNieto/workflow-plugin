@@ -147,8 +147,14 @@ paste.
 1. **What the project file's Before the push says comes first when it
    asks for screenshots**: look at each, fix what is wrong, then send
    them with SendUserFile, each captioned with what it shows.
-2. **Three reviews** ("A second model reviews every plan's diff"), in
-   this order:
+2. **The reviews the project file names** (`reviews`; all three when the
+   key is absent, none when it is an empty list; "A second model reviews
+   every plan's diff"), in this
+   order: Codex first in the background when `codex` is named; the
+   Claude review in a fresh context when `plan` is named; `/code-review
+   medium` when `code-review` is named; a plugin skill named
+   (`writing:review`) invoked as a skill, on the diff's files, after the
+   plan review. Then read them all. Each, when named:
    1. **Codex first, in the background**, since it takes minutes and
       needs nothing from this session:
       `${CLAUDE_PLUGIN_ROOT}/scripts/codex-review.sh origin/<branch>
@@ -169,8 +175,9 @@ paste.
       which is the plan's diff because the batch branch tracks
       `origin/<branch>` (`git switch -c` sets it; `git branch -u
       origin/<branch>` when not).
-   4. **Read all three.** Fix what is real in the Claude review and in
-      `/code-review`'s verified findings; leave the rest. For each Codex
+   4. **Read them all.** Fix what is real in the Claude review, in
+      `/code-review`'s verified findings and in a plugin skill's review;
+      leave the rest. For each Codex
       finding, open the file and line and decide: **fixed** (a real bug
       inside the plan, fixed with a test where the plan's tests allow),
       **not a bug** (the reason in a clause), or **out of scope** (real,

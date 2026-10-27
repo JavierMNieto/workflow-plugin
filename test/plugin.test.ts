@@ -598,12 +598,14 @@ describe("the catalogue follow-up", () => {
       "---\nname: Talk\nform: compact\ninherits:\n  - ../ws/decisions\nmcp:\n  - .ppt/mcp.json\n---\n",
     );
     const { out } = plansIn(root, ["chat", "--dry", "Change slide 3"]);
-    expect(out).toContain('Would run: claude "--agent" "workflow:maker" "--effort" "high"');
-    expect(out).toContain(
-      `"--mcp-config" "${join(root, ".ppt", "mcp.json")}" "--strict-mcp-config"`,
-    );
+    expect(out).toContain('"--agent" "workflow:maker" "--effort" "high" "Change slide 3"');
+    expect(out).toContain(`"--mcp-config" "${join(root, ".ppt", "mcp.json")}"`);
+    expect(out).not.toContain("--strict-mcp-config");
     expect(out).toContain(`"--add-dir" "${join(root, "..", "ws", "decisions")}"`);
     expect(out).toContain('"Change slide 3"');
+    // The several-value flags come first, so the owner's words follow a flag of one value.
+    expect(out.indexOf('"--agent"')).toBeGreaterThan(out.lastIndexOf('"--add-dir"'));
+    expect(out.trim().endsWith('"Change slide 3"')).toBe(true);
   });
 
   it("refuses a turn that called a writing tool and recorded nothing, once, and passes decisions: none", () => {
@@ -655,6 +657,70 @@ describe("the catalogue follow-up", () => {
     run("tool", { session_id: id, tool_name: "mcp__p__ppt_set_text", tool_input: {} });
     expect(run("stop", { session_id: id, stop_hook_active: false })).toContain(
       "1 call to mcp__p__ppt_set_text was made",
+    );
+  });
+});
+
+describe("the setup interview", () => {
+  it("reads reviews, defaulting by form, and the starter names the key", () => {
+    const at = (front: string) => {
+      const root = dir("reviews-");
+      mkdirSync(join(root, ".claude"));
+      writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: R\n${front}---\n`);
+      return project(root).reviews;
+    };
+    expect(at("")).toEqual(["plan", "code-review", "codex"]);
+    expect(at("form: compact\n")).toEqual([]);
+    expect(at("reviews:\n  - code-review\n")).toEqual(["code-review"]);
+    const fresh = dir("reviews-init-");
+    init(fresh);
+    expect(readFileSync(join(fresh, ".claude", "workflow.md"), "utf8")).toContain(
+      "# reviews:               the reviews before a push: plan, code-review, codex, or a plugin skill; omit for all three",
+    );
+  });
+
+  it("has the setup skill at fable, and the kinds table's five rows of six columns", () => {
+    const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
+    const text = readFileSync(join(skill, "SKILL.md"), "utf8");
+    expect(text).toMatch(/^model: fable$/m);
+    expect(text).toMatch(/^description: Sets a project up for the workflow in a short interview/m);
+    const rows = readFileSync(join(skill, "kinds.md"), "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !/^\| (Kind|---)/.test(line));
+    expect(rows.map((r) => r.split("|")[1].trim())).toEqual([
+      "Web app or service",
+      "Paper",
+      "Talk",
+      "Personal tool or script",
+      "Something else",
+    ]);
+    for (const row of rows) expect(row.split("|").length - 2, row).toBe(6);
+  });
+
+  it("passes the project's mcp to a started chat", () => {
+    const root = dir("start-mcp-");
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      "---\nname: M\nbranch: test\nmcp:\n  - .mcp/server.json\n---\n",
+    );
+    const out = execFileSync(
+      "node",
+      [join(scripts, "plan-queue.mjs"), "start", "--dry", "plans/x.md"],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CLAUDE_PROJECT_DIR: root,
+          WORKFLOW_LIVE: "[]",
+          WORKFLOW_STARTS_LOG: join(root, ".claude", "starts.log"),
+          WORKFLOW_USAGE_FILE: join(root, ".claude", "usage.json"),
+        },
+      },
+    );
+    expect(out).toContain(
+      `Would run: claude "--mcp-config" "${join(root, ".mcp", "server.json")}" "--bg"`,
     );
   });
 });

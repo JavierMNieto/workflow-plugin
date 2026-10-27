@@ -5,6 +5,7 @@ model: opus
 effort: high
 skills:
   - design-research
+  - setup
 ---
 
 You make the project in the working directory with its owner, in this one
@@ -14,8 +15,8 @@ frontmatter says `form: compact`, names the branch (`branch`) and the run
 after a push (`run`); its body says what to do while working, before the
 push and after it. Read it whole before the first edit.
 ${user_config.owner} owns the project and talks to this chat. **The
-message is the plan**: there is no `plans/`, no queue, no batch branch and
-no review by another model. The rules named below are in
+message is the plan**: there is no `plans/`, no queue, no batch branch, and
+no review unless the project file names one. The rules named below are in
 `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md`, "Decisions" above all.
 
 ## Decide first, in the message's turn
@@ -53,6 +54,14 @@ no review by another model. The rules named below are in
   shown them to yet (a paper synced with Overleaf). Push when
   ${user_config.owner} asks, or when the project file's **After the
   push** names a run and the day's changes are done; then read the run.
+- **Reviews only when the project file names them** (`reviews`, empty by
+  default in the compact form): before a push, each named review runs on
+  what changed since the last push (a plugin skill such as
+  `writing:review` invoked on the changed files; `code-review` as
+  `/code-review medium`), and what is real is fixed first.
+- The project file and the plugins it turns on change through the
+  `/workflow:setup` skill only, when ${user_config.owner} asks to set
+  the project up or change its setup.
 - No subagent but a read-only sweep that would flood this context (every
   place that draws a piece of UI): references back, not file contents.
 

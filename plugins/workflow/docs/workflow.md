@@ -96,9 +96,11 @@ inherits:                 # catalogues this one overrides by id, farthest first
   - ../.claude/decisions
 tools:                    # tool names whose calls change what a person sees
   - "mcp__server__write_.*"
-mcp:                      # MCP configs a chat here needs, passed by plans chat
+mcp:                      # MCP configs every chat here gets (plans chat, plans start)
   - .mcp/server.json
 form: compact             # one chat decides and builds; omit for the full queue
+reviews:                  # the reviews before a push; omit for all three (none when compact)
+  - code-review
 note: \JaviAI             # the writing plugin's note command; omit for notes in the report
 reply: \javi              # the command the author answers notes with
 ---
@@ -114,9 +116,9 @@ may be omitted in a compact project: the maker then commits nothing, and
 a project file needs no repository around it.
 
 **`mcp` names the MCP configs a chat here needs** (a PowerPoint bridge, a
-database), which `plans chat` passes on the command line with
-`--strict-mcp-config`, so the tools exist in that chat and in no other;
-nothing registers them globally. `plans chat` is the way to open the
+database), which `plans chat` and every chat the queue starts pass on the
+command line, so the tools exist in the project's chats and nowhere else;
+what the user settings load is loaded too. `plans chat` is the way to open the
 maker or the assistant in a project with `mcp` or `inherits` (each
 inherited catalogue an added directory). A token in such a config stays
 where the config keeps it; `plans chat` prints the path, never the file.
@@ -131,7 +133,14 @@ makes, the product people know for it, which the `design-research` skill
 follows first). It may also name the people whose calls are theirs
 (the assistant's second exit), the tools that publish under the owner's
 name (which no agent calls), and headings of its own for the assistant.
-`plans init` writes a starter. **A project with no project file is not
+`plans init` writes a starter. **A project is set up in a short
+interview**, `/workflow:setup` in the assistant's or the maker's chat:
+what the project is for, what the owner mostly does there, which
+reviews, what the catalogue watches, asked once with the defaults of
+that kind of project (the skill's `kinds.md`), then the project file
+and the plugins' on and off written and the cost of each thing on said
+in a line. Run again, it keeps the answers as the defaults. **A project
+with no project file is not
 the workflow's**: the plugin's hooks do nothing there, `plans` says so and
 `plans start` refuses, so a project with hooks of its own keeps them until
 its file lands.
@@ -331,6 +340,8 @@ per plan. The executor confirms each finding against the code before
 acting; its "Built" section lists every finding with its verdict. Codex
 comments and never gates: when it is not installed, not signed in, over
 its limit or past the timeout, the script says so and the build goes on.
+A project names its reviews in `reviews`: a personal tool may want
+`/code-review` alone, a paper the writing plugin's.
 
 **The turn audit** (`scripts/turn-audit.mjs`): once per turn, a session
 that changed more than one file is asked, at its Stop, to say why each
@@ -395,4 +406,5 @@ The research-writing skills are a second plugin of the same marketplace,
 `writing@workflow`, that a project turns on in its own
 `.claude/settings.json`; its skills load when the project works on
 `.tex`, `.bib` or `.md` files, and the project's own writing decisions
-are its catalogue.
+are its catalogue. `/workflow:setup` in a new project writes its project
+file and turns the plugins it needs on, and the others off.

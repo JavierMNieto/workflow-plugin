@@ -1122,7 +1122,14 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
   // file's effort for the model outranks the frontmatter, and the user
   // settings set Opus to medium for the assistant; the command line outranks both.
   const effort = agentEffort(agent);
+  // **The project's MCP configs reach every chat started here**, first: the
+  // flag takes every value up to the next flag, so nothing positional may
+  // follow it. A probe needs none.
+  const mcp = probe
+    ? []
+    : proj().mcp.flatMap((p) => ["--mcp-config", isAbsolute(p) ? p : resolve(root, p)]);
   const args = [
+    ...mcp,
     "--bg",
     "--remote-control",
     decision.name,
@@ -2248,20 +2255,21 @@ export function checkCatalogues(project = proj(), dir = root) {
 
 /**
  * **`plans chat`**: the maker in a compact project, else the assistant, with
- * the project's `mcp` configs (and no other server) and its inherited
- * catalogues as added directories.
+ * the project's `mcp` configs (beside what the user settings load) and its
+ * inherited catalogues as added directories.
  */
 export function chatCommand(args = [], project = proj(), dir = root) {
   const at = (p) => (isAbsolute(p) ? p : resolve(dir, p));
   const agent = project.form === "compact" ? "maker" : "assistant";
   const effort = agent === "maker" ? agentEffort("maker") : "";
+  // `--mcp-config` and `--add-dir` take every value up to the next flag, so
+  // they come first and the owner's words after a flag of one value.
   return [
+    ...project.mcp.flatMap((p) => ["--mcp-config", at(p)]),
+    ...project.inherits.flatMap((p) => ["--add-dir", at(p)]),
     "--agent",
     `workflow:${agent}`,
     ...(effort ? ["--effort", effort] : []),
-    ...project.mcp.flatMap((p) => ["--mcp-config", at(p)]),
-    ...(project.mcp.length ? ["--strict-mcp-config"] : []),
-    ...project.inherits.flatMap((p) => ["--add-dir", at(p)]),
     ...args,
   ];
 }
