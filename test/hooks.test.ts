@@ -32,6 +32,7 @@ import {
   countCompaction,
   cutoffEdit,
   decideResumed,
+  decideEnd,
   decideStop,
   inThisRepo,
   lockHeldByOther,
@@ -66,6 +67,9 @@ const audit = join(here, "turn-audit.mjs");
 // The plugin's `owner` option, as Claude Code exports it to a hook.
 process.env.CLAUDE_PLUGIN_OPTION_OWNER = "Javi";
 process.env.CLAUDE_PLUGIN_OPTION_MACHINE = "lab";
+// The end timer and the stops are recorded here, so no hook a test runs
+// leaves a timer sleeping for an hour (plans/idle-chats-end.md).
+process.env.WORKFLOW_STOP_LOG = join(tmpdir(), `workflow-stops-hooks-${process.pid}.log`);
 
 /** What the session's own Write tool did, as `PostToolUse` reports it. */
 function wrote(sessionId: string, path: string) {
@@ -846,7 +850,7 @@ describe("plan-queue", () => {
       const decision = canStart({ sessions: [one], lock: null });
       expect(decision).toMatchObject({ refuse: true });
       expect("why" in decision && decision.why).toBe(
-        "An executor is alive: Executor 2 [aacbea39], busy, in public-sources-edits on codex-answers. Message it in Remote Control, or archive it in the Claude app's session list or have the assistant stop it (claude stop bg-123), then start again.",
+        "An executor is alive: Executor 2 [aacbea39], busy, in public-sources-edits on codex-answers. Message it in Remote Control, or have the assistant end it (plans end aacbea39), then start again.",
       );
     });
     it("starts with none alive and a released lock", () => {
@@ -2303,5 +2307,368 @@ describe("the cache-aware queue", () => {
       rmSync(repo, { recursive: true, force: true });
       rmSync(projects, { recursive: true, force: true });
     }
+  });
+});
+
+/** plans/idle-chats-end.md: a finished chat ends an hour after it goes quiet. */
+describe("a finished chat ends", () => {
+  const MIN = 60_000;
+  const now = Date.UTC(2026, 9, 27, 22, 0);
+  const done = { kind: "background", state: "done", sessionId: "s", name: "Ends Executor 1" };
+  const used = (minutes: number) => ({ context: 150_000, at: now - minutes * MIN });
+
+  it("decideEnd: done, cold and nothing under way ends; anything else says why not", () => {
+    expect(decideEnd({ row: done, usage: used(70), now })).toEqual({ end: true });
+    expect(decideEnd({ row: done, usage: used(20), now })).toEqual({
+      end: false,
+      why: "its cache is still warm",
+    });
+    expect(decideEnd({ row: done, usage: used(20), now, force: true })).toEqual({ end: true });
+    expect(decideEnd({ row: { ...done, state: "blocked" }, usage: used(70), now })).toEqual({
+      end: false,
+      why: "its state is blocked",
+    });
+    expect(decideEnd({ row: { ...done, state: "working" }, now, force: true })).toEqual({
+      end: false,
+      why: "its state is working",
+    });
+    expect(decideEnd({ row: done, usage: used(70), on: "plans/x.md", now })).toEqual({
+      end: false,
+      why: "it has plans/x.md under way",
+    });
+    expect(decideEnd({ row: { ...done, kind: "interactive" }, usage: used(70), now })).toEqual({
+      end: false,
+      why: "it is not a background session of the queue",
+    });
+    expect(decideEnd({ row: null, now })).toMatchObject({ end: false });
+    // No usage known: the timer fired an hour after the Stop that armed it.
+    expect(decideEnd({ row: done, now })).toEqual({ end: true });
+    // A planner holding an untaken plan ends like the rest (Decided 1): nothing in the rule reads it.
+    expect(decideEnd({ row: { ...done, name: "Ends Planner 1" }, usage: used(70), now })).toEqual({
+      end: true,
+    });
+  });
+
+  it("reads a blocked session as waiting for input, and never replaces it", () => {
+    const row = {
+      sessionId: "b1000000-0000",
+      name: "Ends Planner 1",
+      kind: "background",
+      state: "blocked",
+      status: "idle",
+      cwd: "/x",
+    };
+    const [one] = sessionsOf("planner", [row], null, {
+      trees: [{ path: "/x", branch: "" }],
+      stateFor: () => ({ agent: "planner", plans: [] }),
+      usageFor: () => ({ context: 300_000, at: now - MIN }),
+    } as never);
+    expect(one.status).toBe("waiting for input");
+    expect(describeSession(one)).toContain("Ends Planner 1 [b1000000], waiting for input");
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    // A planner waiting on its owner is left: a fresh one starts beside it, none is retired.
+    const planner = canStart({ kind: "planner", now, usage, name: "Ends", sessions: [one] });
+    expect(planner).toMatchObject({ start: true });
+    expect(planner).not.toHaveProperty("replace");
+    expect(planner.note).toContain("which is waiting for input with a context of 300k");
+    // An executor waiting on its owner refuses the start.
+    const executor = { ...one, kind: "executor" as const };
+    expect(canStart({ now, usage, name: "Ends", sessions: [executor] })).toMatchObject({
+      refuse: true,
+    });
+  });
+
+  it("says when a chat ends, and where each plan a planner holds stands", () => {
+    const at = Date.now() + 30 * MIN;
+    const hhmm = new Date(at).toTimeString().slice(0, 5);
+    const executor = {
+      kind: "executor" as const,
+      sessionId: "e1000000-0000",
+      id: "",
+      name: "Ends Executor 1",
+      status: "idle",
+      where: "checkout",
+      branch: "",
+      holdsLock: false,
+      retired: false,
+      on: "",
+      endsAt: at,
+    };
+    expect(describeSession(executor)).toBe(
+      `Ends Executor 1 [e1000000], idle, ends at ${hhmm} if left quiet, in the checkout`,
+    );
+    // A turn under way is not quiet.
+    expect(describeSession({ ...executor, status: "busy" })).toBe(
+      "Ends Executor 1 [e1000000], busy, in the checkout",
+    );
+    expect(describeSession({ ...executor, endsAt: Date.now() - MIN })).toBe(
+      "Ends Executor 1 [e1000000], idle, in the checkout",
+    );
+    const live = [{ sessionId: "e1000000-0000", name: "Ends Executor 1" }];
+    const plans = [
+      { path: "plans/a.md", state: "ready" },
+      { path: "plans/b.md", state: "ready", asks: true },
+      { path: "plans/c.md", state: "built" },
+      { path: "plans/d.md", state: "building", session: "e1000000-0000" },
+    ];
+    const [planner] = sessionsOf(
+      "planner",
+      [{ sessionId: "p1000000-0000", name: "Ends Planner 1", kind: "background", status: "idle" }],
+      null,
+      {
+        trees: [],
+        plans,
+        stateFor: () => ({
+          agent: "planner",
+          plans: ["plans/a.md", "plans/b.md", "plans/c.md"],
+          end: { pid: null, at },
+        }),
+        usageFor: () => null,
+      } as never,
+    );
+    expect(describeSession(planner)).toBe(
+      `Ends Planner 1 [p1000000], idle, ends at ${hhmm} if left quiet, holds plans/a.md (ready, for the executor), plans/b.md (asks Javi) and plans/c.md (built)`,
+    );
+    const [retired] = sessionsOf(
+      "planner",
+      [
+        ...live,
+        { sessionId: "p2000000-0000", name: "Ends Planner 2", kind: "background", status: "idle" },
+      ],
+      null,
+      {
+        trees: [],
+        plans,
+        stateFor: (id: string) =>
+          id.startsWith("p2")
+            ? { agent: "planner", retired: true, plans: ["plans/d.md", "plans/e.md"] }
+            : { agent: "executor" },
+        usageFor: () => null,
+      } as never,
+    );
+    expect(describeSession(retired)).toBe(
+      "Ends Planner 2 [p2000000], idle, retired, its plans plans/d.md (building, Ends Executor 1) and plans/e.md (gone)",
+    );
+  });
+
+  describe("in a fixture", () => {
+    let dir: string;
+    let projects: string;
+    let log: string;
+    const exec = "e2000000-0000-0000-0000-000000000000";
+    const planner = "p3000000-0000-0000-0000-000000000000";
+    const asker = "p4000000-0000-0000-0000-000000000000";
+    const lone = "p5000000-0000-0000-0000-000000000000";
+    const tty = "e6000000-0000-0000-0000-000000000000";
+    const stateFile = (id: string) => join(tmpdir(), `workflow-queue-${id}.json`);
+    const rows = [
+      {
+        sessionId: exec,
+        id: "bg-e",
+        name: "Ends Executor 1",
+        kind: "background",
+        state: "done",
+        status: "idle",
+      },
+      {
+        sessionId: asker,
+        id: "bg-a",
+        name: "Ends Planner 1",
+        kind: "background",
+        state: "blocked",
+        status: "idle",
+      },
+      {
+        sessionId: planner,
+        id: "bg-p",
+        name: "Ends Planner 2",
+        kind: "background",
+        state: "done",
+        status: "idle",
+      },
+      {
+        sessionId: tty,
+        name: "Ends Executor 2",
+        kind: "interactive",
+        state: "done",
+        status: "idle",
+      },
+      {
+        sessionId: lone,
+        id: "bg-l",
+        name: "Ends Planner 3",
+        kind: "background",
+        state: "done",
+        status: "idle",
+      },
+    ];
+    const env = () => ({
+      CLAUDE_PROJECT_DIR: dir,
+      WORKFLOW_ROOT: dir,
+      WORKFLOW_STOP_LOG: log,
+      WORKFLOW_PROJECTS: projects,
+      WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+      WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+      WORKFLOW_LIVE: JSON.stringify(rows.map((row) => ({ ...row, cwd: dir }))),
+    });
+    const queue = (args: string[], input: object = {}) =>
+      execFileSync("node", [join(here, "plan-queue.mjs"), ...args], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: { ...process.env, ...env() },
+      });
+    const logged = () =>
+      existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+    const endAt = (line: string) => Number(/ at (\d+)$/.exec(line)![1]);
+
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), "ends-"));
+      projects = mkdtempSync(join(tmpdir(), "ends-projects-"));
+      log = join(dir, "stops.log");
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(join(dir, ".claude"));
+      mkdirSync(join(dir, "plans"));
+      writeFileSync(join(dir, ".claude", "workflow.md"), "---\nname: Ends\nbranch: test\n---\n");
+      writeFileSync(
+        join(dir, "plans", "taken.md"),
+        `# Taken\n\n## Building, 27 October 2026, session ${exec}\n\nPlan only, 27 October 2026, for Javi.\n`,
+      );
+      writeFileSync(
+        stateFile(planner),
+        JSON.stringify({ agent: "planner", plans: ["plans/taken.md"] }),
+      );
+      writeFileSync(
+        stateFile(asker),
+        JSON.stringify({ agent: "planner", plans: ["plans/asks.md"] }),
+      );
+      writeFileSync(stateFile(lone), JSON.stringify({ agent: "planner", plans: [] }));
+    });
+    afterAll(() => {
+      for (const id of [exec, planner, asker, lone, tty]) rmSync(stateFile(id), { force: true });
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(projects, { recursive: true, force: true });
+    });
+
+    it("arms one end timer an hour on at each stop of an executor, and of a planner the queue gave work", () => {
+      rmSync(log, { force: true });
+      rmSync(stateFile(exec), { force: true });
+      const before = Date.now();
+      expect(queue(["stop"], { session_id: exec, agent_type: "executor" })).toBe("");
+      const first = logged();
+      expect(first).toHaveLength(1);
+      expect(first[0]).toMatch(new RegExp(`^end ${exec} at \\d+$`));
+      expect(Math.abs(endAt(first[0]) - (before + 60 * MIN))).toBeLessThan(MIN);
+      expect(JSON.parse(readFileSync(stateFile(exec), "utf8")).end.at).toBe(endAt(first[0]));
+      queue(["stop"], { session_id: exec, agent_type: "executor" });
+      const second = logged();
+      expect(second).toHaveLength(2);
+      expect(endAt(second[1])).toBeGreaterThanOrEqual(endAt(second[0]));
+      expect(JSON.parse(readFileSync(stateFile(exec), "utf8")).end.at).toBe(endAt(second[1]));
+      // A planner with plans arms the same; one the queue gave nothing arms nothing.
+      rmSync(log, { force: true });
+      queue(["stop"], { session_id: planner, agent_type: "planner" });
+      expect(logged()).toEqual([expect.stringMatching(new RegExp(`^end ${planner} at `))]);
+      queue(["stop"], { session_id: lone, agent_type: "planner" });
+      expect(logged()).toHaveLength(1);
+      // The owner's interactive executor is never the queue's to end: no timer.
+      queue(["stop"], { session_id: tty, agent_type: "executor" });
+      expect(logged()).toHaveLength(1);
+      // plans says when it ends.
+      const hhmm = new Date(endAt(second[1])).toTimeString().slice(0, 5);
+      expect(queue([])).toContain(
+        `Ends Executor 1 [e2000000], idle, ends at ${hhmm} if left quiet`,
+      );
+    });
+
+    it("arms it on the retire too", () => {
+      rmSync(log, { force: true });
+      const tired = "e3000000-0000-0000-0000-000000000000";
+      writeFileSync(stateFile(tired), JSON.stringify({ agent: "executor", compactions: 2 }));
+      writeFileSync(
+        join(dir, "plans", "waiting.md"),
+        "# Waiting\n\nPlan only, 27 October 2026, for Javi.\n",
+      );
+      // A start a minute ago with nothing built since: the next start is refused, so none launches.
+      writeFileSync(
+        join(dir, ".claude", "starts.log"),
+        `${JSON.stringify({ at: Date.now() - MIN, name: "Ends Executor 1", paths: [] })}\n`,
+      );
+      try {
+        const said = queue(["stop"], { session_id: tired, agent_type: "executor" });
+        expect(said).toContain("Retired: this session has compacted 2 times");
+        expect(logged()).toEqual([expect.stringMatching(new RegExp(`^end ${tired} at `))]);
+        expect(JSON.parse(readFileSync(stateFile(tired), "utf8")).retired).toBe(true);
+      } finally {
+        rmSync(stateFile(tired), { force: true });
+        rmSync(join(dir, "plans", "waiting.md"), { force: true });
+        rmSync(join(dir, ".claude", "starts.log"), { force: true });
+      }
+    });
+
+    it("plans end ends the finished chats, says why not for the rest, and takes an id", () => {
+      rmSync(log, { force: true });
+      // The executor's Building line is gone, so nothing is under way.
+      writeFileSync(
+        join(dir, "plans", "taken.md"),
+        `# Taken\n\n## Built, 27 October 2026\n\nCommit 1234abcd.\n\nPlan only, 27 October 2026, for Javi.\n`,
+      );
+      const out = queue(["end"]);
+      expect(logged()).toEqual(["bg-e", "bg-p", "bg-l"]);
+      expect(out).toContain("Ended Ends Executor 1 [e2000000]: done.");
+      expect(out).toContain("Ended Ends Planner 2 [p3000000]: done.");
+      expect(out).toContain("Not ended: Ends Planner 1 [p4000000], its state is blocked.");
+      expect(out).toContain(
+        "Not ended: Ends Executor 2 [e6000000], it is not a background session of the queue.",
+      );
+      expect(out).not.toContain("Nothing to end");
+      expect(JSON.parse(readFileSync(stateFile(exec), "utf8"))).not.toHaveProperty("end");
+      rmSync(log, { force: true });
+      expect(queue(["end", "p3000000"])).toBe("Ended Ends Planner 2 [p3000000]: done.\n");
+      expect(logged()).toEqual(["bg-p"]);
+      expect(queue(["end", "bg-e"])).toBe("Ended Ends Executor 1 [e2000000]: done.\n");
+      expect(queue(["end", "deadbeef"])).toBe(
+        "deadbeef is no live session of this queue; plans lists them.\n",
+      );
+    });
+
+    it("never signals a pid that is not the session's timer, and keeps the timer when the stop fails", async () => {
+      // Codex, 27 October: a timer gone leaves its pid to be reused.
+      writeFileSync(
+        join(dir, "plans", "taken.md"),
+        "# Taken\n\n## Built, 27 October 2026\n\nCommit 1234abcd.\n\nPlan only, 27 October 2026, for Javi.\n",
+      );
+      const other = spawn("sleep", ["30"], { stdio: "ignore" });
+      try {
+        writeFileSync(
+          stateFile(exec),
+          JSON.stringify({ agent: "executor", end: { pid: other.pid, at: Date.now() } }),
+        );
+        queue(["stop"], { session_id: exec, agent_type: "executor" });
+        await new Promise((done) => setTimeout(done, 300));
+        expect(other.exitCode).toBeNull();
+        expect(other.signalCode).toBeNull();
+      } finally {
+        other.kill();
+      }
+      const kept = { pid: 1, at: Date.now() + 60 * MIN };
+      writeFileSync(stateFile(exec), JSON.stringify({ agent: "executor", end: kept }));
+      const failed = execFileSync("node", [join(here, "plan-queue.mjs"), "end", "bg-e"], {
+        encoding: "utf8",
+        env: { ...process.env, ...env(), WORKFLOW_STOP_LOG: "", WORKFLOW_CLAUDE: "/bin/false" },
+      });
+      expect(failed).toBe("Not ended: Ends Executor 1 [e2000000], claude stop failed.\n");
+      expect(JSON.parse(readFileSync(stateFile(exec), "utf8")).end).toEqual(kept);
+    });
+
+    it("the timer ends the session when it fires, by the same rule", () => {
+      rmSync(log, { force: true });
+      expect(queue(["end", "--timer", String(Date.now() - 1), exec])).toBe("");
+      expect(logged()).toEqual(["bg-e"]);
+      queue(["end", "--timer", String(Date.now() - 1), asker]);
+      expect(logged()).toEqual(["bg-e"]);
+    });
   });
 });

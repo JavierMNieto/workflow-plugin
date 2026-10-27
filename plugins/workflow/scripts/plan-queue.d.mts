@@ -111,6 +111,8 @@ export type LiveRow = {
   kind?: string;
   pid?: number;
   waitingFor?: string;
+  /** `working`, `blocked`, `done`, `failed` or `stopped`, as `claude agents --json` gives it. */
+  state?: string;
 };
 export type Tree = { path: string; branch: string };
 /** A live executor or planner session, as its line and `canStart` see it. */
@@ -128,6 +130,10 @@ export type Session = {
   on: string;
   /** A planner's plans, in the order it wrote them. */
   holds?: string[];
+  /** Where each of a planner's plans stands: "ready, for the executor", "built", "gone". */
+  standing?: Record<string, string>;
+  /** When its end timer fires, if it is left quiet (ms); 0 with none. */
+  endsAt?: number;
   /** A planner's compactions. */
   compactions?: number;
   /** Its context and the age of its last turn, from its transcript. */
@@ -277,6 +283,18 @@ export const REUSE_DEFAULT: number;
 export const CACHE_TTL: number;
 export const WARM: number;
 export function sessionUsage(transcriptPath: string): SessionUsage | null;
+export function decideEnd(facts: {
+  row: LiveRow | null;
+  usage?: SessionUsage | null;
+  on?: string;
+  now?: number;
+  force?: boolean;
+}): { end: true } | { end: false; why: string };
+export function endSession(
+  sessionId: string,
+  options?: { force?: boolean; live?: LiveRow[] | null },
+): { ended: boolean; line: string };
+export function endCommand(ids?: string[]): string;
 export function transcriptOf(row: { cwd?: string; sessionId?: string }, projects?: string): string;
 export function mayReuse(facts: {
   compactions?: number;

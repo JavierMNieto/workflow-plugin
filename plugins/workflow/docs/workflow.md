@@ -307,9 +307,32 @@ project and the machine, `<Project> Executor 2 (lab)`, `<Project>
 Planner 3 (lab)`, started by `claude --bg --remote-control`, counted per
 project and per machine from the starts log and the live list; the
 machine's label is the plugin's `machine` option, the hostname when
-unset, and `plans` names it in its first line. A
-retired background executor is stopped a few minutes later, and `claude
-agents` and `claude rm` tidy old ones. **A background session works in
+unset, and `plans` names it in its first line.
+
+**A finished chat ends an hour after it goes quiet.** A replaced session
+is stopped three minutes after its successor starts. Any other session
+the queue started arms, at each of its stops, a timer at the cache's life
+(sixty minutes); when it fires, a session whose turn is done (`claude
+agents` says `done`), whose last turn is older than the warm span and
+that has no plan or brief under way is stopped with `claude stop`, which
+keeps its conversation; a session used again in the hour is left, and
+its next stop re-arms the timer. A session that asked the owner a
+question (`blocked`) is never ended by the queue, and `plans` says it is
+waiting for input. `plans end` ends this queue's finished chats now, and
+`plans end <id>` one of them; `plans` says when each will end. Claude
+Code's own supervisor stops a done background session on its own clock,
+about an hour by its docs and eight by this machine's log, which is why
+idle chats lingered.
+
+**Archiving a chat in the Claude app does not stop it.** The app is a
+window into the session; an archived one is hidden there and reopened by
+`/remote-control`, while its process runs on, still counted by `plans` as
+alive and still refusing a start. The process's exit is what archives
+the chat (Claude Code 2.1.113), so a chat is ended by `claude stop`, the
+timer's or `plans end`, and never by archiving; the transcript stays on
+the machine for `claude --resume`.
+
+**A background session works in
 the checkout**: the project's settings turn Claude Code's worktree guard
 off (`worktree.bgIsolation: "none"`), and one executor at a time holds the
 lock while the planner and the assistant read beside it; the queue still
@@ -363,13 +386,16 @@ brief names a file one of its plans names, `plans/` and `.claude/` paths
 included, or one of those plans), and one that has compacted twice, or
 once with nothing related waiting, is retired and the hook starts the
 next planner; a brief it was named and did not take goes to a fresh
-planner at its next stop. With nothing waiting it stays alive, idle and
-unretired, and `plans start --agent planner` refuses beside it and prints
+planner at its next stop. With nothing waiting it stays alive and
+unretired for the hour its cache is warm, then ends, and while it lives
+`plans start --agent planner` refuses beside it and prints
 the message to send it, which the assistant sends with `SendMessage`. A
 chat holds every plan it wrote: it may still edit each until an
 executor's Building line takes it, and the hook tells it on every prompt
-where each plan stands; a retired chat is stopped when every plan of its
-own is taken or the next planner starts.
+where each plan stands, and `plans` says it on the planner's line; a
+retired chat is stopped when every plan of its own is taken or the next
+planner starts, or an hour after it goes quiet, its plans standing in the
+queue.
 
 A decision the plan left to the owner is taken in its "Decided" section
 before that part is built; a question a plan did not foresee goes through

@@ -34,6 +34,10 @@ import {
 } from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
 
+// The end timer and the stops are recorded here, so no hook a test runs
+// leaves a timer sleeping for an hour (plans/idle-chats-end.md).
+process.env.WORKFLOW_STOP_LOG = join(tmpdir(), `workflow-stops-plugin-${process.pid}.log`);
+
 const scripts = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
 const made: string[] = [];
 const dir = (prefix: string) => {

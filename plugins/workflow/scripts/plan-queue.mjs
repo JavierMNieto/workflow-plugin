@@ -23,6 +23,8 @@
 //                            and starts its resumption at the window's reset
 //   plan-queue.mjs start     `plans start`: the one thing that starts
 //                            executors and planners, within the bounds below
+//   plan-queue.mjs end       `plans end`: ends this queue's finished chats; with
+//                            --timer, the end timer each stop arms an hour on
 //   plan-queue.mjs pause | resume | sync | init
 //
 // **Bounded, as every loop over model calls is**: one executor at a time
@@ -492,10 +494,16 @@ export function parseName(name) {
     : null;
 }
 
-/** A row's status as the queue says it: "waiting for input" when it waits on the owner. */
+/**
+ * A row's status as the queue says it: "waiting for input" when it waits on
+ * the owner (a question asked, a prompt standing: `state` blocked, or
+ * `waitingFor` input needed). A session that ended its turn on a question
+ * reads `status: idle` with no `waitingFor`, so `state` is what says it
+ * (plans/idle-chats-end.md, part 4).
+ */
 function statusOf(row) {
   const status = row.status || "status unknown";
-  if (row.waitingFor === "input needed") return "waiting for input";
+  if (row.waitingFor === "input needed" || row.state === "blocked") return "waiting for input";
   return row.waitingFor ? `${status}, ${row.waitingFor}` : status;
 }
 
@@ -542,12 +550,58 @@ export function sessionsOf(
         on:
           plans.find((plan) => plan.state === working && plan.session === row.sessionId)?.path ||
           "",
-        // A planner's plans, which its chat still talks about, and how tired it is.
+        // When its end timer fires, if it is left quiet (plans/idle-chats-end.md).
+        endsAt: state?.end?.at || 0,
+        // A planner's plans, which its chat still talks about, where each
+        // stands, and how tired it is.
         ...(kind === "planner"
-          ? { holds: withPlans(state)?.plans || [], compactions: state?.compactions || 0 }
+          ? {
+              holds: withPlans(state)?.plans || [],
+              standing: Object.fromEntries(
+                (withPlans(state)?.plans || []).map((path) => [
+                  path,
+                  standingOf(
+                    plans.find((plan) => plan.path === path),
+                    live,
+                  ),
+                ]),
+              ),
+              compactions: state?.compactions || 0,
+            }
           : {}),
       };
     });
+}
+
+/**
+ * Where a planner's plan stands, as its line says it (plans/idle-chats-end.md,
+ * part 5), so an idle planner's reason is read off the line.
+ */
+function standingOf(plan, live) {
+  if (!plan) return "gone";
+  if (plan.state === "ready") return plan.asks ? `asks ${owner()}` : "ready, for the executor";
+  if (plan.state === "handed") return "handed over";
+  if (plan.state === "building")
+    return `building, ${live?.find((row) => row.sessionId === plan.session)?.name || String(plan.session).slice(0, 8)}`;
+  return plan.state;
+}
+
+/** "a (built) and b (ready, for the executor)": a planner's plans with where each stands, when known. */
+function heldWords(one) {
+  const standing = one.standing || {};
+  return andList(
+    (one.holds || []).map((path) => (standing[path] ? `${path} (${standing[path]})` : path)),
+  );
+}
+
+/**
+ * "ends at 22:49 if left quiet" while the end timer is ahead and the session
+ * idle, else "": a turn under way or a question standing is not quiet.
+ */
+function endsWords(one, now = Date.now()) {
+  return one.endsAt > now && /^idle\b/.test(one.status || "")
+    ? `ends at ${new Date(one.endsAt).toTimeString().slice(0, 5)} if left quiet`
+    : "";
 }
 
 /** "618k context, warm", "200k context, cold 130 min, over the reuse ceiling", or "" with no usage. */
@@ -572,12 +626,13 @@ export function describeSession(one) {
       `${one.name} [${String(one.sessionId).slice(0, 8)}]`,
       one.status,
       usageWords(one),
+      endsWords(one),
       !one.retired && one.on ? `planning ${one.on}` : "",
-      !one.retired && holds.length ? `holds ${andList(holds)}` : "",
+      !one.retired && holds.length ? `holds ${heldWords(one)}` : "",
       !one.retired && n ? `${n} compaction${n === 1 ? "" : "s"}` : "",
       one.retired
         ? holds.length
-          ? `retired, its plan${holds.length === 1 ? "" : "s"} ${andList(holds)}`
+          ? `retired, its plan${holds.length === 1 ? "" : "s"} ${heldWords(one)}`
           : "retired"
         : "",
     ]
@@ -588,6 +643,7 @@ export function describeSession(one) {
     `${one.name} [${String(one.sessionId).slice(0, 8)}]`,
     one.status,
     usageWords(one),
+    endsWords(one),
     one.where === "checkout"
       ? "in the checkout"
       : `in ${one.where}${one.branch ? ` on ${one.branch}` : ""}`,
@@ -791,6 +847,27 @@ export function mayReuse({
 }
 
 /**
+ * **A finished chat ends when its cache has gone cold**
+ * (plans/idle-chats-end.md): a background session the queue counts as its
+ * own, whose state is `done` (its turn finished; `blocked` is a question or a
+ * prompt that stands, `working` a turn), whose last turn is older than the
+ * cache's warm span, with no plan or brief under way (`on`). A planner's
+ * plans still in the queue keep nothing: each stands alone in its file.
+ * `force` (`plans end`) ends a warm one too. `{ end: true }` or
+ * `{ end: false, why }`.
+ */
+export function decideEnd({ row, usage = null, on = "", now = Date.now(), force = false }) {
+  if (!row || row.kind !== "background")
+    return { end: false, why: "it is not a background session of the queue" };
+  if (row.state !== "done") return { end: false, why: `its state is ${row.state || "unknown"}` };
+  if (on) return { end: false, why: `it has ${on} under way` };
+  // With no usage known, the timer fired an hour after the Stop that armed it.
+  if (!force && usage && usage.at && now - usage.at <= WARM)
+    return { end: false, why: "its cache is still warm" };
+  return { end: true };
+}
+
+/**
  * What the Stop hook answers, decided from facts alone: `{refuse, reason}`,
  * `{retire, paths}` (a fresh executor takes them), `{handover, plan}` (a
  * fresh executor resumes it), `{context}` (pass, with words for the model),
@@ -955,10 +1032,11 @@ export function canStart({
         refuse: true,
         why: `A planner is alive: ${alive}. Send it the brief with SendMessage, one message per brief: ${brief ? plannerPrompt(brief) : "Plan plans/<topic>.md: it is a brief."}`,
       };
-    // Archiving may only disconnect the chat, so the id an agent stops it by stays.
+    // Archiving in the Claude app hides the chat and leaves the process
+    // running, so the id an agent ends it by stays.
     return {
       refuse: true,
-      why: `An executor is alive: ${alive}. Message it in Remote Control, or archive it in the Claude app's session list or have the assistant stop it (claude stop ${first.id || first.sessionId}), then start again.`,
+      why: `An executor is alive: ${alive}. Message it in Remote Control, or have the assistant end it (plans end ${String(first.sessionId).slice(0, 8)}), then start again.`,
     };
   }
   const replacing = new Set(replace.map((one) => one.sessionId));
@@ -1012,7 +1090,7 @@ export function canStart({
   const besideNote = beside
     .map(
       (one) =>
-        `Started beside ${one.name} [${String(one.sessionId).slice(0, 8)}], which is busy with a context of ${Math.round((one.usage?.context || 0) / 1000)}k.`,
+        `Started beside ${one.name} [${String(one.sessionId).slice(0, 8)}], which is ${one.status} with a context of ${Math.round((one.usage?.context || 0) / 1000)}k.`,
     )
     .join(" ");
   return {
@@ -1197,7 +1275,12 @@ function detached(command, args, env = process.env) {
   return child.pid;
 }
 
-/** Stops a background chat after it has had time to write its last message; an interactive one (tmux) is the owner's. */
+/**
+ * Stops a background chat after it has had time to write its last message;
+ * an interactive one (tmux) is the owner's. A replaced session is stopped
+ * three minutes on whatever its state, since its successor is started; a
+ * quiet one is `endSession`'s, an hour after its last stop.
+ */
 function stopLater(sessionId, live) {
   const row = live?.find((r) => r.sessionId === sessionId);
   if (!row || row.kind !== "background") return;
@@ -1210,6 +1293,162 @@ function stopLater(sessionId, live) {
     "-e",
     `setTimeout(() => { try { require("node:child_process").execFileSync("claude", ["stop", ${JSON.stringify(row.id || sessionId)}], { stdio: "ignore" }); } catch {} }, 180000)`,
   ]);
+}
+
+/**
+ * `claude stop` now, which keeps the conversation; the tests' log records the
+ * id instead. True when it stopped: a failed stop is said, never reported as
+ * an end (Codex, 27 October).
+ */
+function stopNow(id) {
+  if (process.env.WORKFLOW_STOP_LOG) {
+    appendFileSync(process.env.WORKFLOW_STOP_LOG, `${id}\n`);
+    return true;
+  }
+  try {
+    execFileSync(claudeBin(), ["stop", id], { stdio: "ignore", timeout: 20_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A process's command line, from `/proc` or `ps`; "" when it cannot be read. */
+function commandOf(pid) {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ");
+  } catch {
+    try {
+      return execFileSync("ps", ["-o", "args=", "-p", String(pid)], {
+        encoding: "utf8",
+        timeout: 2000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      return "";
+    }
+  }
+}
+
+/**
+ * Kills the end timer the queue armed for `sessionId`, and only it: a pid is
+ * signalled only while its command line is that timer's, since a timer gone
+ * leaves its pid to be reused (Codex, 27 October).
+ */
+function killTimer(pid, sessionId) {
+  if (!pid || pid === process.pid) return;
+  const command = commandOf(pid);
+  if (!/plan-queue\.mjs end --timer /.test(command) || !command.includes(sessionId)) return;
+  try {
+    process.kill(pid);
+  } catch {
+    // The timer is gone already.
+  }
+}
+
+/** A timer's own registration, cleared when it has fired, whatever it decided. */
+function clearEnd(sessionId, pid = process.pid) {
+  const state = readJson(files.state(sessionId));
+  if (!state?.end || (pid && state.end.pid !== pid)) return;
+  const { end: _end, ...rest } = state;
+  writeJson(files.state(sessionId), rest);
+}
+
+/**
+ * **The end timer, armed at each stop** (plans/idle-chats-end.md, part 2):
+ * `plan-queue.mjs end --timer <at> <sessionId>`, `defer`'s shape, its pid
+ * and time in the session's state as `end`, so a chat of a hundred turns has
+ * one sleeping timer, not a hundred. `at` is the cache's life from now: when
+ * it fires the last turn is past `WARM`, and `decideEnd` judges it.
+ */
+function armEnd(sessionId, live = null, at = Date.now() + CACHE_TTL) {
+  // The owner's interactive chat (tmux) is never the queue's to end, so it
+  // has no timer and its line no end time (/code-review, 27 October).
+  const row = live?.find((r) => r.sessionId === sessionId);
+  if (row && row.kind !== "background") return;
+  const statePath = files.state(sessionId);
+  const state = readJson(statePath) || {};
+  killTimer(state.end?.pid, sessionId);
+  // The tests' record of the timer, as `stopLater` records stops.
+  let pid = null;
+  if (process.env.WORKFLOW_STOP_LOG)
+    appendFileSync(process.env.WORKFLOW_STOP_LOG, `end ${sessionId} at ${at}\n`);
+  else
+    pid = detached(
+      process.execPath,
+      [join(here, "plan-queue.mjs"), "end", "--timer", String(at), sessionId],
+      // The timer runs as the command, so its root is said: this project's.
+      { ...process.env, WORKFLOW_ROOT: root },
+    );
+  writeJson(statePath, { ...state, end: { pid, at } });
+}
+
+/**
+ * **Ends one session by the rule** (`decideEnd`), from the live rows, its
+ * state, the plans and its transcript: `claude stop` on an end, the state's
+ * timer cleared. One line either way: `Ended <name> [<8 hex>]: done, <usage>.`
+ * or `Not ended: <name> [<8 hex>], <why>.`; `ended` says which.
+ */
+export function endSession(
+  sessionId,
+  { force = false, live = liveSessions({ fresh: true }) } = {},
+) {
+  const row = live?.find((r) => r.sessionId === sessionId) || null;
+  const state = readState(sessionId);
+  const who = `${row?.name || String(sessionId).slice(0, 8)} [${String(sessionId).slice(0, 8)}]`;
+  if (!row) return { ended: false, line: `Not ended: ${who}, it is no live session.` };
+  const plans = readPlans(join(root, "plans"), liveIds(live));
+  const on =
+    plans.find(
+      (plan) =>
+        (plan.state === "building" || plan.state === "planning") && plan.session === sessionId,
+    )?.path || "";
+  const usage = sessionUsage(transcriptOf(row));
+  const verdict = decideEnd({ row, usage, on, force });
+  if (!verdict.end) return { ended: false, line: `Not ended: ${who}, ${verdict.why}.` };
+  // A failed stop keeps the timer, and says so.
+  if (!stopNow(row.id || sessionId))
+    return { ended: false, line: `Not ended: ${who}, claude stop failed.` };
+  killTimer(state.end?.pid, sessionId);
+  clearEnd(sessionId, null);
+  const words = [row.state, usageWords({ usage, ceiling: proj().reuse })].filter(Boolean);
+  return { ended: true, line: `Ended ${who}: ${words.join(", ")}.` };
+}
+
+/**
+ * **`plans end [id...]`**: this queue's finished chats now, warm or not
+ * (`force`), or the ones named, by session id, background id or the eight
+ * hex `plans` prints. One line per session.
+ */
+export function endCommand(ids = []) {
+  const live = liveSessions({ fresh: true });
+  if (!live) return "claude agents could not be read, so nothing is ended.";
+  const lock = readJson(files.lock());
+  const plans = readPlans(join(root, "plans"), liveIds(live));
+  const ours = ["executor", "planner"].flatMap((kind) =>
+    sessionsOf(kind, live, lock, { plans, usageFor: () => null }),
+  );
+  const lines = [];
+  let targets = ours.map((one) => one.sessionId);
+  if (ids.length) {
+    targets = [];
+    for (const id of ids) {
+      const one = ours.find(
+        (s) =>
+          s.sessionId === id ||
+          (s.id && s.id === id) ||
+          (id.length >= 8 && s.sessionId.startsWith(id)),
+      );
+      if (one) targets.push(one.sessionId);
+      else lines.push(`${id} is no live session of this queue; plans lists them.`);
+    }
+  }
+  for (const sessionId of [...new Set(targets)])
+    lines.push(endSession(sessionId, { force: true, live }).line);
+  // Each line above says why a session was not ended; with none alive, this says so.
+  if (!ids.length && !targets.length)
+    lines.push("Nothing to end: no finished chat of this queue is alive.");
+  return lines.join("\n");
 }
 
 /**
@@ -2057,7 +2296,7 @@ export function plannerContext(state, live = null, textOf = planText) {
     if (/^## Built(?:,|\s*$)/m.test(text)) return `${path} is ${whoTook(text, live)}.`;
     if (planTaken(text))
       return `${path} was taken by ${whoTook(text, live)}: it is the executor's, and no edit to it passes.`;
-    return `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again.`;
+    return `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps it).`;
   });
   lines.push(
     `A change to a taken or built plan goes to the assistant's chat, which writes a follow-up plan or a brief: give ${owner()} the text to paste there, in a fenced block headed For the assistant's chat in Remote Control, under about 600 characters, naming the plan's path and the change in a line each. A new topic is the assistant's chat's: say so, and give nothing to run.`,
@@ -2212,6 +2451,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     // planner.
     writeFileSync(current.file, current.text.replace(/^## Planning, [^\n]*\n\n?/m, ""));
     start([current.path], { agent: "planner", replace: sessionId, at });
+    armEnd(sessionId, live);
     return;
   }
   if (mode === "stop") {
@@ -2233,6 +2473,8 @@ function plannerHook(mode, input, sessionId, statePath) {
     });
     if (!decision) {
       writeJson(statePath, state);
+      // **A finished chat ends an hour after it goes quiet** (plans/idle-chats-end.md).
+      armEnd(sessionId, live);
       return;
     }
     if (decision.refuse) {
@@ -2249,6 +2491,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     state.planned = state.plans.length > 0;
     writeJson(statePath, state);
     const said = start([], { agent: "planner", replace: sessionId });
+    armEnd(sessionId, live);
     // An executor can take a plan before this Stop: its Building line found
     // this planner unretired then, so the chat is stopped here.
     if (state.plans.length && state.plans.every((path) => planTaken(planText(path))))
@@ -2260,7 +2503,7 @@ function plannerHook(mode, input, sessionId, statePath) {
         `this session has compacted ${n} time${n === 1 ? "" : "s"}${n === 1 && !decision.related ? ", and the brief waiting is on other ground" : ""}`;
     hookOutput(
       "Stop",
-      `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, or the next planner starts, when this chat is stopped.`,
+      `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, the next planner starts, or the chat has been quiet an hour, when this chat is stopped (its plans stand in the queue; a question left open keeps it).`,
     );
   }
 }
@@ -2399,6 +2642,7 @@ function hook(mode, input) {
     release(sessionId);
     state.retired = true;
     writeJson(statePath, state);
+    armEnd(sessionId, live);
     const plans = readPlans(join(root, "plans"), liveIds(live));
     const plan = plans.find((p) => p.state === "building" && p.session === sessionId);
     if (!plan) return;
@@ -2424,7 +2668,12 @@ function hook(mode, input) {
   }
   if (mode === "stop") {
     const lock = readJson(files.lock());
-    if (lockHeldByOther(lock, sessionId, () => holderAlive(lock, live))) return;
+    // **A finished chat ends an hour after it goes quiet** (plans/idle-chats-end.md):
+    // every stop that does not block arms the end timer.
+    if (lockHeldByOther(lock, sessionId, () => holderAlive(lock, live))) {
+      armEnd(sessionId, live);
+      return;
+    }
     const plans = readPlans(join(root, "plans"), liveIds(live));
     // The sweep: a Building line written another way (a shell command, a
     // hook that failed) still stops the retired planner whose plan it took.
@@ -2448,7 +2697,10 @@ function hook(mode, input) {
       usage: sessionUsage(input.transcript_path),
       ceiling: proj().reuse,
     });
-    if (!decision) return;
+    if (!decision) {
+      armEnd(sessionId, live);
+      return;
+    }
     if (decision.refuse) {
       if (decision.runId) state.runRefused = decision.runId;
       if (decision.told) state.told.push(...decision.told);
@@ -2459,6 +2711,7 @@ function hook(mode, input) {
     if (decision.context) {
       state.told.push(...decision.told);
       writeJson(statePath, state);
+      armEnd(sessionId, live);
       hookOutput("Stop", decision.context);
       return;
     }
@@ -2467,6 +2720,7 @@ function hook(mode, input) {
     state.retired = true;
     writeJson(statePath, state);
     const said = start(paths, { replace: sessionId });
+    armEnd(sessionId, live);
     const started = /was started on/.test(said);
     const why = decision.handover
       ? `${decision.handover.path} was handed over`
@@ -2609,6 +2863,7 @@ plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
 plans start --agent planner <brief>   start a planner on a brief
 plans pause | resume  stop and restart starting sessions
+plans end [id...]     end this queue's finished chats now, or these
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
 plans check           lint the catalogues and the deny key the project file names
@@ -2645,6 +2900,29 @@ export function main(args = process.argv.slice(2)) {
       });
       process.exitCode = done.status ?? 1;
     }
+    return;
+  }
+  if (mode === "end") {
+    const at = rest.indexOf("--timer");
+    if (at >= 0) {
+      // The end timer: a wait, then the rule, with no output.
+      const when = Number(rest[at + 1]);
+      const sessionId = rest.filter((_, i) => i !== at && i !== at + 1)[0];
+      setTimeout(
+        () => {
+          try {
+            if (sessionId) endSession(sessionId);
+          } catch {
+            // A timer that fails ends nothing: the supervisor's own clock remains.
+          }
+          // Fired, it is no timer of the session's any more, so its pid is not signalled.
+          if (sessionId) clearEnd(sessionId);
+        },
+        Math.max(0, when - Date.now()),
+      );
+      return;
+    }
+    process.stdout.write(`${endCommand(rest)}\n`);
     return;
   }
   if (!["sync", "pause", "resume", "start", ...HOOK_MODES].includes(mode)) {

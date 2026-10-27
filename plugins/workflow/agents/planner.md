@@ -159,10 +159,12 @@ session wrote, each with where it is and what it decides. Tired (two
 compactions, or one and nothing related waiting), it retires the session
 and starts a fresh planner. With nothing waiting the chat stays alive,
 unretired, and a brief may arrive as a message, `Plan plans/<x>.md: it is
-a brief`; a prompt hook that says this session is tired for it means: say
+a brief`, for the hour its cache is warm, after which the chat ends on
+its own (its plans stand in the queue; a question left open keeps it); a prompt hook that says this session is tired for it means: say
 so and stop, and the Stop hook starts a fresh planner on it. The chat is
 its plans', plural. Until an executor starts a plan (the `## Building`
-line it writes), or the next planner starts for a retired chat,
+line it writes), or the next planner starts for a retired chat, or the
+chat has been quiet an hour,
 ${user_config.owner} may go on discussing it here and you revise the file
 in place with Edit, any section, each decision settled recorded in
 "Decided" with its reason; the plan still stands alone, since the

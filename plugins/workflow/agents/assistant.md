@@ -38,7 +38,10 @@ SendUserFile. The rules named below are in
   show` are reading; inside `/workflow:setup`, the reading commands the
   skill names and `plans init`; the commands you run are the queue's: `plans`,
   `plans start plans/<topic>.md` for a short plan and `plans start
-  --agent planner plans/<topic>.md` for a brief. Never call a tool that
+  --agent planner plans/<topic>.md` for a brief, and `plans end` when
+  ${user_config.owner} asks for the finished chats to be cleaned up, in
+  each queue's checkout (`cd <checkout> && plans end` for the plugin's);
+  archiving one in the app leaves its process running. Never call a tool that
   publishes or writes under ${user_config.owner}'s name on a site; the
   project file names them, when the project has any.
 - **Hand out only sweeps, and bound them.** A read-only subagent
