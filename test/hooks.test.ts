@@ -1845,6 +1845,113 @@ describe("the queue's faults, closed", () => {
     expect(changedFiles({ sessionId: state.sessionId }, clone)).toEqual([]);
   });
 
+  describe("base at the first Building line", () => {
+    /** A project with an origin, a commit pushed to test, and a helper to push another. */
+    const pushed = () => {
+      const origin = temp("queue-base-origin-");
+      g(origin, "init", "-q", "--bare");
+      const dir = fixture("Building");
+      g(dir, "remote", "add", "origin", origin);
+      writeFileSync(join(dir, "README"), "one\n");
+      g(dir, "add", "README", ".claude");
+      g(dir, "commit", "-q", "-m", "one");
+      g(dir, "push", "-q", "origin", "HEAD:refs/heads/test");
+      g(dir, "fetch", "-q", "origin");
+      // Another executor's push, which this checkout fetches.
+      const another = (file: string) => {
+        g(dir, "checkout", "-q", "--detach", "origin/test");
+        writeFileSync(join(dir, file), "x\n");
+        g(dir, "add", file);
+        g(dir, "commit", "-q", "-m", file);
+        g(dir, "push", "-q", "origin", "HEAD:refs/heads/test");
+        g(dir, "fetch", "-q", "origin");
+      };
+      return { dir, another };
+    };
+    const stateFile = (id: string) => join(tmpdir(), `workflow-queue-${id}.json`);
+    const building = (dir: string, id: string, plan: string) => {
+      writeFileSync(
+        join(dir, "plans", plan),
+        `# P\n\n## Building, 27 October 2026, session ${id}\n\nShort plan, 27 October 2026.\n`,
+      );
+      runIn(
+        dir,
+        ["wrote"],
+        {},
+        {
+          session_id: id,
+          agent_type: "executor",
+          tool_name: "Edit",
+          tool_input: { file_path: join(dir, "plans", plan) },
+        },
+      );
+      return JSON.parse(readFileSync(stateFile(id), "utf8"));
+    };
+
+    it("moves base to the branch at the first Building line, and keeps it at the second", () => {
+      const { dir, another } = pushed();
+      const id = `base-move-${process.pid}`;
+      const old = g(dir, "rev-parse", "origin/test");
+      writeFileSync(stateFile(id), JSON.stringify({ agent: "executor", base: old }));
+      another("theirs.ts");
+      const tip = g(dir, "rev-parse", "origin/test");
+      const first = building(dir, id, "a.md");
+      expect(first).toMatchObject({ base: tip, baseAt: "building" });
+      expect(changedFiles({ sessionId: id, base: old }, dir)).toContain("theirs.ts");
+      expect(changedFiles({ sessionId: id, base: first.base }, dir)).not.toContain("theirs.ts");
+      another("later.ts");
+      expect(building(dir, id, "b.md")).toMatchObject({ base: tip, baseAt: "building" });
+      rmSync(stateFile(id), { force: true });
+    });
+
+    it("marks base from a Building line a shell command wrote, and not with no branch", () => {
+      const { dir, another } = pushed();
+      const id = `base-bash-${process.pid}`;
+      writeFileSync(stateFile(id), JSON.stringify({ agent: "executor", base: "old" }));
+      another("theirs.ts");
+      const shell = () =>
+        runIn(
+          dir,
+          ["wrote"],
+          {},
+          {
+            session_id: id,
+            agent_type: "executor",
+            tool_name: "Bash",
+            tool_input: { command: "python3 mark.py" },
+          },
+        );
+      shell();
+      expect(JSON.parse(readFileSync(stateFile(id), "utf8")).base).toBe("old");
+      writeFileSync(
+        join(dir, "plans", "c.md"),
+        `# P\n\n## Building, 27 October 2026, session ${id}\n\nShort plan, 27 October 2026.\n`,
+      );
+      shell();
+      expect(JSON.parse(readFileSync(stateFile(id), "utf8"))).toMatchObject({
+        base: g(dir, "rev-parse", "origin/test"),
+        baseAt: "building",
+      });
+      // With no origin/test, the first prompt's base stays.
+      const bare = fixture("NoBranch");
+      const other = `base-nobranch-${process.pid}`;
+      writeFileSync(stateFile(other), JSON.stringify({ agent: "executor", base: "kept" }));
+      expect(building(bare, other, "d.md")).toMatchObject({ base: "kept" });
+      rmSync(stateFile(id), { force: true });
+      rmSync(stateFile(other), { force: true });
+    });
+
+    it("keeps the first prompt's base in a session with no Building line", () => {
+      const { dir } = pushed();
+      const id = `base-none-${process.pid}`;
+      runIn(dir, ["prompt"], {}, { session_id: id, agent_type: "executor" });
+      const state = JSON.parse(readFileSync(stateFile(id), "utf8"));
+      expect(state.base).toBe(g(dir, "rev-parse", "origin/test"));
+      expect(state.baseAt).toBeUndefined();
+      rmSync(stateFile(id), { force: true });
+    });
+  });
+
   describe("two projects apart", () => {
     it("starts B beside A's live executor, A's lock and A's pause", () => {
       const a = fixture("A");

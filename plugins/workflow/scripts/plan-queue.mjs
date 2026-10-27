@@ -1405,7 +1405,8 @@ export function list({ all = false, live } = {}) {
 
 /**
  * **The files this session's batches changed**, which survive the push and the
- * detach: from `base`, the branch's tip at the session's first prompt, to
+ * detach: from `base`, the branch's tip when the session wrote its first
+ * Building line (after the batch's fetch), else at its first prompt, to
  * HEAD and to `origin/<branch>` (one executor at a time pushes the branch, so
  * everything after `base` there is this session's), and the turn's writes.
  * With no `base`, the branch's diff to HEAD.
@@ -1996,12 +1997,30 @@ function hook(mode, input) {
     // **The Building line takes the plan from its planner**: a retired
     // planner whose plan this is has its chat stopped (decision 1 of
     // plans/planner-talks-until-built.md). Anything else returns at once.
+    const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
+    // **The batch starts at its first Building line**: written after the
+    // batch's fetch, so `origin/<branch>` is current there, with no hook
+    // touching the network. A later Building line leaves it alone, and a
+    // missing ref leaves the first prompt's.
+    const markBase = () => {
+      const state = readState(sessionId);
+      if (state.baseAt) return;
+      const tip = branchTip();
+      if (tip) writeJson(statePath, { ...state, base: tip, baseAt: "building" });
+    };
+    // A Building line written by a shell command: found by reading the
+    // plans, once per session, until the base is marked.
+    if (input.tool_name === "Bash") {
+      if (readState(sessionId).baseAt) return;
+      if (readPlans(join(root, "plans")).some((p) => building.test(p.text))) markBase();
+      return;
+    }
     const file = input.tool_input?.file_path;
     if (!file) return;
     const path = relative(root, resolve(root, file));
     if (!/^plans\/[^/]+\.md$/.test(path)) return;
-    const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
     if (!building.test(planText(path))) return;
+    markBase();
     stopPlannersOn(path, liveSessions());
     return;
   }
@@ -2052,7 +2071,12 @@ function hook(mode, input) {
     // An executor the owner started by hand has no `Executor n` name; this
     // marks it, and the first mark records where its batches start.
     if (state.agent !== "executor")
-      writeJson(statePath, { ...state, agent: "executor", base: branchTip() });
+      writeJson(statePath, {
+        ...state,
+        agent: "executor",
+        // A base a Building line marked is the batch's: never moved back.
+        ...(state.baseAt ? {} : { base: branchTip() }),
+      });
     hookOutput(
       "UserPromptSubmit",
       `Plans in the queue (plans):\n${list({ live })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times; the rule is in your agent file under "Going on".`,

@@ -179,7 +179,8 @@ edits and writing commands to an executor that does not hold it, so one
 checkout has one executor; its Stop hook refuses a stop on a red or
 unfinished run of the session's push (the project's `run`), then names the
 waiting plans to a fresh context (no compaction, or one and a waiting
-plan names a file the batch changed) or, to a tired one (two compactions,
+plan names a file the batch changed, counted from where the batch's
+first Building line was written) or, to a tired one (two compactions,
 or one with nothing related), retires it and starts a fresh executor;
 after a third compaction inside one plan the session hands the plan over
 (work committed on the branch, a "Handing over" section, stop), up to six
