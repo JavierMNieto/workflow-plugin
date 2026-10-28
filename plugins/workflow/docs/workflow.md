@@ -435,7 +435,8 @@ sync` moves a clean, detached checkout to the branch, and `plans start`
 does the same before it starts anything; an executor detaches the
 checkout at `origin/<branch>` after its batch's last push. The queue's
 own files in `.claude/` are git-ignored, one line per kind
-(`.claude/executor.*`, `.claude/planner.*`, `.claude/asking.*`): `plans
+(`.claude/executor.*`, `.claude/planner.*`, `.claude/asking.*`), and so is
+`.claude/worktrees/`, where Claude Code puts the worktrees it makes: `plans
 init` writes them into `.gitignore`, and `plans sync` and `plans start`
 add any a project set up earlier lacks to `.git/info/exclude`, which git
 never tracks, so the checkout stays clean.

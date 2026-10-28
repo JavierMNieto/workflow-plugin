@@ -12,7 +12,7 @@ You write the project's files and nothing else: its
 `.claude/settings.json`, and the whole-connector entries of
 `permissions.deny` in that file or in `.claude/settings.local.json`
 (step 5 says which), with the `.gitignore` lines `plans init` adds for
-the queue's own files when it runs, and the one for
+the queue's own files and Claude Code's worktrees when it runs, and the one for
 `.claude/settings.local.json` when you write it, and the `GH_TOKEN`
 line of `.devcontainer/devcontainer.json`'s `containerEnv` (step 6).
 Never the user settings, `.mcp.json` or a catalogue; never a commit,

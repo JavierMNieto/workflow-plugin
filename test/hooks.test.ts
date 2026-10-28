@@ -1154,10 +1154,13 @@ describe("plan-queue", () => {
       }
     });
     it("ignores a kind of queue file the project's .gitignore lacks, then moves the checkout", () => {
-      // A project set up before the third kind: its .gitignore has two lines.
+      // A project set up before the third kind: its .gitignore lacks it.
       g(clone, "checkout", "-q", "--detach", "origin/test");
-      writeFileSync(join(clone, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
-      g(clone, "commit", "-q", "-am", "two ignores");
+      writeFileSync(
+        join(clone, ".gitignore"),
+        ".claude/executor.*\n.claude/planner.*\n.claude/worktrees/\n",
+      );
+      g(clone, "commit", "-q", "-am", "two kinds");
       const behind = g(clone, "rev-parse", "HEAD");
       writeFileSync(join(clone, "README"), "three\n");
       g(clone, "commit", "-q", "-am", "three");
@@ -1165,6 +1168,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", behind);
       writeFileSync(join(clone, ".claude", "asking.deferred"), "{}\n");
       const exclude = join(clone, ".git", "info", "exclude");
+      const before = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
       try {
         const test = g(clone, "rev-parse", "origin/test");
         expect(syncIn(clone)).toBe(
@@ -1178,6 +1182,36 @@ describe("plan-queue", () => {
         expect(readFileSync(exclude, "utf8").split("\n")).toContain(".claude/asking.*");
       } finally {
         rmSync(join(clone, ".claude", "asking.deferred"), { force: true });
+        writeFileSync(exclude, before);
+      }
+    });
+    it("ignores Claude Code's worktrees under .claude/, then moves the checkout", () => {
+      // A project set up before: its .gitignore has the kinds, not the folder.
+      g(clone, "checkout", "-q", "--detach", "origin/test");
+      writeFileSync(
+        join(clone, ".gitignore"),
+        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n",
+      );
+      g(clone, "commit", "-q", "-am", "three kinds");
+      const behind = g(clone, "rev-parse", "HEAD");
+      writeFileSync(join(clone, "README"), "four\n");
+      g(clone, "commit", "-q", "-am", "four");
+      g(clone, "push", "-q", "origin", "HEAD:refs/heads/test");
+      g(clone, "checkout", "-q", "--detach", behind);
+      mkdirSync(join(clone, ".claude", "worktrees", "x"), { recursive: true });
+      writeFileSync(join(clone, ".claude", "worktrees", "x", "f"), "\n");
+      try {
+        const test = g(clone, "rev-parse", "origin/test");
+        expect(syncIn(clone)).toBe(
+          `Added .claude/worktrees/ to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
+        );
+        expect(g(clone, "rev-parse", "HEAD")).toBe(test);
+        expect(g(clone, "status", "--porcelain")).toBe("");
+        expect(syncIn(clone)).toBe(`Already at test, ${test.slice(0, 8)}.`);
+      } finally {
+        // The exclude keeps its lines: the tests after this one find
+        // nothing to add, as origin/test's .gitignore lacks the folder.
+        rmSync(join(clone, ".claude", "worktrees"), { recursive: true, force: true });
       }
     });
     it("says a failed fetch on every answer", () => {

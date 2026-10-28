@@ -462,8 +462,34 @@ Which tools read code and docs here, if the project has a rule.
  */
 export const QUEUE_KINDS = ["executor", "planner", "asking"];
 
-/** The queue's own files in a project's `.claude/`, which git must not see: one line per kind. */
-export const QUEUE_IGNORES = QUEUE_KINDS.map((kind) => `.claude/${kind}.*`);
+/**
+ * What git must not see in a project's `.claude/`: the queue's own files,
+ * one line per kind, and the folder of worktrees, which is Claude Code's
+ * (its worktree tool, a subagent's `isolation: worktree`), not a kind.
+ */
+export const QUEUE_IGNORES = [
+  ...QUEUE_KINDS.map((kind) => `.claude/${kind}.*`),
+  ".claude/worktrees/",
+];
+
+/**
+ * The `QUEUE_IGNORES` lines whose paths git does not ignore yet in the
+ * checkout at `cwd`, by any rule of the project's (`.claude/worktrees`
+ * without the slash, or `.claude/` whole, counts); null outside a repository.
+ */
+function unignoredLines(cwd) {
+  // A path each line ignores: a file of the kind, or one in the folder.
+  const sample = (line) => (line.endsWith("/") ? `${line}x` : line.replace("*", "x"));
+  const ignored = spawnSync("git", ["check-ignore", "--no-index", ...QUEUE_IGNORES.map(sample)], {
+    cwd,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  // 0: some are ignored, 1: none are; anything else is no repository.
+  if (ignored.status !== 0 && ignored.status !== 1) return null;
+  const seen = new Set(ignored.stdout.split("\n").map((line) => line.trim()));
+  return QUEUE_IGNORES.filter((line) => !seen.has(sample(line)));
+}
 
 /**
  * **A project set up earlier learns a new kind of file**: the
@@ -474,13 +500,8 @@ export const QUEUE_IGNORES = QUEUE_KINDS.map((kind) => `.claude/${kind}.*`);
  */
 export function ignoreQueueFiles(cwd) {
   const run = (args) => spawnSync("git", args, { cwd, encoding: "utf8", timeout: 10_000 });
-  const sample = (line) => line.replace("*", "x");
-  const ignored = run(["check-ignore", "--no-index", ...QUEUE_IGNORES.map(sample)]);
-  // 0: some are ignored, 1: none are; anything else is no repository.
-  if (ignored.status !== 0 && ignored.status !== 1) return "";
-  const seen = new Set(ignored.stdout.split("\n").map((line) => line.trim()));
-  const unignored = QUEUE_IGNORES.filter((line) => !seen.has(sample(line)));
-  if (!unignored.length) return "";
+  const unignored = unignoredLines(cwd);
+  if (!unignored?.length) return "";
   const where = run(["rev-parse", "--git-path", "info/exclude"]);
   if (where.status !== 0) return "";
   const file = resolve(cwd, where.stdout.trim());
@@ -513,8 +534,9 @@ export function init(root) {
   if (existsSync(file)) return `${PROJECT_FILE} exists already; edit it instead.`;
   mkdirSync(join(root, ".claude"), { recursive: true });
   writeFileSync(file, starter(root));
-  // The lock, the pause and the deferrals stay out of git, or a clean start
-  // finds them (the Claude review, 27 October).
+  // The lock, the pause, the deferrals and Claude Code's worktrees stay out
+  // of git, or a clean start finds them (the Claude review, 27 October);
+  // a line the project ignores another way is not written twice.
   const ignore = join(root, ".gitignore");
   let text = "";
   try {
@@ -522,7 +544,9 @@ export function init(root) {
   } catch {
     // No .gitignore yet.
   }
-  const missing = QUEUE_IGNORES.filter((line) => !text.split("\n").includes(line));
+  const missing = (unignoredLines(root) ?? QUEUE_IGNORES).filter(
+    (line) => !text.split("\n").includes(line),
+  );
   if (missing.length)
     writeFileSync(
       ignore,
