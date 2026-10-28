@@ -512,6 +512,27 @@ function worktreePaths() {
   return worktrees().map((tree) => tree.path);
 }
 
+/**
+ * The branch a session works on: its worktree's, from `git worktree list`,
+ * else what `git branch --show-current` says there; "(unknown)" when neither
+ * names one. The hand-overs write it for the next executor to check out.
+ */
+function branchOf(cwd = root) {
+  const tree = treeOf(cwd || root, worktrees());
+  if (tree?.branch) return tree.branch;
+  try {
+    const branch = execFileSync("git", ["branch", "--show-current"], {
+      cwd: tree?.path || root,
+      encoding: "utf8",
+      timeout: 4000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return branch || "(unknown)";
+  } catch {
+    return "(unknown)";
+  }
+}
+
 /** The worktree a working directory is in: the deepest whose path is it or holds it. */
 function treeOf(cwd, trees) {
   if (!cwd) return null;
@@ -1049,12 +1070,23 @@ export function mayReuse({
  * prompt that stands, `working` a turn), whose last turn is older than the
  * cache's warm span, with no plan or brief under way (`on`). A planner's
  * plans still in the queue keep nothing: each stands alone in its file.
- * `force` (`plans end`) ends a warm one too. `{ end: true }` or
- * `{ end: false, why }`.
+ * `force` (`plans end`) ends a warm one too. **`immediate` (`plans end <id>
+ * --now`) ends any background session of the queue, whatever its state**
+ * (plans/end-a-stuck-chat.md): a chat stuck in a turn could never be ended
+ * otherwise; the plan or brief it has under way comes back as `on`, for the
+ * caller to hand over. `{ end: true, on? }` or `{ end: false, why }`.
  */
-export function decideEnd({ row, usage = null, on = "", now = Date.now(), force = false }) {
+export function decideEnd({
+  row,
+  usage = null,
+  on = "",
+  now = Date.now(),
+  force = false,
+  immediate = false,
+}) {
   if (!row || row.kind !== "background")
     return { end: false, why: "it is not a background session of the queue" };
+  if (immediate) return on ? { end: true, on } : { end: true };
   if (row.state !== "done") return { end: false, why: `its state is ${row.state || "unknown"}` };
   if (on) return { end: false, why: `it has ${on} under way` };
   // With no usage known, the timer fired an hour after the Stop that armed it.
@@ -1316,7 +1348,41 @@ export function canStart({
  * Building line was; with no header found, in the Building line's place.
  */
 export function cutoffEdit(text, { sessionId, branch, day = today() }) {
-  const section = `## Handing over, ${day}, by the hook\n\nStep in hand: unknown, the usage limit cut session ${sessionId} off on branch \`${branch}\`. Read the branch's commits and the task list's state in the final messages above.\n`;
+  return handOverEdit(
+    text,
+    `## Handing over, ${day}, by the hook\n\nStep in hand: unknown, the usage limit cut session ${sessionId} off on branch \`${branch}\`. Read the branch's commits and the task list's state in the final messages above.\n`,
+  );
+}
+
+/**
+ * What `plans end <id> --now` writes into the plan or brief the ended session
+ * had under way (plans/end-a-stuck-chat.md), so the queue resumes it: a plan
+ * gets a Handing over section in place of its Building line and reads
+ * `handed`; a brief only loses its Planning line and is a brief again, since
+ * a Handing over line would read as an executor's taking (`planTaken`).
+ * Text with no such line of the session's is returned as it is.
+ */
+export function endedEdit(text, { sessionId, by, branch = "", day = today() }) {
+  const planning = new RegExp(
+    `^## Planning, [^\\n]*session ${sessionId}[^\\n]*(?:\\n[ \\t]*(?=\\n))?\\n?`,
+    "m",
+  );
+  if (planning.test(text)) return text.replace(planning, "");
+  if (!new RegExp(`^## Building, [^\\n]*session ${sessionId}`, "m").test(text)) return text;
+  const where = branch ? ` on branch \`${branch}\`` : "";
+  return handOverEdit(
+    text,
+    `## Handing over, ${day}, ended by ${by}\n\nStep in hand: unknown, ${by} ended session ${sessionId} with \`plans end --now\`${where} in the middle of its work. Read the branch's commits for what it did.\n`,
+  );
+}
+
+/**
+ * A hand-over `section` in place of the Building line. **It goes after the
+ * header paragraph**, as the executor's does
+ * (plans/handed-plan-stays-in-queue.md), wherever the Building line was; with
+ * no header found, in its place.
+ */
+function handOverEdit(text, section) {
   const building = /^## Building, [^\n]*(?:\n[ \t]*(?=\n))?\n?/m;
   const lines = text.replace(building, "").split("\n");
   const header = lines.findIndex((line) => PLAN_HEADER.test(line));
@@ -1602,43 +1668,85 @@ function armEnd(sessionId, live = null, at = Date.now() + CACHE_TTL) {
 }
 
 /**
+ * Ends the tmux server a session's subagents run in
+ * (`tmux -L claude-swarm-<pid>`), which `claude stop` leaves running; a
+ * missing one is no fault. The tests' log records it instead.
+ */
+function endSwarm(pid) {
+  if (!pid) return;
+  if (process.env.WORKFLOW_STOP_LOG) {
+    appendFileSync(process.env.WORKFLOW_STOP_LOG, `tmux claude-swarm-${pid}\n`);
+    return;
+  }
+  try {
+    execFileSync("tmux", ["-L", `claude-swarm-${pid}`, "kill-server"], {
+      stdio: "ignore",
+      timeout: 5000,
+    });
+  } catch {
+    // No swarm, or no tmux: nothing of the session's is left there.
+  }
+}
+
+/**
  * **Ends one session by the rule** (`decideEnd`), from the live rows, its
- * state, the plans and its transcript: `claude stop` on an end, the state's
- * timer cleared. One line either way: `Ended <name> [<8 hex>]: done, <usage>.`
- * or `Not ended: <name> [<8 hex>], <why>.`; `ended` says which.
+ * state, the plans and its transcript: `claude stop` on an end, its subagents'
+ * tmux server ended, the state's timer cleared. `immediate` ends it whatever
+ * it is doing, its plan or brief under way handed over first. One line either
+ * way: `Ended <name> [<8 hex>]: done, <usage>.` or `Not ended: <name> [<8
+ * hex>], <why>.`; `ended` says which.
  */
 export function endSession(
   sessionId,
-  { force = false, live = liveSessions({ fresh: true }) } = {},
+  { force = false, immediate = false, live = liveSessions({ fresh: true }) } = {},
 ) {
   const row = live?.find((r) => r.sessionId === sessionId) || null;
   const state = readState(sessionId);
   const who = `${row?.name || String(sessionId).slice(0, 8)} [${String(sessionId).slice(0, 8)}]`;
   if (!row) return { ended: false, line: `Not ended: ${who}, it is no live session.` };
   const plans = readPlans(join(root, "plans"), liveIds(live));
-  const on =
-    plans.find(
-      (plan) =>
-        (plan.state === "building" || plan.state === "planning") && plan.session === sessionId,
-    )?.path || "";
+  const plan = plans.find(
+    (one) => (one.state === "building" || one.state === "planning") && one.session === sessionId,
+  );
+  const on = plan?.path || "";
   const usage = sessionUsage(transcriptOf(row));
-  const verdict = decideEnd({ row, usage, on, force });
+  const verdict = decideEnd({ row, usage, on, force, immediate });
   if (!verdict.end) return { ended: false, line: `Not ended: ${who}, ${verdict.why}.` };
   // A failed stop keeps the timer, and says so.
   if (!stopNow(row.id || sessionId))
     return { ended: false, line: `Not ended: ${who}, claude stop failed.` };
+  endSwarm(row.pid);
   killTimer(state.end?.pid, sessionId);
   clearEnd(sessionId, null);
   const words = [row.state, usageWords({ usage, ceiling: proj().reuse })].filter(Boolean);
-  return { ended: true, line: `Ended ${who}: ${words.join(", ")}.` };
+  const line = `Ended ${who}: ${words.join(", ")}.`;
+  if (!verdict.on || !plan) return { ended: true, line };
+  // **The plan under way is handed over once its session is stopped**, read
+  // again so nothing it wrote while stopping is lost, and the queue resumes it
+  // now: the lock released, a fresh executor or planner started in its place.
+  release(sessionId);
+  let text = plan.text;
+  try {
+    text = readFileSync(plan.file, "utf8");
+  } catch {
+    // Gone: nothing to hand over.
+    return { ended: true, line };
+  }
+  writeFileSync(plan.file, endedEdit(text, { sessionId, by: owner(), branch: branchOf(row.cwd) }));
+  const agent = plan.state === "planning" ? "planner" : "executor";
+  const started = start([plan.path], { replace: sessionId, agent });
+  return { ended: true, line: `${line} ${plan.path} is handed over.\n${started}` };
 }
 
 /**
- * **`plans end [id...]`**: this queue's finished chats now, warm or not
- * (`force`), or the ones named, by session id, background id or the eight
- * hex `plans` prints. One line per session.
+ * **`plans end [id...] [--now]`**: this queue's finished chats now, warm or
+ * not (`force`), or the ones named, by session id, background id or the eight
+ * hex `plans` prints. `immediate` (`--now`) ends the named ones whatever they
+ * are doing, and only named ones. One line per session.
  */
-export function endCommand(ids = []) {
+export function endCommand(ids = [], { immediate = false } = {}) {
+  if (immediate && !ids.length)
+    return "Not ended: name the chat to end now (plans end <id> --now); plans lists them.";
   const live = liveSessions({ fresh: true });
   if (!live) return "claude agents could not be read, so nothing is ended.";
   const lock = readJson(files.lock());
@@ -1662,7 +1770,7 @@ export function endCommand(ids = []) {
     }
   }
   for (const sessionId of [...new Set(targets)])
-    lines.push(endSession(sessionId, { force: true, live }).line);
+    lines.push(endSession(sessionId, { force: true, immediate, live }).line);
   // Each line above says why a session was not ended; with none alive, this says so.
   if (!ids.length && !targets.length)
     lines.push("Nothing to end: no finished chat of this queue is alive.");
@@ -3059,16 +3167,7 @@ function hook(mode, input) {
     const plans = readPlans(join(root, "plans"), liveIds(live));
     const plan = plans.find((p) => p.state === "building" && p.session === sessionId);
     if (!plan) return;
-    let branch = "";
-    try {
-      branch = execFileSync("git", ["branch", "--show-current"], {
-        cwd: root,
-        encoding: "utf8",
-      }).trim();
-    } catch {
-      branch = "(unknown)";
-    }
-    writeFileSync(plan.file, cutoffEdit(plan.text, { sessionId, branch }));
+    writeFileSync(plan.file, cutoffEdit(plan.text, { sessionId, branch: branchOf(input.cwd) }));
     let transcript = "";
     try {
       transcript = readFileSync(input.transcript_path, "utf8").slice(-200_000);
@@ -3280,7 +3379,7 @@ plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
 plans start --agent planner <brief>   start a planner on a brief
 plans pause | resume  stop and restart starting sessions
-plans end [id...]     end this queue's finished chats now, or these
+plans end [id...] [--now]  end this queue's finished chats, or these; --now ends a named one whatever it is doing
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
 plans check           lint the catalogues and the deny key the project file names
@@ -3339,7 +3438,12 @@ export function main(args = process.argv.slice(2)) {
       );
       return;
     }
-    process.stdout.write(`${endCommand(rest)}\n`);
+    process.stdout.write(
+      `${endCommand(
+        rest.filter((a) => a !== "--now"),
+        { immediate: rest.includes("--now") },
+      )}\n`,
+    );
     return;
   }
   if (!["sync", "pause", "resume", "start", ...HOOK_MODES].includes(mode)) {

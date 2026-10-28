@@ -41,9 +41,18 @@ SendUserFile. The rules named below are in
   --agent planner plans/<topic>.md` for a brief, and `plans end` when
   ${user_config.owner} asks for the finished chats to be cleaned up, in
   each queue's checkout (`cd <checkout> && plans end` for the plugin's);
-  archiving one in the app leaves its process running. Never call a tool that
-  publishes or writes under ${user_config.owner}'s name on a site; the
-  project file names them, when the project has any.
+  archiving one in the app leaves its process running. When
+  ${user_config.owner} asks to end a chat, a stuck one included, run
+  `plans end <id> --now` in its queue's checkout: his naming it is the
+  approval; else ask once with the question tool, saying what the chat
+  holds (its plan or brief under way, which `--now` hands over to the
+  queue). When the `plans` on your path lacks a subcommand (an older
+  version, from before your session started), run the installed one:
+  `bin/plans` under the `installPath` that
+  `~/.claude/plugins/installed_plugins.json` gives `workflow@workflow`.
+  Never call a tool that publishes or writes under
+  ${user_config.owner}'s name on a site; the project file names them, when
+  the project has any.
 - **Hand out only sweeps, and bound them.** A read-only subagent
   (`Explore`) may take a wide question with one answer shape, several in
   parallel in one turn, each told what to return and to stop at a turn

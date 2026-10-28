@@ -35,6 +35,7 @@ import {
   cutoffEdit,
   decideResumed,
   decideEnd,
+  endedEdit,
   decideStop,
   inThisRepo,
   lockHeldByOther,
@@ -2494,6 +2495,56 @@ describe("a finished chat ends", () => {
     });
   });
 
+  // plans/end-a-stuck-chat.md: `--now` ends a named chat whatever it is doing.
+  it("decideEnd: immediate ends a working or warm one, and returns the plan it had under way", () => {
+    const working = { ...done, state: "working" };
+    expect(decideEnd({ row: working, now, force: true })).toEqual({
+      end: false,
+      why: "its state is working",
+    });
+    expect(decideEnd({ row: working, now, immediate: true })).toEqual({ end: true });
+    expect(decideEnd({ row: { ...done, state: "blocked" }, now, immediate: true })).toEqual({
+      end: true,
+    });
+    expect(decideEnd({ row: done, usage: used(5), now, immediate: true })).toEqual({ end: true });
+    expect(decideEnd({ row: working, on: "plans/x.md", now, immediate: true })).toEqual({
+      end: true,
+      on: "plans/x.md",
+    });
+    // Still only the queue's background sessions: the owner's own chat is his.
+    expect(
+      decideEnd({ row: { ...done, kind: "interactive" }, now, immediate: true }),
+    ).toMatchObject({ end: false });
+  });
+
+  it("endedEdit hands a plan over, and puts a brief back in the queue", () => {
+    const plan =
+      "# A plan\n\n## Building, 28 October 2026, session abc\n\nShort plan, 28 October 2026, by the assistant.\n\n## The change\n";
+    const out = endedEdit(plan, {
+      sessionId: "abc",
+      by: "Javi",
+      branch: "fix",
+      day: "28 October 2026",
+    });
+    expect(out).not.toContain("## Building");
+    expect(out).toContain(
+      "Short plan, 28 October 2026, by the assistant.\n\n## Handing over, 28 October 2026, ended by Javi\n\nStep in hand: unknown, Javi ended session abc with `plans end --now` on branch `fix`",
+    );
+    expect(stateOf(out)).toMatchObject({
+      state: "handed",
+      branch: "fix",
+      step: expect.stringMatching(/^unknown/),
+    });
+    const brief =
+      "# A brief\n\n## Planning, 28 October 2026, session abc\n\nBrief for the planner, 28 October 2026.\n\nWhat to plan.\n";
+    // A brief only loses its Planning line: a Handing over line would read as an executor's taking.
+    const back = endedEdit(brief, { sessionId: "abc", by: "Javi", day: "28 October 2026" });
+    expect(back).toBe("# A brief\n\nBrief for the planner, 28 October 2026.\n\nWhat to plan.\n");
+    expect(stateOf(back)).toMatchObject({ kind: "Brief", state: "brief" });
+    // Another session's line, or none (it wrote Built while it was stopped), is left as it is.
+    expect(endedEdit(plan, { sessionId: "other", by: "Javi" })).toBe(plan);
+  });
+
   it("reads a blocked session as waiting for input, and never replaces it", () => {
     const row = {
       sessionId: "b1000000-0000",
@@ -2641,6 +2692,7 @@ describe("a finished chat ends", () => {
       {
         sessionId: asker,
         id: "bg-a",
+        pid: 4242,
         name: "Ends Planner 1",
         kind: "background",
         state: "blocked",
@@ -2834,6 +2886,55 @@ describe("a finished chat ends", () => {
       expect(logged()).toEqual(["bg-e"]);
       queue(["end", "--timer", String(Date.now() - 1), asker]);
       expect(logged()).toEqual(["bg-e"]);
+    });
+
+    // plans/end-a-stuck-chat.md
+    it("plans end --now ends a named chat whatever it is doing, its plan handed over first", () => {
+      rmSync(log, { force: true });
+      expect(queue(["end", "--now"])).toBe(
+        "Not ended: name the chat to end now (plans end <id> --now); plans lists them.\n",
+      );
+      expect(logged()).toEqual([]);
+      // Blocked: refused without --now, ended with it, and its subagents' tmux server too.
+      expect(queue(["end", "bg-a"])).toBe(
+        "Not ended: Ends Planner 1 [p4000000], its state is blocked.\n",
+      );
+      expect(queue(["end", "bg-a", "--now"])).toBe("Ended Ends Planner 1 [p4000000]: blocked.\n");
+      expect(logged()).toEqual(["bg-a", "tmux claude-swarm-4242"]);
+      // A plan under way is refused without --now, and handed over with it.
+      rmSync(log, { force: true });
+      const taken = join(dir, "plans", "taken.md");
+      writeFileSync(
+        taken,
+        `# Taken\n\n## Building, 28 October 2026, session ${exec}\n\nPlan only, 28 October 2026, for Javi.\n\n## The change\n`,
+      );
+      expect(queue(["end", "bg-e"])).toBe(
+        "Not ended: Ends Executor 1 [e2000000], it has plans/taken.md under way.\n",
+      );
+      // The queue resumes it now: a fresh executor started in its place (WORKFLOW_CLAUDE stands in).
+      const ended = execFileSync("node", [join(here, "plan-queue.mjs"), "end", "--now", "bg-e"], {
+        encoding: "utf8",
+        env: { ...process.env, ...env(), WORKFLOW_CLAUDE: "/bin/true" },
+      });
+      expect(ended).toMatch(
+        /^Ended Ends Executor 1 \[e2000000\]: done\. plans\/taken\.md is handed over\.\n/,
+      );
+      // start's own answer follows: here the owner's interactive executor refuses it.
+      expect(ended).toContain("An executor is alive: Ends Executor 2 [e6000000]");
+      expect(logged()).toEqual(["bg-e"]);
+      const text = readFileSync(taken, "utf8");
+      expect(text).not.toContain("## Building");
+      expect(text).toMatch(/^## Handing over, [^,\n]+, ended by [^\n]+\n\nStep in hand: unknown/m);
+      expect(stateOf(text)).toMatchObject({ state: "handed" });
+      // A failed stop leaves the plan as it was.
+      const before = `# Taken\n\n## Building, 28 October 2026, session ${exec}\n\nPlan only, 28 October 2026, for Javi.\n`;
+      writeFileSync(taken, before);
+      const failed = execFileSync("node", [join(here, "plan-queue.mjs"), "end", "bg-e", "--now"], {
+        encoding: "utf8",
+        env: { ...process.env, ...env(), WORKFLOW_STOP_LOG: "", WORKFLOW_CLAUDE: "/bin/false" },
+      });
+      expect(failed).toBe("Not ended: Ends Executor 1 [e2000000], claude stop failed.\n");
+      expect(readFileSync(taken, "utf8")).toBe(before);
     });
   });
 });

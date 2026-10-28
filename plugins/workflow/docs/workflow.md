@@ -366,7 +366,15 @@ keeps its conversation; a session used again in the hour is left, and
 its next stop re-arms the timer. A session that asked the owner a
 question (`blocked`) is never ended by the queue, and `plans` says it is
 waiting for input. `plans end` ends this queue's finished chats now, and
-`plans end <id>` one of them; `plans` says when each will end. Claude
+`plans end <id>` one of them; `plans` says when each will end. **`plans
+end <id> --now` ends a named chat whatever it is doing**, a stuck turn or
+a question included, with its subagents' tmux server. Once it is
+stopped, the plan it had under way gets a "Handing over, <date>, ended by
+<owner>" section in place of its Building line, on the branch its worktree
+was on, or the brief loses its Planning line; the lock is released and a
+fresh executor or planner is started on it, as any start is. The
+assistant runs it when the owner names the chat or agrees to it
+(plans/end-a-stuck-chat.md). Claude
 Code's own supervisor stops a done background session on its own clock,
 about an hour by its docs and eight by this machine's log, which is why
 idle chats lingered.
