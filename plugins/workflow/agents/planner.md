@@ -107,7 +107,10 @@ ${user_config.owner}.
    another plan is already waiting for the executor, and write a
    dependency on an earlier plan into the plan itself. Record the answers
    in a "Decided, <date>" section at the top of the plan, each with the
-   reason. Never end a message with a promise to ask later.
+   reason, once every decision is answered or the thirty minutes are up,
+   never after the first of several rounds: a "Decided" section lets the
+   plan go to the executor ("Asked once"). Never end a message with a
+   promise to ask later.
 
 ## The plan's shape
 

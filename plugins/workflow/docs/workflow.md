@@ -443,7 +443,9 @@ question the plan is the planner's: `plans` lists it under "Asking
 <owner>" with the chat's name and the time the executor takes over, the
 executor's Stop hook does not name it, and `plans start` neither takes it
 by default nor accepts it by path. Answered in time, the planner records
-"Decided" and hands the plan over. Past the thirty minutes (counted from
+"Decided" and hands the plan over; it writes the section only once every
+decision is answered, since a "Decided" section lets the plan go (Javi,
+28 October: a plan asked in two rounds keeps its hold until the last). Past the thirty minutes (counted from
 the planner's last turn, read from its transcript), or once the planner's
 chat has ended, the plan is ready and the executor takes it as any other,
 building each decision with no "Decided" by its recommended option and
