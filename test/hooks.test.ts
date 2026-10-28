@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  statSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -49,6 +50,8 @@ import {
   readPlans,
   plannerContext,
   askingIn,
+  buildingAdded,
+  editedText,
   ANSWER_WINDOW,
   briefPaths,
   relatedBrief,
@@ -3206,6 +3209,194 @@ describe("asked once", () => {
       const written = takeDeferral();
       expect(written.paths).toEqual(["plans/asks.md"]);
       expect(written.until).toBe(at + 30 * MIN + 5000);
+    });
+
+    describe("the executor's Building line on a held plan", () => {
+      const file = () => join(dir, "plans", "asks.md");
+      const line = `## Building, 28 October 2026, session ${ids.exec}`;
+      const exec = (mode: string, tool_name: string, tool_input: object) =>
+        queue([mode], {
+          session_id: ids.exec,
+          agent_type: "workflow:executor",
+          tool_name,
+          tool_input,
+        });
+      const edit = (new_string: string) =>
+        exec("tool", "Edit", {
+          file_path: file(),
+          old_string: "## Decisions for Javi",
+          new_string,
+        });
+      const denied = (out: string) =>
+        out ? JSON.parse(out).hookSpecificOutput?.permissionDecisionReason || "" : "";
+      const words = (at: number) =>
+        `plans/asks.md is still asking Javi (its planner's until ${hhmm(at + 30 * MIN)}): build the other plans first, and come back to it after ${hhmm(at + 30 * MIN)}, or when Javi says in this chat to build it now. Once he has, write his word in its "Decided" section first: that lets the plan go.`;
+      afterAll(() => {
+        writeFileSync(file(), asks);
+        rmSync(stateFile(ids.exec), { force: true });
+      });
+
+      it("the tool hook refuses it by Edit, MultiEdit or Write while the plan asks, with the words", () => {
+        const at = asked(5);
+        expect(denied(edit(`${line}\n\n## Decisions for Javi`))).toBe(words(at));
+        expect(
+          denied(
+            exec("tool", "MultiEdit", {
+              file_path: file(),
+              edits: [{ old_string: "# X\n", new_string: `# X\n\n${line}\n` }],
+            }),
+          ),
+        ).toBe(words(at));
+        expect(
+          denied(exec("tool", "Write", { file_path: file(), content: `${line}\n\n${asks}` })),
+        ).toBe(words(at));
+      });
+
+      it("lets it through past the window, with a Decided, or with the planner gone", () => {
+        asked(40);
+        expect(edit(`${line}\n\n## Decisions for Javi`)).toBe("");
+        asked(5);
+        // Javi said in the executor's chat to build it now: his word in Decided, first or with the line.
+        expect(
+          edit(
+            `${line}\n\n## Decided, 28 October 2026\n\nJavi said in the executor's chat to build it now.\n\n## Decisions for Javi`,
+          ),
+        ).toBe("");
+        writeFileSync(file(), `${asks}\n## Decided, 28 October 2026\n\nBuild it now (Javi).\n`);
+        try {
+          expect(edit(`${line}\n\n## Decisions for Javi`)).toBe("");
+        } finally {
+          writeFileSync(file(), asks);
+        }
+        expect(
+          queue(
+            ["tool"],
+            {
+              session_id: ids.exec,
+              agent_type: "workflow:executor",
+              tool_name: "Edit",
+              tool_input: {
+                file_path: file(),
+                old_string: "## Decisions for Javi",
+                new_string: `${line}\n\n## Decisions for Javi`,
+              },
+            },
+            [live[1]],
+          ),
+        ).toBe("");
+      });
+
+      it("lets the executor's other edits to the held plan through, and its edits elsewhere", () => {
+        asked(5);
+        expect(edit("A note.\n\n## Decisions for Javi")).toBe("");
+        // A Building line already there is not added by an edit beside it.
+        writeFileSync(file(), `${asks}\n${line}\n`);
+        try {
+          expect(edit("A note.\n\n## Decisions for Javi")).toBe("");
+        } finally {
+          writeFileSync(file(), asks);
+        }
+        expect(
+          exec("tool", "Write", { file_path: join(dir, "notes.md"), content: `${line}\n` }),
+        ).toBe("");
+      });
+
+      it("the wrote hook takes a line a shell wrote out again, and leaves one past the window", () => {
+        const at = asked(5);
+        rmSync(stateFile(ids.exec), { force: true });
+        writeFileSync(file(), asks.replace("\n## Decisions", `\n${line}\n\n## Decisions`));
+        const out = JSON.parse(exec("wrote", "Bash", { command: "sed -i ... plans/asks.md" }));
+        expect(out.decision).toBe("block");
+        expect(out.reason).toBe(`${words(at)} Its Building line was taken out.`);
+        expect(readFileSync(file(), "utf8")).not.toContain("## Building, ");
+        asked(40);
+        writeFileSync(file(), asks.replace("\n## Decisions", `\n${line}\n\n## Decisions`));
+        expect(exec("wrote", "Bash", { command: "sed -i ... plans/asks.md" })).toBe("");
+        expect(readFileSync(file(), "utf8")).toContain(line);
+        // Let through once, it is not judged again, a new question or not.
+        expect(JSON.parse(readFileSync(stateFile(ids.exec), "utf8")).taken).toEqual([
+          "plans/asks.md",
+        ]);
+        asked(5);
+        expect(exec("wrote", "Bash", { command: "true" })).toBe("");
+        expect(readFileSync(file(), "utf8")).toContain(line);
+        // A plan whose line is gone drops from the list, and is judged afresh.
+        writeFileSync(file(), asks);
+        expect(exec("wrote", "Bash", { command: "true" })).toBe("");
+        expect(JSON.parse(readFileSync(stateFile(ids.exec), "utf8")).taken).toEqual([]);
+      });
+
+      it("before any question, a shell's line is judged by the plan's time before the command", () => {
+        // The planner wrote the plan just now and has not asked yet (Codex).
+        writeFileSync(
+          stateFile(ids.planner),
+          JSON.stringify({ agent: "planner", brief: "plans/asks.md", plans: [] }),
+        );
+        rmSync(stateFile(ids.exec), { force: true });
+        writeFileSync(file(), asks);
+        const before = statSync(file()).mtimeMs;
+        expect(exec("tool", "Bash", { command: "sed -i 's/x/y/' plans/asks.md" })).toBe("");
+        expect(JSON.parse(readFileSync(stateFile(ids.exec), "utf8")).plansAt).toMatchObject({
+          "plans/asks.md": before,
+        });
+        writeFileSync(file(), asks.replace("\n## Decisions", `\n${line}\n\n## Decisions`));
+        const out = JSON.parse(exec("wrote", "Bash", { command: "sed -i 's/x/y/' plans/asks.md" }));
+        expect(out.reason).toBe(`${words(before)} Its Building line was taken out.`);
+        expect(readFileSync(file(), "utf8")).not.toContain("## Building, ");
+        writeFileSync(file(), asks);
+      });
+
+      it("an Edit let through with no sessions read is judged again at the next command (Codex)", () => {
+        asked(5);
+        rmSync(stateFile(ids.exec), { force: true });
+        const input = {
+          session_id: ids.exec,
+          agent_type: "workflow:executor",
+          tool_name: "Edit",
+          tool_input: {
+            file_path: file(),
+            old_string: "## Decisions for Javi",
+            new_string: `${line}\n\n## Decisions for Javi`,
+          },
+        };
+        const blind = execFileSync("node", [join(here, "plan-queue.mjs"), "tool"], {
+          input: JSON.stringify(input),
+          encoding: "utf8",
+          env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WORKFLOW_LIVE: "null" },
+        });
+        expect(blind).toBe("");
+        expect(existsSync(stateFile(ids.exec))).toBe(false);
+        writeFileSync(file(), asks.replace("\n## Decisions", `\n${line}\n\n## Decisions`));
+        expect(JSON.parse(exec("wrote", "Bash", { command: "true" })).decision).toBe("block");
+        expect(readFileSync(file(), "utf8")).not.toContain("## Building, ");
+        writeFileSync(file(), asks);
+      });
+    });
+
+    it("editedText and buildingAdded read an edit's result", () => {
+      expect(editedText("Edit", { old_string: "a", new_string: "b" }, "aa")).toBe("ba");
+      expect(
+        editedText("Edit", { old_string: "a", new_string: "b", replace_all: true }, "aa"),
+      ).toBe("bb");
+      expect(editedText("Edit", { old_string: "z", new_string: "b" }, "aa")).toBe("aa");
+      expect(editedText("Edit", { old_string: "", new_string: "new" }, "")).toBe("new");
+      expect(editedText("Write", { content: "c" }, "aa")).toBe("c");
+      expect(
+        editedText(
+          "MultiEdit",
+          {
+            edits: [
+              { old_string: "a", new_string: "b" },
+              { old_string: "b", new_string: "$&c" },
+            ],
+          },
+          "a",
+        ),
+      ).toBe("$&c");
+      const building = "## Building, 28 October 2026, session x";
+      expect(buildingAdded("# X\n", `# X\n${building}\n`)).toEqual([building]);
+      expect(buildingAdded(`${building}\n`, `${building}\nmore\n`)).toEqual([]);
+      expect(buildingAdded("# X\n## Building it\n", "# X\n## Building it\n1.\n")).toEqual([]);
     });
 
     it("the executor's Stop hook names a held plan only past the window, or with its planner gone", () => {

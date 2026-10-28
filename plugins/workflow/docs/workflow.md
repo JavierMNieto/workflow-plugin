@@ -449,7 +449,10 @@ question the plan is the planner's: `plans` lists it under "Asking
 executor's Stop hook does not name it, and `plans start` neither takes it
 by default nor accepts it by path, and an executor handed its path, by the
 owner or in a message, waits for it too, unless the owner says in its chat
-to build it now. Answered in time, the planner records
+to build it now (his word goes in "Decided" first). The queue's tool
+hook refuses an executor's Building line on a plan still asking, and its
+`wrote` hook takes out one a shell command wrote. Answered in time, the
+planner records
 "Decided" and hands the plan over; it writes the section only once every
 decision is answered, since a "Decided" section lets the plan go (Javi,
 28 October: a plan asked in two rounds keeps its hold until the last).

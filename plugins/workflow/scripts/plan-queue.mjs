@@ -9,14 +9,17 @@
 //                            goes into the context
 //   plan-queue.mjs tool      on PreToolUse: refuses an executor's edit or
 //                            writing command while another executor holds
-//                            the lock, or after retiring; a planner's edit to
+//                            the lock, or after retiring, and its Building
+//                            line on a plan still asking; a planner's edit to
 //                            a taken plan; a planner's question records its
 //                            time and defers a start of the plan it asks about
 //   plan-queue.mjs stop      on Stop: the project's run on the push, then the
 //                            waiting plans (built here while the context is
 //                            fresh, or a fresh executor started when tired)
-//   plan-queue.mjs wrote     on PostToolUse (Edit, Write): an executor's
-//                            Building line stops the retired planner of it
+//   plan-queue.mjs wrote     on PostToolUse (Edit, Write, Bash): an executor's
+//                            Building line stops the retired planner of it;
+//                            one a shell wrote on a plan still asking is
+//                            taken out again
 //   plan-queue.mjs compact   on PostCompact: counts the session's compactions
 //   plan-queue.mjs resumed   on SessionStart after a compaction: asks for a
 //                            handover at the third inside one plan
@@ -882,6 +885,59 @@ function mtimeOf(path) {
 /** The plans with `askingIn` set on each, for the callers that have the live rows in hand. */
 export function withAsking(plans, live, options = {}) {
   return plans.map((plan) => ({ ...plan, askingIn: askingIn(plan, live, options) }));
+}
+
+/**
+ * The text an Edit, Write or MultiEdit leaves in a file whose text is
+ * `before`; `before` when an edit's old string is not there, since that edit
+ * fails and changes nothing.
+ */
+export function editedText(toolName, toolInput = {}, before = "") {
+  if (toolName === "Write") return String(toolInput?.content ?? before);
+  const edits =
+    toolName === "MultiEdit" ? toolInput?.edits || [] : toolName === "Edit" ? [toolInput] : [];
+  let text = before;
+  for (const edit of edits) {
+    const from = String(edit?.old_string ?? "");
+    const to = String(edit?.new_string ?? "");
+    if (!from) {
+      // An empty old string writes a new file, and only a new one.
+      if (text) return before;
+      text = to;
+      continue;
+    }
+    if (!text.includes(from)) return before;
+    text = edit.replace_all ? text.split(from).join(to) : text.replace(from, () => to);
+  }
+  return text;
+}
+
+const BUILDING_LINE = /^## Building, [^\n]*/gm;
+/** A Building line with its line end, to take it out. */
+const BUILDING_WHOLE = /^## Building, [^\n]*\n?/gm;
+
+/** The Building lines `after` has that `before` has not. */
+export function buildingAdded(before = "", after = "") {
+  const had = new Set(before.match(BUILDING_LINE) || []);
+  return (after.match(BUILDING_LINE) || []).filter((line) => !had.has(line));
+}
+
+/**
+ * **A plan still asking is not taken, even by mistake**
+ * (plans/asking-plan-guarded.md): `askingIn` on the plan as it would stand
+ * without its Building lines, so the line under judgement does not make it
+ * "building" and let itself through. A "Decided" section lets it go, as it
+ * does every other hold. `{ row, until }` or null.
+ */
+export function heldFromBuilding(path, text, live, { mtime = 0, ...options } = {}) {
+  const state = stateOf(text.replace(BUILDING_WHOLE, ""), { mtime });
+  return state ? askingIn({ path, ...state }, live, options) : null;
+}
+
+/** The refusal of a Building line on a plan still asking, its time the one `plans` prints. */
+export function stillAskingWords(path, { until }) {
+  const at = hhmm(until);
+  return `${path} is still asking ${owner()} (its planner's until ${at}): build the other plans first, and come back to it after ${at}, or when ${owner()} says in this chat to build it now. Once he has, write his word in its "Decided" section first: that lets the plan go.`;
 }
 
 /** "plans/x.md asks Javi in Planner 3 [9b372186] until 14:32: ...", the start's refusal of a held plan. */
@@ -2703,6 +2759,52 @@ function plannerHook(mode, input, sessionId, statePath) {
   }
 }
 
+/** A path under the root as `plans/<x>.md`, or "" for any other file. */
+function planPath(file) {
+  if (!file) return "";
+  const path = relative(root, resolve(root, file));
+  return /^plans\/[^/]+\.md$/.test(path) ? path : "";
+}
+
+/**
+ * **The executor's tool hook refuses a Building line on a plan still asking**
+ * (plans/asking-plan-guarded.md): an Edit, Write or MultiEdit to a plan whose
+ * new text adds a Building line, while `askingIn` holds the plan. The live
+ * sessions are read only then, so every other edit costs nothing.
+ */
+function buildingRefusal(input, statePath) {
+  if (!["Edit", "Write", "MultiEdit"].includes(input.tool_name)) return "";
+  const path = planPath(input.tool_input?.file_path);
+  if (!path) return "";
+  const before = planText(path);
+  const after = editedText(input.tool_name, input.tool_input, before);
+  if (!buildingAdded(before, after).length) return "";
+  const live = liveSessions({ timeout: 4000 });
+  const asking = heldFromBuilding(path, after, live, { mtime: mtimeOf(path) });
+  if (asking) return stillAskingWords(path, asking);
+  // Judged with the sessions in hand, the plan is not judged again by the
+  // shell's check; unjudged (no sessions read), the next shell command's
+  // check reads them again (Codex, 28 October).
+  if (live) {
+    const state = readState(input.session_id);
+    if (!(state.taken || []).includes(path))
+      writeJson(statePath, { ...state, taken: [...(state.taken || []), path] });
+  }
+  return "";
+}
+
+/** Each plan's modification time, before a shell command that may write one. */
+function planTimes(dir = join(root, "plans")) {
+  const times = {};
+  try {
+    for (const name of readdirSync(dir))
+      if (name.endsWith(".md")) times[`plans/${name}`] = statSync(join(dir, name)).mtimeMs;
+  } catch {
+    // No plans.
+  }
+  return times;
+}
+
 function hook(mode, input) {
   // **A project with no project file is not the workflow's**: its own hooks,
   // if it has any, run alone (a project moving onto the plugin keeps its old
@@ -2751,17 +2853,46 @@ function hook(mode, input) {
       const tip = branchTip();
       if (tip) writeJson(statePath, { ...state, base: tip, baseAt: "building" });
     };
-    // A Building line written by a shell command: found by reading the
-    // plans, once per session, until the base is marked.
+    // A Building line written by a shell command: found by reading the plans
+    // after the fact, since no tool hook could refuse it. **On a plan still
+    // asking it is taken out again** (plans/asking-plan-guarded.md), with the
+    // tool hook's words. A plan judged once (`taken`) is not judged again, so
+    // the live sessions are read once per plan; one whose line is gone drops
+    // from the list. Before any question the window opens at the plan's time
+    // before the command (`plansAt`, which the tool hook records), since the
+    // command has just written the file.
     if (input.tool_name === "Bash") {
-      if (readState(sessionId).baseAt) return;
-      if (readPlans(join(root, "plans")).some((p) => building.test(p.text))) markBase();
+      const mine = readPlans(join(root, "plans")).filter((p) => building.test(p.text));
+      const state = readState(sessionId);
+      const taken = (state.taken || []).filter((path) => mine.some((p) => p.path === path));
+      const unjudged = mine.filter((p) => !taken.includes(p.path));
+      const said = [];
+      if (unjudged.length) {
+        const live = liveSessions({ timeout: 4000 });
+        const own = new RegExp(`${building.source}[^\\n]*\\n?`, "gm");
+        for (const plan of unjudged) {
+          const mtime = state.plansAt?.[plan.path] || 0;
+          const asking = heldFromBuilding(plan.path, plan.text, live, { mtime });
+          // No sessions read is the hook doing nothing, as when it fails:
+          // judged, so a failing list is not asked again on every command.
+          if (!asking) {
+            taken.push(plan.path);
+            continue;
+          }
+          writeFileSync(plan.file, plan.text.replace(own, ""));
+          said.push(`${stillAskingWords(plan.path, asking)} Its Building line was taken out.`);
+        }
+      }
+      if (String(taken) !== String(state.taken || []))
+        writeJson(statePath, { ...readState(sessionId), taken });
+      // The batch starts at a Building line that stays.
+      if (taken.length) markBase();
+      if (said.length)
+        process.stdout.write(JSON.stringify({ decision: "block", reason: said.join("\n") }));
       return;
     }
-    const file = input.tool_input?.file_path;
-    if (!file) return;
-    const path = relative(root, resolve(root, file));
-    if (!/^plans\/[^/]+\.md$/.test(path)) return;
+    const path = planPath(input.tool_input?.file_path);
+    if (!path) return;
     if (!building.test(planText(path))) return;
     markBase();
     stopPlannersOn(path, liveSessions());
@@ -2777,6 +2908,10 @@ function hook(mode, input) {
     else if (state.retired)
       reason =
         "This session is retired: a fresh executor took the queue. Do not build; say so, and stop.";
+    else reason = buildingRefusal(input, statePath);
+    // A writing command may write a Building line: the plans' times before it,
+    // for the wrote hook's judgement.
+    if (!reason && command !== null) writeJson(statePath, { ...state, plansAt: planTimes() });
     if (reason) {
       process.stdout.write(
         JSON.stringify({
