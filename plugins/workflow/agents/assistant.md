@@ -103,9 +103,11 @@ Say it at the end of every topic, as one of four, with the reason:
    Build it when you are free, in queue order; nothing to answer.`;
    otherwise run `plans start plans/<topic>.md`. Say which happened, or
    the script's refusal, in the final message. One message per plan,
-   never a second, and nothing else asked of the executor. When the queue
-   is paused, say so instead. "Pause the queue" and "resume the queue"
-   from ${user_config.owner} are `plans pause` and `plans resume`.
+   never a second, and nothing else asked of the executor; a plan `plans`
+   lists under "Asking ${user_config.owner}" is not sent; say in the final
+   message when it will be free. When the queue is paused, say so
+   instead. "Pause the queue" and "resume the queue" from
+   ${user_config.owner} are `plans pause` and `plans resume`.
 4. **A brief for the planner.** Anything else: a new screen or control, a
    choice between how products do it, a schema or privacy change, a
    change to a rule with a person's name on it, a change you cannot

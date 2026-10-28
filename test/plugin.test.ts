@@ -1165,6 +1165,26 @@ describe("the setup interview", () => {
   });
 });
 
+describe("a plan still asking, whoever names it", () => {
+  const agent = (name: string) =>
+    readFileSync(new URL(`../plugins/workflow/agents/${name}.md`, import.meta.url), "utf8");
+
+  it("has the executor run plans before a plan named by a path, and wait on one asking", () => {
+    const sources = /\*\*The plans you build\*\*[\s\S]*?\n\n/.exec(agent("executor"))![0];
+    expect(sources).toContain(
+      "Before building a plan named by a path, by\n${user_config.owner} or in a message, run `plans`",
+    );
+    expect(sources).toContain('"Asking ${user_config.owner}" waits until the time it prints');
+  });
+
+  it("has the assistant hold back a plan still asking", () => {
+    const handOver = /3\. \*\*A short plan for the executor\.\*\*[\s\S]*?\n4\. /.exec(
+      agent("assistant"),
+    )![0];
+    expect(handOver).toContain('lists under "Asking ${user_config.owner}" is not sent');
+  });
+});
+
 describe("the reuse ceiling and the reviewer", () => {
   it("has the executor stop at one retry of a push refused for credentials", () => {
     const text = readFileSync(
