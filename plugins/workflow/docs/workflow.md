@@ -433,7 +433,12 @@ refuses while any unretired executor is alive, lock or not. `plans` lists
 the worktrees under `.claude/worktrees/` with who is in each. `plans
 sync` moves a clean, detached checkout to the branch, and `plans start`
 does the same before it starts anything; an executor detaches the
-checkout at `origin/<branch>` after its batch's last push.
+checkout at `origin/<branch>` after its batch's last push. The queue's
+own files in `.claude/` are git-ignored, one line per kind
+(`.claude/executor.*`, `.claude/planner.*`, `.claude/asking.*`): `plans
+init` writes them into `.gitignore`, and `plans sync` and `plans start`
+add any a project set up earlier lacks to `.git/info/exclude`, which git
+never tracks, so the checkout stays clean.
 
 **Each project's queue runs apart from every other, in parallel.** A
 change to the workflow goes through the plugin's own queue, never the

@@ -27,10 +27,13 @@ import {
 import {
   defaultBranch,
   frontmatter,
+  ignoreQueueFiles,
   init,
   kindOf,
   matches,
   project,
+  QUEUE_IGNORES,
+  QUEUE_KINDS,
 } from "../plugins/workflow/scripts/project.mjs";
 import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
 
@@ -149,6 +152,49 @@ catalogue: docs/patterns
     expect(defaultBranch(dir("nogit-"), { checkedOut: true })).toBe("main");
   });
 
+  it("ignores every file the queue keeps in .claude/, one line per kind", () => {
+    expect(QUEUE_IGNORES).toEqual(QUEUE_KINDS.map((kind) => `.claude/${kind}.*`));
+    // The names plan-queue.mjs writes there: its literal files and one per kind.
+    const source = readFileSync(join(scripts, "plan-queue.mjs"), "utf8");
+    const literal = [...source.matchAll(/join\(root, "\.claude", "([^"]+)"\)/g)].map((m) => m[1]);
+    const perKind = [...source.matchAll(/join\(root, "\.claude", `\$\{kind\}(\.[a-z]+)`\)/g)].map(
+      (m) => m[1],
+    );
+    expect(literal).toEqual(expect.arrayContaining(["executor.lock", "executor.pause"]));
+    expect(perKind).toEqual(expect.arrayContaining([".deferred", ".started"]));
+    const names = [
+      ...literal.filter((name) => name !== "worktrees"),
+      ...QUEUE_KINDS.flatMap((kind) => perKind.map((ext) => `${kind}${ext}`)),
+    ];
+    const root = dir("ignores-");
+    gitIn(root)("init", "-q");
+    writeFileSync(join(root, ".gitignore"), `${QUEUE_IGNORES.join("\n")}\n`);
+    const ignored = execFileSync(
+      "git",
+      ["check-ignore", "--no-index", ...names.map((name) => `.claude/${name}`)],
+      { cwd: root, encoding: "utf8" },
+    );
+    expect(ignored.trim().split("\n").sort()).toEqual(
+      names.map((name) => `.claude/${name}`).sort(),
+    );
+  });
+
+  it("adds a missing queue line to .git/info/exclude once, even where the project's own rule overrides it", () => {
+    const root = dir("exclude-");
+    gitIn(root)("init", "-q");
+    writeFileSync(join(root, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
+    expect(ignoreQueueFiles(root)).toBe("Added .claude/asking.* to .git/info/exclude.");
+    expect(ignoreQueueFiles(root)).toBe("");
+    writeFileSync(join(root, ".gitignore"), "!.claude/**\n");
+    expect(ignoreQueueFiles(root)).toBe(
+      "Added .claude/executor.*, .claude/planner.* to .git/info/exclude.",
+    );
+    expect(ignoreQueueFiles(root)).toBe("");
+    const exclude = readFileSync(join(root, ".git", "info", "exclude"), "utf8").split("\n");
+    for (const line of QUEUE_IGNORES) expect(exclude.filter((one) => one === line)).toHaveLength(1);
+    expect(ignoreQueueFiles(dir("nogit-"))).toBe("");
+  });
+
   it("writes the starter once, and refuses a second time", () => {
     const root = dir("init-");
     expect(init(root)).toBe("Wrote .claude/workflow.md: fill in each heading for this project.");
@@ -164,7 +210,7 @@ catalogue: docs/patterns
     expect(project(root).found).toBe(true);
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/executor.*\n.claude/planner.*\n",
+      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n",
     );
     expect(text).toContain(
       "# deny:                  MCP tools an agent here may never call, by agent (regular expressions)",

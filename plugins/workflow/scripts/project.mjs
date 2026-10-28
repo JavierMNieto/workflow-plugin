@@ -3,10 +3,10 @@
 // its body by the agents. The frontmatter holds four shapes only (a
 // scalar, a list of strings, a map of lists, a comment after `#`), parsed by
 // hand so the plugin needs no dependency.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const PROJECT_FILE = join(".claude", "workflow.md");
@@ -453,10 +453,61 @@ Which tools read code and docs here, if the project has a rule.
 `;
 }
 
-/** Writes the starter file, or says why not. One line either way. */
-/** The queue's own files in a project's `.claude/`, which git must not see. */
-export const QUEUE_IGNORES = [".claude/executor.*", ".claude/planner.*"];
+/**
+ * **The queue's kinds of file**, its deferrals: `<kind>.deferred` in a
+ * project's `.claude/` for each (`plan-queue.mjs` reads, pauses and re-arms
+ * every one), with `executor.lock`, `executor.pause` and the agents'
+ * `executor.started` and `planner.started` under the same names. A kind
+ * here is a deferral; `QUEUE_IGNORES` keeps all of their files out of git.
+ */
+export const QUEUE_KINDS = ["executor", "planner", "asking"];
 
+/** The queue's own files in a project's `.claude/`, which git must not see: one line per kind. */
+export const QUEUE_IGNORES = QUEUE_KINDS.map((kind) => `.claude/${kind}.*`);
+
+/**
+ * **A project set up earlier learns a new kind of file**: the
+ * `QUEUE_IGNORES` lines git does not ignore yet in the checkout at `cwd`
+ * go into the repository's `.git/info/exclude`, which git reads and never
+ * tracks, so the line leaves the checkout clean. "Added <lines> to
+ * .git/info/exclude." or "" (nothing missing, or not a repository).
+ */
+export function ignoreQueueFiles(cwd) {
+  const run = (args) => spawnSync("git", args, { cwd, encoding: "utf8", timeout: 10_000 });
+  const sample = (line) => line.replace("*", "x");
+  const ignored = run(["check-ignore", "--no-index", ...QUEUE_IGNORES.map(sample)]);
+  // 0: some are ignored, 1: none are; anything else is no repository.
+  if (ignored.status !== 0 && ignored.status !== 1) return "";
+  const seen = new Set(ignored.stdout.split("\n").map((line) => line.trim()));
+  const unignored = QUEUE_IGNORES.filter((line) => !seen.has(sample(line)));
+  if (!unignored.length) return "";
+  const where = run(["rev-parse", "--git-path", "info/exclude"]);
+  if (where.status !== 0) return "";
+  const file = resolve(cwd, where.stdout.trim());
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    let text = "";
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      // No exclude file yet.
+    }
+    // A line there already that git still does not honour is overridden by
+    // the project's own rule (a `!.claude/**` in its .gitignore): written
+    // once, never again.
+    const missing = unignored.filter((line) => !text.split("\n").includes(line));
+    if (!missing.length) return "";
+    writeFileSync(
+      file,
+      `${text}${text && !text.endsWith("\n") ? "\n" : ""}${missing.join("\n")}\n`,
+    );
+    return `Added ${missing.join(", ")} to .git/info/exclude.`;
+  } catch {
+    return "";
+  }
+}
+
+/** Writes the starter file, or says why not. One line either way. */
 export function init(root) {
   const file = join(root, PROJECT_FILE);
   if (existsSync(file)) return `${PROJECT_FILE} exists already; edit it instead.`;

@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { QUEUE_IGNORES } from "../plugins/workflow/scripts/project.mjs";
 import {
   listToJudge,
   recordTool,
@@ -1088,6 +1089,7 @@ describe("plan-queue", () => {
       g(clone, "init", "-q");
       g(clone, "remote", "add", "origin", origin);
       writeFileSync(join(clone, "README"), "one\n");
+      writeFileSync(join(clone, ".gitignore"), `${QUEUE_IGNORES.join("\n")}\n`);
       mkdirSync(join(clone, ".claude"), { recursive: true });
       writeFileSync(join(clone, ".claude", "workflow.md"), "---\nname: Clone\nbranch: test\n---\n");
       g(clone, "add", ".");
@@ -1149,6 +1151,33 @@ describe("plan-queue", () => {
         expect(g(tree, "rev-parse", "HEAD")).toBe(first);
       } finally {
         g(clone, "worktree", "remove", "--force", tree);
+      }
+    });
+    it("ignores a kind of queue file the project's .gitignore lacks, then moves the checkout", () => {
+      // A project set up before the third kind: its .gitignore has two lines.
+      g(clone, "checkout", "-q", "--detach", "origin/test");
+      writeFileSync(join(clone, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
+      g(clone, "commit", "-q", "-am", "two ignores");
+      const behind = g(clone, "rev-parse", "HEAD");
+      writeFileSync(join(clone, "README"), "three\n");
+      g(clone, "commit", "-q", "-am", "three");
+      g(clone, "push", "-q", "origin", "HEAD:refs/heads/test");
+      g(clone, "checkout", "-q", "--detach", behind);
+      writeFileSync(join(clone, ".claude", "asking.deferred"), "{}\n");
+      const exclude = join(clone, ".git", "info", "exclude");
+      try {
+        const test = g(clone, "rev-parse", "origin/test");
+        expect(syncIn(clone)).toBe(
+          `Added .claude/asking.* to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
+        );
+        expect(g(clone, "rev-parse", "HEAD")).toBe(test);
+        expect(g(clone, "status", "--porcelain")).toBe("");
+        // The tracked .gitignore is left as it is; the line is added once.
+        expect(g(clone, "diff", "--name-only")).toBe("");
+        expect(syncIn(clone)).toBe(`Already at test, ${test.slice(0, 8)}.`);
+        expect(readFileSync(exclude, "utf8").split("\n")).toContain(".claude/asking.*");
+      } finally {
+        rmSync(join(clone, ".claude", "asking.deferred"), { force: true });
       }
     });
     it("says a failed fetch on every answer", () => {

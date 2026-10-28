@@ -65,10 +65,12 @@ import { shellWrites, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
 import {
   PROJECT_FILE,
+  QUEUE_KINDS,
   compiles,
   connectorAlone,
   couldNameMcp,
   everyTool,
+  ignoreQueueFiles,
   init,
   kindOf,
   machine,
@@ -860,8 +862,6 @@ export const ANSWER_WINDOW = 30 * MINUTE;
  * a millisecond early, and a start that still found the plan held would drop it.
  */
 const WINDOW_SLACK = 5000;
-/** The deferrals, by file: the executor's, the planner's and the window's. */
-const DEFERRALS = ["executor", "planner", "asking"];
 /** The agent a deferral's timer starts. */
 const agentOfDeferral = (file) => (file === "planner" ? "planner" : "executor");
 
@@ -1858,9 +1858,12 @@ export function start(paths, options = {}) {
   // executor.md), so the executor started runs the queue's newest hooks; not
   // for a dry run or a deferred one, which nobody is watching. A start that
   // replaces a session comes from a hook, so it moves without fetching.
-  const synced =
-    options.dry || options.timer || options.at > Date.now()
-      ? ""
+  // One that does not sync still ignores the queue's files, so the
+  // executor it starts finds the checkout clean.
+  const synced = options.dry
+    ? ""
+    : options.timer || options.at > Date.now()
+      ? ignoreQueueFiles(primaryCheckout())
       : sync({ fetch: !options.replace });
   const said = startHere(paths, options);
   return synced ? `${synced}\n${said}` : said;
@@ -2117,6 +2120,19 @@ function git(args, options = {}) {
   }).trim();
 }
 
+/** The primary checkout, the one the hooks run from, even from inside a worktree; else the root. */
+function primaryCheckout() {
+  try {
+    const first = git(["worktree", "list", "--porcelain"])
+      .split("\n")
+      .find((line) => line.startsWith("worktree "));
+    if (first) return first.slice(9);
+  } catch {
+    // Not a repository's worktree list: the root it was given.
+  }
+  return root;
+}
+
 /**
  * **`plans sync`**: moves a clean, detached checkout that is not ahead of
  * the project's branch to `origin/<branch>`, or says why not. One line
@@ -2131,15 +2147,7 @@ function git(args, options = {}) {
  * from any of them.
  */
 export function sync({ fetch = true } = {}) {
-  let cwd = root;
-  try {
-    const first = git(["worktree", "list", "--porcelain"])
-      .split("\n")
-      .find((line) => line.startsWith("worktree "));
-    if (first) cwd = first.slice(9);
-  } catch {
-    // Not a repository's worktree list: the root it was given.
-  }
+  const cwd = primaryCheckout();
   const run = (args, options = {}) => git(args, { cwd, ...options });
   let note = "";
   if (fetch) {
@@ -2152,6 +2160,10 @@ export function sync({ fetch = true } = {}) {
       note = `git fetch failed (${why}), so this is ${branch()} as last fetched. `;
     }
   }
+  // A kind of queue file new since the project was set up is ignored
+  // before the checkout is called clean; not in a repository the queue is not in.
+  const added = proj().found ? ignoreQueueFiles(cwd) : "";
+  if (added) note += `${added} `;
   try {
     let onBranch = "";
     try {
@@ -2283,7 +2295,7 @@ export function list({ all = false, live } = {}) {
   const paused = pausedSince();
   if (paused)
     out.push(`The queue is paused since ${paused} ("resume the queue" in any session lifts it).`);
-  for (const kind of DEFERRALS) {
+  for (const kind of QUEUE_KINDS) {
     const deferred = readJson(files.deferred(kind));
     if (deferred)
       out.push(
@@ -3594,7 +3606,7 @@ export function main(args = process.argv.slice(2)) {
     // **A pause holds the deferred starts**: each timer is killed and its
     // deferral kept, with no timer, for the resume to re-arm.
     const held = [];
-    for (const kind of DEFERRALS) {
+    for (const kind of QUEUE_KINDS) {
       const deferred = readJson(files.deferred(kind));
       if (!deferred) continue;
       if (deferred.pid) {
@@ -3623,7 +3635,7 @@ export function main(args = process.argv.slice(2)) {
       // It was not paused.
     }
     const armed = [];
-    for (const kind of DEFERRALS) {
+    for (const kind of QUEUE_KINDS) {
       const deferred = readJson(files.deferred(kind));
       if (!deferred) continue;
       // A timer at the later of its time and a minute from now.
