@@ -1360,3 +1360,24 @@ describe("the reading-tools trial's guards", () => {
     expect(windowOf(join(path, "missing"), now)).toEqual({ over: null, stale: true });
   });
 });
+
+/** plans/owner-questions-plain-and-once.md, part 3: the hooks manifest runs the plain-words check. */
+describe("the hooks manifest", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../plugins/workflow/hooks/hooks.json", import.meta.url), "utf8"),
+  );
+  const commands = (event: string, matcher?: string) =>
+    manifest.hooks[event]
+      .filter((entry: { matcher?: string }) => entry.matcher === matcher)
+      .flatMap((entry: { hooks: { command: string }[] }) => entry.hooks.map((h) => h.command));
+
+  it("checks every question to the owner, and resets the count at each prompt", () => {
+    expect(commands("PreToolUse", "AskUserQuestion")).toEqual([
+      'node "${CLAUDE_PLUGIN_ROOT}/scripts/plain-words.mjs" question',
+    ]);
+    expect(commands("UserPromptSubmit")).toContain(
+      'node "${CLAUDE_PLUGIN_ROOT}/scripts/plain-words.mjs" prompt',
+    );
+    expect(manifest.description).toContain("the plain-words check of every question");
+  });
+});

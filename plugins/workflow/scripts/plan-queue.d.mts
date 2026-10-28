@@ -167,8 +167,27 @@ export function sessionsOf(
     stateFor?: (
       sessionId: string,
     ) => { agent?: string; retired?: boolean; plans?: string[]; compactions?: number } | null;
+    usageFor?: (row: LiveRow) => SessionUsage | null;
+    ceiling?: number;
   },
 ): Session[];
+/** How long a planner's question holds its plan from the executor ("Asked once"). */
+export const ANSWER_WINDOW: number;
+export type AskingOptions = {
+  stateFor?: (sessionId: string) => { agent?: string; brief?: string; plans?: string[] } | null;
+  usageFor?: (row: LiveRow) => SessionUsage | null;
+  now?: number;
+};
+export function askingIn(
+  plan: { path: string; state?: string; asks?: boolean } | null | undefined,
+  live: LiveRow[] | null,
+  options?: AskingOptions,
+): { row: LiveRow; until: number } | null;
+export function withAsking<P extends { path: string; state?: string; asks?: boolean }>(
+  plans: P[],
+  live: LiveRow[] | null,
+  options?: AskingOptions,
+): (P & { askingIn: { row: LiveRow; until: number } | null })[];
 export function describeSession(one: Session): string;
 export type WaitingBrief = { path: string; related?: boolean };
 export function decidePlannerStop(facts: {
@@ -196,6 +215,7 @@ export function plannerContext(
   state: { plans?: string[]; retired?: boolean } | null,
   live?: LiveRow[] | null,
   textOf?: (path: string) => string,
+  options?: AskingOptions,
 ): string;
 export type PlannerState = {
   agent?: string;

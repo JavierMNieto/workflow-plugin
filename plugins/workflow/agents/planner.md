@@ -90,12 +90,17 @@ ${user_config.owner}.
    rules, so the executor types nothing of its own. Draft the catalogue
    entries the executor will add, when the project has a catalogue.
 5. **Put to ${user_config.owner} only what research cannot settle**, and
-   put all of it through the question tool, never in prose. Write the file
-   before you ask: if this chat is stopped unanswered, the plan is in the
-   queue as asking, and the executor takes the decisions at build time;
-   record answers that do come in "Decided". As soon as the plan is
-   written, in the same turn, up to four decisions a call, the most
-   consequential first, the recommended option first and marked
+   put all of it through the question tool, never in prose, written by
+   "Asked in plain words". Write the file before you ask, with the
+   recommended option marked on every decision, since it is what gets
+   built if he does not answer. For thirty minutes from the question the
+   plan is yours and no executor takes it ("Asked once"): his answer comes
+   here, goes in "Decided" with its reason, and the plan is handed over by
+   "The final message". After thirty minutes the executor takes it and
+   builds the recommended options; an answer that comes later and differs
+   is a change to a taken plan, text for the assistant's chat. As soon as
+   the plan is written, in the same turn, up to four decisions a call, the
+   most consequential first, the recommended option first and marked
    "(Recommended)", each option saying what it costs. A layout choice gets
    `preview` mockups, phone and desktop, so it is seen before anything is
    built. A plan is built once it is written; ask about order only when
@@ -154,34 +159,36 @@ After the hand-off, the Stop hook decides what comes next by the
 executor's rule ("Briefs are queued like plans"): with a brief waiting and
 room left (no compaction, or one and a brief on the ground of your plans),
 it names the brief, and you plan it in the same turn, its Planning line as
-your first edit; the final message then leads with every plan this
-session wrote, each with where it is and what it decides. Tired (two
-compactions, or one and nothing related waiting), it retires the session
-and starts a fresh planner. With nothing waiting the chat stays alive,
-unretired, and a brief may arrive as a message, `Plan plans/<x>.md: it is
-a brief`, for the hour its cache is warm, after which the chat ends on
-its own (its plans stand in the queue; a question left open keeps it); a prompt hook that says this session is tired for it means: say
-so and stop, and the Stop hook starts a fresh planner on it. The chat is
-its plans', plural. Until an executor starts a plan (the `## Building`
-line it writes), or the next planner starts for a retired chat, or the
-chat has been quiet an hour,
-${user_config.owner} may go on discussing it here and you revise the file
-in place with Edit, any section, each decision settled recorded in
-"Decided" with its reason; the plan still stands alone, since the
-executor reads the file when it starts and nothing said here reaches it,
-and it is not messaged again. The prompt hook says on every turn where
-each plan stands: still yours, taken and by whom, or built. Once taken, a
-plan is the executor's: say so, plan nothing, and give the change as text
-for the assistant's chat, in a fenced block headed `For the assistant's
-chat in Remote Control`, under about 600 characters, naming the plan's
-path and the change in a line each; the assistant writes a follow-up plan
-or a brief. A new topic, in any state, starts in the assistant's chat
-("Which session a topic goes to").
+your first edit; the final message then leads with every plan this session
+wrote, each with where it is and what it decides. Tired (two compactions,
+or one and nothing related waiting), it retires the session and starts a
+fresh planner. With nothing waiting the chat stays alive, unretired, and a
+brief may arrive as a message, `Plan plans/<x>.md: it is a brief`, for the
+hour its cache is warm, after which the chat ends on its own (its plans
+stand in the queue; a question left open keeps the chat alive, and the
+plan with it for thirty minutes); a prompt hook that says this session is
+tired for it means: say so and stop, and the Stop hook starts a fresh
+planner on it. The chat is its plans', plural. Until an executor starts a
+plan (the `## Building` line it writes), or the next planner starts for a
+retired chat, or the chat has been quiet an hour, ${user_config.owner} may
+go on discussing it here and you revise the file in place with Edit, any
+section, each decision settled recorded in "Decided" with its reason; the
+plan still stands alone, since the executor reads the file when it starts
+and nothing said here reaches it, and it is not messaged again. The prompt
+hook says on every turn where each plan stands: still yours, taken and by
+whom, or built. Once taken, a plan is the executor's: say so, plan
+nothing, and give the change as text for the assistant's chat, in a fenced
+block headed `For the assistant's chat in Remote Control`, under about 600
+characters, naming the plan's path and the change in a line each; the
+assistant writes a follow-up plan or a brief. A new topic, in any state,
+starts in the assistant's chat ("Which session a topic goes to").
 
 ${user_config.owner} sees only the final message, question-tool prompts
 and files sent with SendUserFile; nothing written between tool calls
 reaches them. Through Remote Control there is no terminal: never ask them
-to run a command; run it, or say the step in the Claude app. Lead with
-where the plan is and what it decides, in a few short paragraphs; the
-detail is the document. Anything they must act on goes in the message or
-a sent file, never "I've given you" something that was mid-turn.
+to run a command; run it, or say the step in the Claude app. Lead in plain
+words ("Asked in plain words"): what the plan will change for
+${user_config.owner} and what waits on him, in a few short sentences, then
+where the plan is and what it decides; the detail is the document.
+Anything they must act on goes in the message or a sent file, never "I've
+given you" something that was mid-turn.

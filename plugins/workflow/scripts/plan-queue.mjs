@@ -563,6 +563,11 @@ export function sessionsOf(
                   standingOf(
                     plans.find((plan) => plan.path === path),
                     live,
+                    {
+                      self: row.sessionId,
+                      stateFor,
+                      usageFor,
+                    },
                   ),
                 ]),
               ),
@@ -577,9 +582,15 @@ export function sessionsOf(
  * Where a planner's plan stands, as its line says it (plans/idle-chats-end.md,
  * part 5), so an idle planner's reason is read off the line.
  */
-function standingOf(plan, live) {
+function standingOf(plan, live, { self = "", ...options } = {}) {
   if (!plan) return "gone";
-  if (plan.state === "ready") return plan.asks ? `asks ${owner()}` : "ready, for the executor";
+  if (plan.state === "ready" && plan.asks) {
+    // "Asked once": the planner's own while its question is under thirty minutes old.
+    const asking = "askingIn" in plan ? plan.askingIn : askingIn(plan, live, options);
+    if (!asking) return "unanswered, the executor decides";
+    return `asks ${owner()}${asking.row.sessionId === self ? " here" : ""} until ${hhmm(asking.until)}`;
+  }
+  if (plan.state === "ready") return "ready, for the executor";
   if (plan.state === "handed") return "handed over";
   if (plan.state === "building")
     return `building, ${live?.find((row) => row.sessionId === plan.session)?.name || String(plan.session).slice(0, 8)}`;
@@ -742,7 +753,9 @@ function blockReason(lock) {
 
 function annotate(plan) {
   if (plan.state === "handed") return `${plan.path} (handed over, resume)`;
-  return plan.asks ? `${plan.path} (asks ${owner()})` : plan.path;
+  return plan.asks
+    ? `${plan.path} (decisions unanswered: the recommended options, "Asked once")`
+    : plan.path;
 }
 
 /** The context, in tokens, above which a finished session retires: the cost wash is near 100k. */
@@ -750,6 +763,8 @@ export const REUSE_DEFAULT = 200_000;
 /** The prompt cache's life, and how long before its end a context counts as cold. */
 export const CACHE_TTL = 60 * MINUTE;
 export const WARM = CACHE_TTL - 5 * MINUTE;
+/** How long a planner's question holds its plan from the executor ("Asked once"). */
+export const ANSWER_WINDOW = 30 * MINUTE;
 
 /**
  * **A session's context and its age, from its transcript**: the last
@@ -812,6 +827,52 @@ export function transcriptOf(
 ) {
   if (!row?.cwd || !row.sessionId) return "";
   return join(projects, row.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${row.sessionId}.jsonl`);
+}
+
+/** "14:32", a time as the queue's lines say it. */
+function hhmm(at) {
+  return new Date(at).toTimeString().slice(0, 5);
+}
+
+/**
+ * **Asked once** (docs/workflow.md, "The queue"): the planner holding a plan
+ * that asks the owner, while its question is under thirty minutes old. For a
+ * ready plan that asks, the live row the queue counts as a planner whose
+ * state names the plan (its `brief`, or one of its `plans`) and whose last
+ * turn is within `ANSWER_WINDOW` of `now`: `{ row, until }`, `until` the time
+ * the window closes. Null otherwise; a planner whose transcript gives no time
+ * is past the window, so the worst case is a decision taken early, never a
+ * question asked twice.
+ */
+export function askingIn(
+  plan,
+  live,
+  {
+    stateFor = readState,
+    usageFor = (row) => sessionUsage(transcriptOf(row)),
+    now = Date.now(),
+  } = {},
+) {
+  if (!plan || plan.state !== "ready" || !plan.asks || !live) return null;
+  for (const row of live) {
+    const state = withPlans(stateFor(row.sessionId));
+    if (!isSession("planner", row, state, null)) continue;
+    if (state?.brief !== plan.path && !(state?.plans || []).includes(plan.path)) continue;
+    const at = usageFor(row)?.at || 0;
+    if (at && now - at <= ANSWER_WINDOW) return { row, until: at + ANSWER_WINDOW };
+  }
+  return null;
+}
+
+/** The plans with `askingIn` set on each, for the callers that have the live rows in hand. */
+export function withAsking(plans, live, options = {}) {
+  return plans.map((plan) => ({ ...plan, askingIn: askingIn(plan, live, options) }));
+}
+
+/** "plans/x.md asks Javi in Planner 3 [9b372186] until 14:32: ...", the start's refusal of a held plan. */
+function askingWords(plan) {
+  const { row, until } = plan.askingIn;
+  return `${plan.path} asks ${owner()} in ${row.name || "a planner"} [${String(row.sessionId).slice(0, 8)}] until ${hhmm(until)}: he answers there, or the executor takes it then and decides by the recommended options.`;
 }
 
 /**
@@ -1527,10 +1588,15 @@ export function agentEffort(agent, dir = join(here, "..", "agents")) {
   }
 }
 
-function startHere(paths, { replace = "", dry = false, agent = "executor", at = 0 } = {}) {
+function startHere(
+  paths,
+  { replace = "", dry = false, agent = "executor", at = 0, timer = false } = {},
+) {
   if (!proj().found) return NO_PROJECT;
   const live = liveSessions();
-  const plans = readPlans(join(root, "plans"), liveIds(live));
+  // **Asked once**: a plan whose planner is asking the owner is that chat's
+  // for thirty minutes, neither taken by default nor accepted by path.
+  const plans = withAsking(readPlans(join(root, "plans"), liveIds(live)), live);
   const kind = agent === "planner" ? "planner" : "executor";
   // **A planner takes one brief, the oldest** (plans/planner-queue.md); an
   // executor every plan waiting.
@@ -1541,8 +1607,18 @@ function startHere(paths, { replace = "", dry = false, agent = "executor", at = 
             .filter((p) => p.state === "brief")
             .slice(0, 1)
             .map((p) => p.path)
-        : plans.filter((p) => p.state === "handed" || p.state === "ready").map((p) => p.path);
+        : plans
+            .filter((p) => (p.state === "handed" || p.state === "ready") && !p.askingIn)
+            .map((p) => p.path);
   if (!paths.length) return "Nothing is waiting in the queue.";
+  if (kind === "executor") {
+    const held = plans.filter((p) => p.askingIn && paths.includes(p.path));
+    // Refused whole, so nothing is half started; a deferred start, which
+    // nobody is watching, starts the rest and leaves the held ones to the queue.
+    if (held.length && !timer) return held.map(askingWords).join("\n");
+    paths = paths.filter((path) => !held.some((p) => p.path === path));
+    if (!paths.length) return held.map(askingWords).join("\n");
+  }
   if (kind === "planner") {
     // A planner is started on one brief, waiting or left by a session that is gone.
     const asked = paths[0];
@@ -1810,7 +1886,7 @@ export function list({ all = false, live } = {}) {
   // **The compact form has no queue**: one line, and no session is read.
   if (proj().found && proj().form === "compact") return COMPACT;
   live = live === undefined ? liveSessions() : live;
-  const plans = readPlans(join(root, "plans"), liveIds(live));
+  const plans = withAsking(readPlans(join(root, "plans"), liveIds(live)), live);
   const lock = readJson(files.lock());
   const nameOf = (id) => live?.find((row) => row.sessionId === id)?.name || String(id).slice(0, 8);
   const now = new Date();
@@ -1893,14 +1969,22 @@ export function list({ all = false, live } = {}) {
             .filter(Boolean)
             .join(" "),
   );
+  // **Asked once**: a plan its planner is asking about, with the chat to
+  // answer in and the time the executor takes over.
+  group(
+    `Asking ${owner()}, oldest first`,
+    plans.filter((p) => p.askingIn),
+    (p) =>
+      `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}, in ${p.askingIn.row.name || "a planner"} [${String(p.askingIn.row.sessionId).slice(0, 8)}], ${statusOf(p.askingIn.row)}, the executor decides at ${hhmm(p.askingIn.until)}`,
+  );
   group(
     "Ready, oldest first",
-    plans.filter((p) => p.state === "ready" || p.state === "handed"),
+    plans.filter((p) => (p.state === "ready" || p.state === "handed") && !p.askingIn),
     (p) =>
       [
         `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}`,
         p.state === "handed" ? "handed over, resume" : "",
-        p.asks ? `asks ${owner()}` : "",
+        p.asks ? "unanswered, the executor decides" : "",
         p.stuck ? `stuck, asks ${owner()}` : "",
         p.stale ? "(a Building line from a session that is gone)" : "",
       ]
@@ -2289,14 +2373,21 @@ const PLANNER_PROMPT = /\bPlan (plans\/\S+\.md): it is a brief/;
  * from the file at that moment, then where changes go, then whether it may
  * take the next brief.
  */
-export function plannerContext(state, live = null, textOf = planText) {
+export function plannerContext(state, live = null, textOf = planText, options = {}) {
   const lines = (state?.plans || []).map((path) => {
     const text = textOf(path);
     if (!text) return `${path} is no longer in plans/.`;
     if (/^## Built(?:,|\s*$)/m.test(text)) return `${path} is ${whoTook(text, live)}.`;
     if (planTaken(text))
       return `${path} was taken by ${whoTook(text, live)}: it is the executor's, and no edit to it passes.`;
-    return `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps it).`;
+    const yours = `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps the chat alive, and the plan with it for thirty minutes).`;
+    // **Asked once**: the plan's question holds it for thirty minutes.
+    const plan = { path, ...stateOf(text) };
+    if (plan.state !== "ready" || !plan.asks) return yours;
+    const asking = askingIn(plan, live, options);
+    return asking
+      ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`
+      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up through the assistant's chat.`;
   });
   lines.push(
     `A change to a taken or built plan goes to the assistant's chat, which writes a follow-up plan or a brief: give ${owner()} the text to paste there, in a fenced block headed For the assistant's chat in Remote Control, under about 600 characters, naming the plan's path and the change in a line each. A new topic is the assistant's chat's: say so, and give nothing to run.`,
@@ -2503,7 +2594,7 @@ function plannerHook(mode, input, sessionId, statePath) {
         `this session has compacted ${n} time${n === 1 ? "" : "s"}${n === 1 && !decision.related ? ", and the brief waiting is on other ground" : ""}`;
     hookOutput(
       "Stop",
-      `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, the next planner starts, or the chat has been quiet an hour, when this chat is stopped (its plans stand in the queue; a question left open keeps it).`,
+      `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, the next planner starts, or the chat has been quiet an hour, when this chat is stopped (its plans stand in the queue; a question left open keeps the chat alive, and the plan with it for thirty minutes).`,
     );
   }
 }
@@ -2679,8 +2770,12 @@ function hook(mode, input) {
     // hook that failed) still stops the retired planner whose plan it took.
     stopTakenPlanners(live);
     const changed = changedFiles({ ...state, sessionId });
-    const waiting = plans
-      .filter((p) => p.state === "ready")
+    // "Asked once": a plan its planner is still asking about is not named.
+    const waiting = withAsking(
+      plans.filter((p) => p.state === "ready"),
+      live,
+    )
+      .filter((p) => !p.askingIn)
       .map((p) => ({ ...p, related: related(p.text, changed) }));
     const handed = plans.filter((p) => p.state === "handed");
     const decision = decideStop({
@@ -2858,7 +2953,7 @@ export function chatCommand(args = [], project = proj(), dir = root) {
   ];
 }
 
-const USAGE = `plans                 the queue: briefs, ready, building, built
+const USAGE = `plans                 the queue: briefs, asking, ready, building, built
 plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
 plans start --agent planner <brief>   start a planner on a brief

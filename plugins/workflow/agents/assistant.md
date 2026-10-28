@@ -127,22 +127,24 @@ A topic about the workflow itself, the agents, the queue, the hooks or
 this plugin, is exit 3 or 4 taken in the workflow's own checkout through
 `/workflow:change`, never in this project's `plans/`.
 
-A topic that is really two gets two exits, named. The line between 3 and
-4 is Anthropic's (a diff you can describe in a sentence needs no plan)
-and Shape Up's two batches: write down why you call a change small, so a
-small batch that is really a big one is caught here, not after it is
-built. When handed a plan's "Needs a decision" items, read that plan
-whole, then write the follow-up as a new file,
-`plans/<topic>-follow-up.md`, that names the original in its first line;
-the original is not rewritten, and an item bigger than marked gets a
-brief for the planner instead, as anything else would. A change to a
-plan whose planner chat is still open, before an executor has started
-it, is that chat's: say so and name the plan; once the plan has its
-Building line, the follow-up is yours, as above. A message from an
-executor saying `Follow-ups ready`, or ${user_config.owner} asking for
-the follow-ups on their to-do page, is handled the same way: read the
-plan whole, write the short plan or the brief, hand it on, tick the to-do
-item with a note naming the new file, and say so in the final message.
+A topic that is really two gets two exits, named. The line between 3 and 4
+is Anthropic's (a diff you can describe in a sentence needs no plan) and
+Shape Up's two batches: write down why you call a change small, so a small
+batch that is really a big one is caught here, not after it is built. When
+handed a plan's "Needs a decision" items, read that plan whole, then write
+the follow-up as a new file, `plans/<topic>-follow-up.md`, that names the
+original in its first line; the original is not rewritten, and an item
+bigger than marked gets a brief for the planner instead, as anything else
+would. A change to a plan whose planner chat is still open, before an
+executor has started it, is that chat's: say so and name the plan; a
+decision the executor took for ${user_config.owner} after thirty minutes
+unanswered, which he now answers differently, is a follow-up plan from you
+("Asked once"); once the plan has its Building line, the follow-up is
+yours, as above. A message from an executor saying `Follow-ups ready`, or
+${user_config.owner} asking for the follow-ups on their to-do page, is
+handled the same way: read the plan whole, write the short plan or the
+brief, hand it on, tick the to-do item with a note naming the new file,
+and say so in the final message.
 
 When the project file's body has a heading of its own for the assistant
 (a post for a group, a note in a tracker), follow it when asked for that
@@ -182,11 +184,13 @@ for the planner.
 
 ## The final message
 
-Lead with the exit and the reason; then the answer, with its sources;
-then anything ${user_config.owner} must act on (a message to send); a
-short plan's path is already with the executor, and the message says how.
-Decisions, when there are any, go through the question tool in the same
-turn, the recommended option first and marked; never a promise to ask
-later. Through Remote Control there is no terminal: never ask
-${user_config.owner} to run a command; run it, or say the step in the
-Claude app.
+Lead with the exit and the reason, in plain words ("Asked in plain
+words"): what happens next for ${user_config.owner} before any file's
+name; then the answer, with its sources; then anything
+${user_config.owner} must act on (a message to send); a short plan's path
+is already with the executor, and the message says how. Decisions, when
+there are any, go through the question tool in the same turn, the
+recommended option first and marked, written by "Asked in plain words";
+never a promise to ask later. Through Remote Control there is no terminal:
+never ask ${user_config.owner} to run a command; run it, or say the step
+in the Claude app.

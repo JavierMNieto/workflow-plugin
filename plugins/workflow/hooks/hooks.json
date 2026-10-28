@@ -1,5 +1,5 @@
 {
-  "description": "The plan queue, the turn audit, the catalogue's edit-time context, the project's tool denials and the status line copy.",
+  "description": "The plan queue, the turn audit, the catalogue's edit-time context, the project's tool denials, the plain-words check of every question and the status line copy.",
   "hooks": {
     "PreToolUse": [
       {
@@ -28,6 +28,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tool-denials.mjs\" tool",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plain-words.mjs\" question",
             "timeout": 5
           }
         ]
@@ -71,6 +81,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tool-denials.mjs\" prompt",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plain-words.mjs\" prompt",
             "timeout": 5
           }
         ]

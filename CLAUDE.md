@@ -5,9 +5,10 @@ research-writing skills are `plugins/writing` (six skills, no agents or
 hooks, which a project turns on). The workflow is `plugins/workflow`:
 the assistant, the planner, the executor, the maker and the reviewer
 (`agents/`), the plan queue, the turn audit, the catalogue's edit-time
-hook and the project's tool denials (`scripts/`, run by
-`hooks/hooks.json`), the status line, the `/workflow:change` and
-`design-research` skills and the `plans` command (`bin/plans`). The rules
+hook, the project's tool denials and the plain-words check of every
+question to Javi (`scripts/`, run by `hooks/hooks.json`), the status
+line, the `/workflow:change` and `design-research` skills and the `plans`
+command (`bin/plans`). The rules
 the agents follow are `plugins/workflow/docs/workflow.md`; read it before
 changing an agent or a script.
 

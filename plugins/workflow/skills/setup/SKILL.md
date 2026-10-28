@@ -46,7 +46,8 @@ plugin's docs, "The project file" and "Decisions".
 
 ## 2. Ask, four questions in one call
 
-With the question tool, the recommended option first and marked, each
+With the question tool, by "Asked in plain words" in the workflow's
+docs, the recommended option first and marked, each
 option saying what it brings. The kinds table gives each question's
 recommended option from the kind step 1 found.
 

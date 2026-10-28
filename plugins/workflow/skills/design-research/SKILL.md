@@ -14,7 +14,8 @@ order:
    control looks or behaves, that is their call: build it and record it
    under their name. If they said to research, skip to step 3.
 2. **Ask, once, with three choices.** Say that no recorded decision covers
-   this control and ask (with the question tool where there is one):
+   this control and ask (with the question tool where there is one, by
+   "Asked in plain words" in the workflow's docs):
    - research how the product people already know does it, and follow it
      (the default to recommend);
    - they decide now;

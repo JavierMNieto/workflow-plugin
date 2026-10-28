@@ -47,6 +47,8 @@ import {
   planTaken,
   readPlans,
   plannerContext,
+  askingIn,
+  ANSWER_WINDOW,
   briefPaths,
   relatedBrief,
   withPlans,
@@ -434,7 +436,9 @@ describe("plan-queue", () => {
       const waiting = [plan("plans/a.md"), plan("plans/b.md", { asks: true })];
       const out = decideStop({ waiting });
       expect(out).toMatchObject({ refuse: true, told: ["plans/a.md", "plans/b.md"] });
-      expect(out!.reason).toContain("plans/a.md, plans/b.md (asks Javi)");
+      expect(out!.reason).toContain(
+        'plans/a.md, plans/b.md (decisions unanswered: the recommended options, "Asked once")',
+      );
       expect(decideStop({ waiting, told: ["plans/a.md", "plans/b.md"] })).toBeNull();
       expect(decideStop({})).toBeNull();
     });
@@ -2430,7 +2434,23 @@ describe("a finished chat ends", () => {
       } as never,
     );
     expect(describeSession(planner)).toBe(
-      `Ends Planner 1 [p1000000], idle, ends at ${hhmm} if left quiet, holds plans/a.md (ready, for the executor), plans/b.md (asks Javi) and plans/c.md (built)`,
+      `Ends Planner 1 [p1000000], idle, ends at ${hhmm} if left quiet, holds plans/a.md (ready, for the executor), plans/b.md (unanswered, the executor decides) and plans/c.md (built)`,
+    );
+    // "Asked once": within thirty minutes of its last turn, the plan is this planner's.
+    const last = Date.now() - 5 * MIN;
+    const [asking] = sessionsOf(
+      "planner",
+      [{ sessionId: "p1000000-0000", name: "Ends Planner 1", kind: "background", status: "idle" }],
+      null,
+      {
+        trees: [],
+        plans,
+        stateFor: () => ({ agent: "planner", plans: ["plans/b.md"] }),
+        usageFor: () => ({ context: 1000, at: last }),
+      } as never,
+    );
+    expect(describeSession(asking)).toContain(
+      `holds plans/b.md (asks Javi here until ${new Date(last + 30 * MIN).toTimeString().slice(0, 5)})`,
     );
     const [retired] = sessionsOf(
       "planner",
@@ -2669,6 +2689,238 @@ describe("a finished chat ends", () => {
       expect(logged()).toEqual(["bg-e"]);
       queue(["end", "--timer", String(Date.now() - 1), asker]);
       expect(logged()).toEqual(["bg-e"]);
+    });
+  });
+});
+
+/** plans/owner-questions-plain-and-once.md, part 1: a plan that asks stays with its planner. */
+describe("asked once", () => {
+  const MIN = 60_000;
+  const now = Date.UTC(2026, 9, 28, 12, 0);
+  const hhmm = (at: number) => new Date(at).toTimeString().slice(0, 5);
+  const head = "# X\n\nPlan only, 28 October 2026, for Javi; the executor builds it.\n";
+  const asks = `${head}\n## Decisions for Javi\n\n1. **The shape.** One (Recommended) or two.\n`;
+  const ids = {
+    planner: "a1000000-0000-0000-0000-000000000000",
+    other: "a2000000-0000-0000-0000-000000000000",
+    exec: "a3000000-0000-0000-0000-000000000000",
+  };
+  const row = {
+    sessionId: ids.planner,
+    name: "Asks Planner 3",
+    kind: "background",
+    status: "idle",
+    state: "blocked",
+  };
+  const ready = (path: string) => ({ path, ...stateOf(asks) });
+  const options = (minutesAgo: number | null, state: object = {}) => ({
+    stateFor: () => ({ agent: "planner", brief: "plans/asks.md", plans: [], ...state }),
+    usageFor: () => (minutesAgo === null ? null : { context: 1000, at: now - minutesAgo * MIN }),
+    now,
+  });
+
+  it("askingIn: the live planner whose brief or plans name the plan, within thirty minutes of its last turn", () => {
+    expect(ANSWER_WINDOW).toBe(30 * MIN);
+    const held = askingIn(ready("plans/asks.md"), [row], options(5));
+    expect(held).toMatchObject({ row: { sessionId: ids.planner }, until: now + 25 * MIN });
+    expect(
+      askingIn(ready("plans/asks.md"), [row], options(5, { brief: "", plans: ["plans/asks.md"] })),
+    ).toMatchObject({ until: now + 25 * MIN });
+    // A plan that does not ask; a planner not live; one naming another path;
+    // a last turn past the window; a transcript that gives no time.
+    expect(askingIn({ path: "plans/asks.md", ...stateOf(head) }, [row], options(5))).toBeNull();
+    expect(askingIn(ready("plans/asks.md"), [], options(5))).toBeNull();
+    expect(askingIn(ready("plans/asks.md"), [row], options(5, { brief: "plans/x.md" }))).toBeNull();
+    expect(askingIn(ready("plans/asks.md"), [row], options(31))).toBeNull();
+    expect(askingIn(ready("plans/asks.md"), [row], options(null))).toBeNull();
+    // A built or building plan; an owner's interactive planner, which the queue gave nothing.
+    expect(
+      askingIn({ path: "plans/asks.md", state: "building", asks: true }, [row], options(5)),
+    ).toBeNull();
+    expect(
+      askingIn({ path: "plans/asks.md", state: "built", asks: true }, [row], options(5)),
+    ).toBeNull();
+    expect(
+      askingIn(ready("plans/asks.md"), [{ ...row, kind: "interactive" }], options(5)),
+    ).toBeNull();
+  });
+
+  it("plannerContext says how long the plan is held, and what happens after", () => {
+    const texts: Record<string, string> = { "plans/asks.md": asks };
+    const within = plannerContext(
+      { plans: ["plans/asks.md"], retired: false },
+      [row],
+      (path) => texts[path],
+      options(5),
+    );
+    expect(within).toContain(
+      `It asks Javi until ${hhmm(now + 25 * MIN)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`,
+    );
+    const past = plannerContext(
+      { plans: ["plans/asks.md"], retired: false },
+      [row],
+      (path) => texts[path],
+      options(40),
+    );
+    expect(past).toContain(
+      "Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up through the assistant's chat.",
+    );
+  });
+
+  describe("in a fixture", () => {
+    let dir: string;
+    let projects: string;
+    const stateFile = (id: string) => join(tmpdir(), `workflow-queue-${id}.json`);
+    const live = [
+      { ...row, cwd: "" },
+      {
+        sessionId: ids.exec,
+        name: "Asks Executor 1",
+        kind: "background",
+        status: "idle",
+        state: "done",
+      },
+    ];
+    /** The planner's last turn, `minutes` ago, in its transcript. */
+    const lastTurn = (minutes: number) => {
+      const at = Date.now() - minutes * MIN;
+      const slug = join(projects, dir.replace(/[^a-zA-Z0-9]/g, "-"));
+      mkdirSync(slug, { recursive: true });
+      writeFileSync(
+        join(slug, `${ids.planner}.jsonl`),
+        `${JSON.stringify({
+          type: "assistant",
+          timestamp: new Date(at).toISOString(),
+          message: { usage: { input_tokens: 10, cache_read_input_tokens: 40_000 } },
+        })}\n`,
+      );
+      return Date.parse(new Date(at).toISOString());
+    };
+    const queue = (args: string[], input: object = {}, rows: object[] = live) =>
+      execFileSync("node", [join(here, "plan-queue.mjs"), ...args], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CLAUDE_PROJECT_DIR: dir,
+          WORKFLOW_ROOT: dir,
+          WORKFLOW_PROJECTS: projects,
+          WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+          WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+          WORKFLOW_LIVE: JSON.stringify(rows.map((one) => ({ ...one, cwd: dir }))),
+        },
+      });
+    // With no executor alive, so a start is not refused beside one.
+    const start = (...paths: string[]) => queue(["start", "--dry", ...paths], {}, [live[0]]);
+
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), "asks-"));
+      projects = mkdtempSync(join(tmpdir(), "asks-projects-"));
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(join(dir, ".claude"));
+      mkdirSync(join(dir, "plans"));
+      writeFileSync(join(dir, ".claude", "workflow.md"), "---\nname: Asks\nbranch: test\n---\n");
+      writeFileSync(join(dir, "plans", "asks.md"), asks);
+      writeFileSync(join(dir, "plans", "plain.md"), head);
+      writeFileSync(
+        join(dir, "plans", "topic.md"),
+        "# T\n\nBrief for the planner, 28 October 2026.\n",
+      );
+      writeFileSync(
+        stateFile(ids.planner),
+        JSON.stringify({ agent: "planner", brief: "plans/asks.md", plans: [] }),
+      );
+    });
+    afterAll(() => {
+      for (const id of Object.values(ids)) rmSync(stateFile(id), { force: true });
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(projects, { recursive: true, force: true });
+    });
+
+    it("lists a held plan under Asking Javi, and past the window under Ready", () => {
+      const at = lastTurn(5);
+      const out = queue(["list"]);
+      // The headings in order: Briefs, Asking, Ready.
+      expect(out.indexOf("Briefs, oldest first")).toBeGreaterThan(0);
+      expect(out.indexOf("Briefs, oldest first")).toBeLessThan(
+        out.indexOf("Asking Javi, oldest first"),
+      );
+      expect(out.indexOf("Asking Javi, oldest first")).toBeLessThan(
+        out.indexOf("Ready, oldest first"),
+      );
+      expect(out).toMatch(
+        new RegExp(
+          `plans/asks\\.md +Plan only, 28 October, in Asks Planner 3 \\[a1000000\\], waiting for input, the executor decides at ${hhmm(at + 30 * MIN)}`,
+        ),
+      );
+      expect(out.slice(out.indexOf("Ready, oldest first"))).not.toContain("plans/asks.md");
+      lastTurn(40);
+      const later = queue(["list"]);
+      expect(later).not.toContain("Asking Javi");
+      expect(later).toMatch(
+        /plans\/asks\.md +Plan only, 28 October, unanswered, the executor decides/,
+      );
+    });
+
+    it("plans start leaves a held plan out, refuses it by path, and starts it past the window", () => {
+      const at = lastTurn(5);
+      const all = start();
+      expect(all).toContain("plans/plain.md");
+      expect(all).not.toContain("plans/asks.md");
+      expect(start("plans/asks.md").trim()).toBe(
+        `plans/asks.md asks Javi in Asks Planner 3 [a1000000] until ${hhmm(at + 30 * MIN)}: he answers there, or the executor takes it then and decides by the recommended options.`,
+      );
+      // Refused whole, with another plan beside it.
+      expect(start("plans/plain.md", "plans/asks.md")).not.toContain("Would run");
+      // A deferred start, which nobody watches, starts the rest (/code-review).
+      const deferred = execFileSync(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+           console.log(start(["plans/plain.md", "plans/asks.md"], { dry: true, timer: true }));`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: dir,
+            WORKFLOW_ROOT: dir,
+            WORKFLOW_PROJECTS: projects,
+            WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+            WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+            WORKFLOW_LIVE: JSON.stringify([{ ...live[0], cwd: dir }]),
+          },
+        },
+      );
+      expect(deferred).toContain("Would run: claude");
+      expect(deferred).toContain("plans/plain.md");
+      expect(deferred).not.toContain("plans/asks.md");
+      lastTurn(40);
+      expect(start("plans/asks.md")).toContain("Would run: claude");
+    });
+
+    it("the executor's Stop hook names a held plan only past the window, or with its planner gone", () => {
+      lastTurn(5);
+      rmSync(stateFile(ids.exec), { force: true });
+      const reason = () =>
+        JSON.parse(queue(["stop"], { session_id: ids.exec, agent_type: "executor" })).reason;
+      const within = reason();
+      expect(within).toContain("plans/plain.md");
+      expect(within).not.toContain("plans/asks.md");
+      lastTurn(40);
+      rmSync(stateFile(ids.exec), { force: true });
+      expect(reason()).toContain(
+        'plans/asks.md (decisions unanswered: the recommended options, "Asked once")',
+      );
+      // The planner's chat gone: the plan is the executor's at once.
+      lastTurn(5);
+      rmSync(stateFile(ids.exec), { force: true });
+      const gone = JSON.parse(
+        queue(["stop"], { session_id: ids.exec, agent_type: "executor" }, [live[1]]),
+      ).reason;
+      expect(gone).toContain("plans/asks.md (decisions unanswered");
     });
   });
 });

@@ -38,7 +38,8 @@ no review unless the project file names one. The rules named below are in
   its tier. A trivial choice is yours, recorded as the agent's choice.
 - **Something large** (a new screen, a flow, a change that needs a sketch
   to agree on) gets what you found and the plan in a few words first,
-  through the question tool, and is built after the answer.
+  through the question tool, by "Asked in plain words", and is built
+  after the answer.
 - **A rule whose reason is gone** is put to ${user_config.owner} (keep,
   change or retire), not followed.
 
@@ -74,8 +75,10 @@ opening `claude --agent workflow:assistant` take it from there.
 
 ## The final message
 
-What changed, the `file#id` of each entry followed or written (or
-`decisions: none (<why>)` when the turn changed what a person sees and
-recorded nothing), what is open for ${user_config.owner}, and what waits
-on them through the question tool in the same turn. They may be in Remote Control with no terminal: never ask
+In plain words first ("Asked in plain words"): what is different for
+${user_config.owner} and what waits on him; then what changed, the
+`file#id` of each entry followed or written (or `decisions: none
+(<why>)` when the turn changed what a person sees and recorded nothing),
+what is open for ${user_config.owner}, and what waits on them through
+the question tool in the same turn. They may be in Remote Control with no terminal: never ask
 them to run a command.

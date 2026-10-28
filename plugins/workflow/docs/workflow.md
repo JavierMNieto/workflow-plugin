@@ -78,6 +78,45 @@ go to the assistant too, through the owner's to-do page when the project's
 memory names one and a message to an idle assistant chat; the owner does
 not carry them. No chat sends the owner a command to run.
 
+**Asked in plain words.** The owner reads a question on his phone, in the
+question tool's dialog, with none of the chat in front of him and other
+topics between; so a question is written for that reader. It says first
+what it is about, in the words he used when he asked for it (the brief's
+or the plan's "What was asked"), then the situation from the start in two
+or three sentences, then what each choice means to him and costs him.
+Nothing is called by its name in the code: no file, function, variable,
+command, key, hook, tool, session, branch or setting, nothing in
+backticks; a thing is called by what it does for him or his reader ("the
+page a reader lands on after the hand-over", not "the connect script"),
+and the names stay in the plan. The header is the topic in a word or two;
+each option's label is what he gets, a few words, and its description
+what it costs him or when he would regret it; the recommended option
+first and marked; never a bare yes or no. One decision per question, up
+to four a call, the most consequential first. The test is to read it as
+he will, with nothing above it. (Apple's alerts: a title that says what
+it is about, buttons that name the result; Nielsen Norman's confirmation
+dialogs: restate the situation, options that say what will happen;
+GOV.UK's question pages and clear language: one question, explained
+before it is asked, a specialist term explained the first time;
+Anthropic's note on the question tool: the dialog may be all that is on
+the screen.) The plugin's `PreToolUse` hook on the question tool,
+`scripts/plain-words.mjs`, refuses a question that names code or is a
+single sentence, with the rule as its reason, at most twice in a turn.
+The final message of every agent leads in the same words: what happened
+for the owner and what waits on him, in a few short sentences, before any
+path, commit, count or table, which follow under it as the record. Not
+this: header `Connect`, question `Should the connect script keep the
+terminal open after the hand-over, or exit on Ctrl+C?`, options `Keep
+open` / `Exit`. But this: header `Hand-over`, question `This is about
+what a reader sees after they hand a document over to someone else, the
+change you asked for this morning. Today the page they land on stays open
+until they close it themselves, which some readers take as the hand-over
+having failed. The choice is whether that page closes on its own once the
+hand-over is confirmed.`, options `Closes on its own (Recommended)`,
+description `The reader sees a confirmation and the page goes; costs
+nothing unless they wanted to go back to it`; `Stays open`, description
+`As today; costs the readers who think it failed`.
+
 ## The project file
 
 **A project's part is one file, `.claude/workflow.md`**: frontmatter the
@@ -260,8 +299,7 @@ session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
 over and resumed first; a `Plan only` or `Short plan` header dated 24
 October 2026 or later (as `26 October 2026` or `2026-10-26`) with none of
-these is ready (asking the owner when its "Decisions for <owner>" has a
-numbered item and no "Decided"); older unbuilt plans are listed by path.
+these is ready; older unbuilt plans are listed by path.
 `plans` prints the table, which every executor message ends with. The
 planner and the assistant hand a finished plan over themselves: one
 `SendMessage` to the live executor, which an idle one acts on in seconds,
@@ -376,9 +414,7 @@ background Remote Control chat at high effort, one at a time, and a
 second beside a busy one whose context is past the reuse ceiling or gone
 cold, under the
 executor's bounds (the usage windows and the pause shared, the names, the
-quick-death rule and the tripwire counted per kind). The planner writes
-the plan over the brief before it asks its decisions, so a chat stopped
-unanswered leaves the plan in the queue as asking. **A planner with room
+quick-death rule and the tripwire counted per kind). **A planner with room
 left takes the next brief**: its Stop hook applies the executor's rule to
 briefs, so with a brief waiting a planner that has not compacted takes the
 oldest, one that has compacted once takes the oldest related brief (the
@@ -400,6 +436,24 @@ queue.
 A decision the plan left to the owner is taken in its "Decided" section
 before that part is built; a question a plan did not foresee goes through
 the question tool in the executor's session, not back to the planner.
+
+**Asked once.** A decision a plan leaves to the owner is asked by its
+planner, in its chat, and by nobody else. For thirty minutes from the
+question the plan is the planner's: `plans` lists it under "Asking
+<owner>" with the chat's name and the time the executor takes over, the
+executor's Stop hook does not name it, and `plans start` neither takes it
+by default nor accepts it by path. Answered in time, the planner records
+"Decided" and hands the plan over. Past the thirty minutes (counted from
+the planner's last turn, read from its transcript), or once the planner's
+chat has ended, the plan is ready and the executor takes it as any other,
+building each decision with no "Decided" by its recommended option and
+writing it there as taken for the owner, unanswered; the executor never
+asks a plan's listed decision. The planner's chat keeps its question
+standing, since the queue never ends such a chat; an answer that comes
+late and differs is a change to a taken plan, and goes to the assistant's
+chat as a follow-up. A planner the owner opened himself, which the queue
+gave no brief, holds nothing: its plan is ready at once. (Javi, 28
+October: wait thirty minutes, then decide for him.)
 
 **What a context costs.** Every turn re-reads the session's whole
 context at the cache-read price: a plan of about 120 turns reads about
@@ -443,7 +497,9 @@ project's `tools`, and wrote nothing in the catalogue is asked for the
 entry, or a `decisions: none (<why>)` line; and a catalogue file changed
 with a rule that lacks its tier and date is asked to add them. A session is
 charged only with its own writes; the planner and the assistant are never
-audited. The refusal is one per turn, so nothing loops.
+audited. The refusal is one per turn, so nothing loops. The plain-words
+hook (`scripts/plain-words.mjs`) checks every question to the owner the
+same way, refused twice at most in a turn.
 
 ## Changing the workflow
 
