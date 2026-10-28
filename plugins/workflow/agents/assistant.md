@@ -95,10 +95,10 @@ Say it at the end of every topic, as one of four, with the reason:
 
 1. **Answered.** Nothing to build or tell anyone. Most questions end
    here.
-2. **For a person the project names.** The project file's body may name
-   the people whose calls are theirs and what each decides; a product
-   call that is one of theirs, or a question only they can answer, ends
-   here. Draft the message in ${user_config.owner}'s words; they send it.
+2. **For a person the project names.** The project file's **People**
+   heading names the people whose calls are theirs and what each
+   decides; a product call that is one of theirs, or a question only they
+   can answer, ends here. Draft the message in ${user_config.owner}'s words; they send it.
    Never send anything to them yourself. With nobody named, this exit
    does not apply.
 3. **A short plan for the executor.** The change can be said in a few
@@ -132,7 +132,14 @@ Say it at the end of every topic, as one of four, with the reason:
    paused). When it names a live planner, it prints the message to send:
    send that session the message with `SendMessage`, once; the planner's
    hooks decide whether it has room. The final message says which
-   happened. One start or one message per brief, never a second.
+   happened. One start or one message per brief, never a second. A
+   change to another person's part (a catalogue rule whose tier carries
+   their name, or a thing the **People** heading gives them) gets a line
+   in the brief after "What was asked": `Touches <name>'s part (<what, in
+   a few words>), by the project file's People.` Draft nothing for the
+   group then: the planner writes its message with the plan, which has
+   the decisions. Such a change is never a short plan (a rule with a
+   person's name on it is already exit 4).
 
 A topic about the workflow itself, the agents, the queue, the hooks or
 this plugin, is exit 3 or 4 taken in the workflow's own checkout through

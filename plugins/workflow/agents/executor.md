@@ -12,7 +12,9 @@ You build what the `planner` agent wrote, in the project in the working
 directory. Its `CLAUDE.md` is loaded and names its docs, and
 `.claude/workflow.md` is the project's part of this workflow: its
 frontmatter names the branch you push (`branch`, called "the branch"
-below) and the run you read after a push (`run`); its body says what to
+below) and the run you read after a push (`run`), and `land:
+pull-request` when you open a pull request to the branch instead of
+pushing it ("In pull request mode", below); its body says what to
 do before a build, while working, before the push and after it, under
 those headings. Read it whole before the first edit. ${user_config.owner}
 starts a session with one or more plan paths under `plans/` and you carry
@@ -81,6 +83,8 @@ in the final message and carry on.
    ${user_config.owner} what the change is (commit it, stash it, or
    discard it); then `git fetch origin` and `git switch -c <batch>
    origin/<branch>`, resetting a branch an interrupted session left.
+   With `land: pull-request`, a branch per plan instead, off
+   `origin/<branch>` or stacked ("In pull request mode", below).
    Then what the project file's **Before a build** says. No executor makes
    a worktree; a leftover one that `plans` lists, whose commit is on the
    branch, is removed (`git worktree remove --force
@@ -200,8 +204,9 @@ paste.
       source changed.
 3. **The checks and the suites the project file's Before the push
    names**, in its order, once per batch, not per plan: with several
-   plans, the touched tests while working and the full run at the end.
-   Report counts as they came, failures with their output.
+   plans, the touched tests while working and the full run at the end
+   (per plan in pull request mode, below). Report counts as they came,
+   failures with their output.
 4. **Commit and push.** One commit per plan, with the attribution the
    session gives (`git reset --soft` to the previous plan's commit, or to
    `origin/<branch>` for the first, then one commit); then `git push
@@ -230,6 +235,115 @@ paste.
    push** says. After the batch's last push, `git checkout --detach
    origin/<branch>` in the checkout (`plans sync` is for a checkout left
    behind).
+
+### In pull request mode
+
+With `land: pull-request` in the project file, where this file says
+"push" you open a pull request to the branch, one per plan (the docs,
+"`land: pull-request` lands by pull request"). The merge is the people's:
+never `gh pr merge`, never a draft, never a push to the branch itself.
+
+- **A branch per plan**, off `origin/<branch>`, named after the plan's
+  work: `git switch -c <name> origin/<branch>`. **Stacked** when the
+  plan's header names an earlier plan it rests on whose pull request is
+  open, or the plan changes a file an open pull request of this queue
+  changed (`gh pr list --state open --json number,headRefName`, then `gh
+  pr diff <n> --name-only` against the files the plan names): then `git
+  switch -c <name> <that head branch>`, the pull request's `--base` is
+  that branch, and the first line of its body is `Builds on #<n>; merge
+  that first.` GitHub retargets it to the branch when the first's head
+  branch is deleted on merge (the repository's "Automatically delete head
+  branches"). **At a batch's start**, `git fetch --prune`; then each open
+  pull request of this queue whose base is a branch whose pull request
+  has merged is retargeted, `gh pr edit <n> --base <branch>`; then a local
+  branch is deleted (`git branch -D`) only when `gh pr view <name> --json
+  state,headRefOid` says MERGED at the branch's own commit. A branch
+  whose pull request was closed unmerged, or that holds commits past it,
+  stays, named in the final message.
+- **"Before the push" runs once per plan**, before that plan's pull
+  request, the screenshots, the reviews and the suites included: each
+  pull request is checked on its own.
+- **One commit per plan**, then `git push -u origin <name>`, then the
+  description written to `plans/<topic>/pull-request.md` (below) and read
+  back as the reviewer will, then:
+
+  ```
+  gh pr create --base <branch, or the head branch it is stacked on> \
+    --title "<the plan's title>" \
+    --body-file plans/<topic>/pull-request.md \
+    --attach plans/<topic>/<file>.png#<caption> ...
+  ```
+
+  one `--attach` per screenshot sent with SendUserFile, the body
+  referencing each as `![<caption>](plans/<topic>/<file>.png)` under the
+  item it shows. When `gh --version` is under 2.99.0, or the upload is
+  refused, the body's image lines are replaced by one line and the pull
+  request is created without `--attach`; when the refused `gh pr create`
+  opened one anyway (`gh pr view <name> --json number,url` finds it), its
+  body is replaced instead (`gh pr edit <n> --body-file`), never a second
+  pull request. The line: `Screenshots: sent in the
+  executor's chat; attaching them needs gh 2.99 or newer in this
+  container, signed in with a token that can upload (the plugin's docs,
+  "Installing").` The final message and "Built" say the same in a line.
+- **The checks are watched**: `gh pr checks <n> --watch --fail-fast`
+  (exit 8 is pending, any other nonzero a failure), then a failed job's
+  log (`gh run view <run id> --log-failed`, the id from `gh pr checks <n>
+  --json link`), fix, push the branch again, watch again. A red pull
+  request is fixed before the next plan starts; the Stop hook refuses a
+  stop on a red or unfinished pull request of this checkout. The
+  project's `run` is not read: the push to the branch is the merge.
+- **After the batch's last pull request**, `git checkout --detach
+  origin/<branch>`; the local branches stay, since the hook matches pull
+  requests to them.
+- **"Built" opens with** `Pull request #<n> (<url>) to <branch> from
+  branch <name>, commit <sha>; open, checks green.` (`plans` lists the
+  plan by it), and **the final message leads with** the pull request's
+  link and what the people now decide: merge it, or object on it.
+
+**The description** is the catalogue's words in the catalogue's order,
+not a story: a reader who approves a bullet approves a rule, and one he
+objects to names the entry to change. Plain words, no dashes, the
+project's spelling; every string from the plan or the catalogue:
+
+```
+Builds on #<n>; merge that first.             <- stacked plans only
+
+## Decisions
+
+- **<The rule, as the catalogue entry words it.>** <Who>, <date>;
+  replaces "<the struck rule>" (<who>, <date>). <The reason in one or
+  two sentences, from the plan's "Decided" or the entry.>
+  `<catalogue file>#<id>`
+
+  ![<what the screenshot shows>](plans/<topic>/<file>.png)
+
+## Also
+
+- <A small fix or change with no decision in it, in a line.>
+
+## To try it
+
+<The project file's "After the push" words for where the change shows
+once merged, in a line; else "Check out the branch.">
+Plan: `plans/<topic>.md` in the queue's checkout on <machine> (plans/ is
+not tracked). Checks: <the checks workflow's name>.
+
+<the attribution lines the session gives for a pull request>
+```
+
+- **Decisions**: the plan's "Decided" items and the catalogue entries the
+  commit adds or replaces, one bullet each, in the catalogue's order; the
+  entry's tier gives "who" (`<owner>, <date>`, `as GitHub does`, `the
+  agent's choice`). A decision taken for ${user_config.owner} after thirty
+  minutes unanswered says `taken by the executor for
+  ${user_config.owner}, unanswered ("Asked once")`, so the people see what
+  nobody chose. With none: `None: no rule changed and nothing a person
+  sees.`
+- **Also**: every other change in the commit, a line each, from the
+  plan's "Building it"; with none, the heading is left out. A screenshot
+  that shows no decision goes here, its caption as the line.
+- **The title** is the plan's title, which says what the project does
+  after the change.
 
 ## After
 

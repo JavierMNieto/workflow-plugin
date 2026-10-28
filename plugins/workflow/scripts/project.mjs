@@ -337,11 +337,13 @@ export function defaultBranch(root, { checkedOut = false } = {}) {
 }
 
 /**
- * `{ name, branch, run, ui, catalogue, inherits, tools, mcp, deny, written,
- * form, reuse, reviews, body, found }` for the project
+ * `{ name, branch, run, land, ui, catalogue, inherits, tools, mcp, deny,
+ * written, form, reuse, reviews, body, found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
  * remote's default (else main; `plans init` writes the branch checked out
- * in a repository with no remote), `run`, `ui` and `catalogue` to none, `form` to "full"
+ * in a repository with no remote), `run`, `ui` and `catalogue` to none, `land` to
+ * "push" ("pull-request" when the frontmatter says so: the executor opens a
+ * pull request to the branch instead of pushing it), `form` to "full"
  * ("compact" when the frontmatter says so: one chat, no queue).
  */
 export function project(root) {
@@ -366,6 +368,7 @@ export function project(root) {
       return branch;
     },
     run: typeof front.run === "string" ? front.run : "",
+    land: front.land === "pull-request" ? "pull-request" : "push",
     ui: list(front.ui),
     // A directory or one `.md` file; `inherits` the catalogues it overrides
     // by id, farthest first; `tools` the tool names (regular expressions)
@@ -407,6 +410,7 @@ export function starter(root) {
 name: ${basename(root)}
 branch: ${defaultBranch(root, { checkedOut: true })}
 # run: checks.yml        the Actions workflow read after a push; omit for none
+# land: pull-request    the executor opens a pull request to the branch instead of pushing it; omit to push
 # ui:                    paths a user sees, for the turn audit; omit for none
 #   - "src/components/**"
 # catalogue: docs/patterns   the design catalogue the audit asks for; omit for none

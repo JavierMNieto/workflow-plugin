@@ -1195,6 +1195,23 @@ describe("the reuse ceiling and the reviewer", () => {
     expect(text).toContain("Never a token in a URL, a remote or a config");
   });
 
+  it("reads land, push by default, and the starter names it", () => {
+    const at = (front: string) => {
+      const root = dir("land-");
+      mkdirSync(join(root, ".claude"));
+      writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: R\n${front}---\n`);
+      return project(root).land;
+    };
+    expect(at("")).toBe("push");
+    expect(at("land: pull-request\n")).toBe("pull-request");
+    expect(at("land: merge\n")).toBe("push");
+    const fresh = dir("land-init-");
+    init(fresh);
+    expect(readFileSync(join(fresh, ".claude", "workflow.md"), "utf8")).toContain(
+      "# land: pull-request    the executor opens a pull request to the branch instead of pushing it; omit to push",
+    );
+  });
+
   it("reads reuse, 200000 by default, and the starter names it", () => {
     const at = (front: string) => {
       const root = dir("reuse-");

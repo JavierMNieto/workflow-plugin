@@ -26,6 +26,10 @@ own queue.
   inherit the workspace's.
 - **Personal tool or script**: planned, but one light review is enough.
 - **Something else**: the compact form until a change needs a plan.
+- **The landing is the team's, not the kind's**: whether a change is
+  pushed to the branch or opened as a pull request (`land`) depends on
+  whether more than one person builds there, so the table has no column
+  for it; the setup asks it from the repository's collaborators.
 - **Reading tools, none for every kind**: jcodemunch and jdocmunch were
   measured on the plugin's repository and on a web app of 1,249 files
   (96 runs, 27 October 2026): the agent never called jcodemunch, called

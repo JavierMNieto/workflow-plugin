@@ -128,6 +128,7 @@ agents and skills.
 name: Docs                # the project's name in session names
 branch: test              # the branch the executor pushes, fast-forward
 run: checks.yml           # the Actions workflow read after a push; omit for none
+land: pull-request        # the executor opens a pull request to the branch instead of pushing it; omit to push
 ui:                       # paths a user sees, for the turn audit; omit for none
   - "src/components/**"
 catalogue: docs/patterns  # the design catalogue: a directory or one file; omit for none
@@ -157,6 +158,30 @@ headings and the branch are the same in both, so nothing is converted,
 and the maker says when a change has outgrown the compact form. `branch`
 may be omitted in a compact project: the maker then commits nothing, and
 a project file needs no repository around it.
+
+**`land: pull-request` lands by pull request.** The executor opens one
+pull request per plan to `branch` instead of pushing it, from a branch of
+its own, titled by the plan's title; its description leads with the
+plan's decisions, each a bold sentence with who decided it, when, the
+rule it replaces and the reason, from the plan's "Decided" and the
+catalogue entries the commit writes, with the screenshots attached under
+the item each shows (`gh pr create --attach`), then the small fixes a
+line each, then where to try it. The project's "Before the push" runs
+once per plan, since each pull request is checked on its own; the Stop
+hook reads the pull request's checks instead of the run ("The queue");
+the merge is the people's, and the executor never merges. A plan that
+rests on an open pull request, or changes a file one changes, is stacked
+on it: its branch starts at that pull request's head, its base is that
+branch, and GitHub retargets it when the first's head branch is deleted
+on merge (the executor retargets it at its next batch otherwise). The
+compact form has no pull request mode: the maker reads no `land`, and a
+compact project that wants pull requests is the full form's. Absent, the
+executor pushes to the branch, fast-forward. One pull request per plan,
+opened ready, not as a draft (Javi, 28 October): each is one topic the
+other person approves or turns down alone. `run` keeps its meaning; in
+this mode the queue reads no run, since the push to the branch is the
+merge, and the project file's **After the push** says what the merge
+sets off.
 
 **`mcp` names the MCP configs a chat here needs** (a PowerPoint bridge, a
 database), which `plans chat` and every chat the queue starts pass on the
@@ -196,9 +221,11 @@ for one change), **Before the push** (screenshots, checks, suites, in
 order), **After the push** (what to watch), **Reading** (which tools read
 code and docs here), **Products** (one line per kind of thing the project
 makes, the product people know for it, which the `design-research` skill
-follows first). It may also name the people whose calls are theirs
-(the assistant's second exit), the tools that publish under the owner's
-name (which no agent calls), and headings of its own for the assistant.
+follows first). Its **People** heading names the people whose calls are
+theirs and what each decides (the assistant's second exit, and the
+group's message, "The queue"); the body may also name the tools that
+publish under the owner's name (which no agent calls), and headings of
+its own for the assistant.
 `plans init` writes a starter. **A project is set up in a short
 interview**, `/workflow:setup` in the assistant's or the maker's chat:
 what the project is for, what the owner mostly does there, which
@@ -294,7 +321,10 @@ check`. A talk's decisions file is read as it is.
 
 Plans reach the executor without the owner carrying them, with no agent
 and no daemon of their own. A plan's state is in its file: `## Built` is built
-(its commit the first eight-hex word there); `## Building, <date>,
+(its commit the first eight-hex word there, and the pull request it
+opened when its first line is `Pull request #<n> (<url>) to <branch> from
+branch <name>, commit <sha>; open, checks green.`, which `plans` lists
+as `#<n>, <open|merged|closed>`); `## Building, <date>,
 session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
 over and resumed first; a `Plan only` or `Short plan` header dated 24
@@ -313,7 +343,11 @@ or `plans start` when none is alive.
 hook takes the lock (`.claude/executor.lock`), and its tool hook refuses
 edits and writing commands to an executor that does not hold it, so one
 checkout has one executor; its Stop hook refuses a stop on a red or
-unfinished run of the session's push (the project's `run`), then names the
+unfinished run of the session's push (the project's `run`), or, with
+`land: pull-request`, on a red or unfinished pull request of the
+checkout (an open one whose head branch is a local branch here at the
+same commit, its checks read with `gh pr list`; no checks is green),
+then names the
 waiting plans to a session that may be reused (`mayReuse`: no
 compaction, or one and a waiting plan names a file the batch changed,
 counted from where the batch's first Building line was written; a
@@ -489,6 +523,21 @@ chat as a follow-up. A planner the owner opened himself, which the queue
 gave no brief, holds nothing: its plan is ready at once. (Javi, 28
 October: wait thirty minutes, then decide for him.)
 
+**The group's message.** A change to another person's part, a catalogue
+rule whose tier carries their name or a thing the project file's
+**People** heading gives them, is built as any other plan, and the pull
+request, whose decisions name who decided each rule it replaces, is
+where the people discuss it. What the workflow adds is the message: the
+assistant notes the part in the brief (`Touches <name>'s part`), and the
+planner writes a "For the group" section with the message in the owner's
+words, what he wants to change, which of the person's decisions it
+touches and why, what he asks, and that the detail comes as a pull
+request, and gives it in its final message ready to paste, so he can
+send it while the plan is built. The plan is not held for the group's
+answer and the queue has no state for it (Javi, 28 October: the speed,
+since nothing lands until a person merges); a group that has already
+agreed is written in "Decided", with no message.
+
 **What a context costs.** Every turn re-reads the session's whole
 context at the cache-read price: a plan of about 120 turns reads about
 $1.90 at 80k, $4.80 at 200k and $14.40 at 600k (Opus, the pricing page),
@@ -603,9 +652,11 @@ workflow@workflow --values-stdin`).
 no VS Code window may be, and VS Code's git credential helper answers
 only while its window is attached; so the owner keeps a fine-grained
 GitHub token in `GH_TOKEN` on the host (their repositories; Contents
-read and write, Actions read, Metadata read, and Workflows read and
-write, so a plan that changes a file under `.github/workflows/` is
-pushed too: Javi, 27 October), each project's
+read and write, Actions read, Metadata read, Workflows read and write,
+so a plan that changes a file under `.github/workflows/` is pushed too:
+Javi, 27 October; and, for a project with `land: pull-request`, Pull
+requests read and write for `gh pr create`, with Checks read and Commit
+statuses read for the checks the Stop hook reads), each project's
 `.devcontainer/devcontainer.json` carries it in as
 `"containerEnv": { "GH_TOKEN": "${localEnv:GH_TOKEN}" }` (the setup
 writes the line; a rebuild makes it take), and the dotfiles install
@@ -613,7 +664,14 @@ writes the line; a rebuild makes it take), and the dotfiles install
 variable is set, so `git push` over HTTPS and `gh run watch` work in
 every chat. The token's value is in no file; the setup's final message
 says where access stands. A token expires: `gh auth status` says so,
-and a new one on the host and a rebuild renew it.
+and a new one on the host and a rebuild renew it. **Screenshots on a
+pull request** go up through `gh pr create --attach`, which needs gh
+2.99 or newer and authenticates, by GitHub's changelog, with the OAuth
+token or a classic token; if a fine-grained token's upload is refused,
+the fix is a classic token with `repo` on the host. Debian's packaged gh
+is 2.23, so a container that attaches installs gh from GitHub's own apt
+repository; with an older gh the executor opens the pull request without
+them and says so.
 
 The research-writing skills are a second plugin of the same marketplace,
 `writing@workflow`, that a project turns on in its own

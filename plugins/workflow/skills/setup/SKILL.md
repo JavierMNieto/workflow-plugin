@@ -24,7 +24,9 @@ plugin's docs, "The project file" and "Decisions".
 
 - `.claude/workflow.md` when there is one: a run again keeps every answer
   in it as the recommended option.
-- `git rev-parse --show-toplevel` and the remote's default branch.
+- `git rev-parse --show-toplevel` and the remote's default branch, and
+  with a GitHub remote, `gh api repos/{owner}/{repo}/collaborators`, for
+  whether someone besides the owner builds here.
 - `.github/workflows/*.yml`, for a `run`.
 - `.mcp.json` and `.claude/`, for what is there.
 - `claude plugin list --json`, for the plugins on here.
@@ -70,6 +72,23 @@ pattern of its writing calls; the `ui` globs when screens were chosen
 and step 1 found no obvious ones; the branch when none was detected. A
 question the table answers is not asked.
 
+That call gains **the landing**, asked whenever step 1 found a
+repository and the answer was the full queue (the maker has no pull
+request mode, so a compact project is not asked and gets no `land`): header `Landing`, question `This is about how a finished
+change reaches the shared branch. Today the queue pushes it there as soon
+as its checks pass. When more than one person builds here, each can
+instead get a pull request to read first, with the design decisions and
+screenshots on top, and merge it himself.`, options `A pull request to
+merge`, description `Nothing lands until one of you merges it; each
+change waits on a person`, and `Pushed straight`, description `Lands the
+moment the checks pass; nobody reads it first`. The pull request is first
+and marked recommended when the collaborators list someone besides the
+owner, else second, and pushing straight is recommended; on a run again,
+the file's answer is the recommended one. The answer writes `land:
+pull-request`, or takes the line out. When the call would then hold more
+than four questions (the tool's limit), the landing is asked in a call of
+its own after it.
+
 Then, in a call of its own, **which connectors a chat here uses**: the
 connectors step 1 found, as multi-select questions of at most four
 options each (up to four questions; the question tool takes no more),
@@ -85,8 +104,8 @@ connector, the call is not made.
 
 `plans init` when there is none (it writes the starter and the
 `.gitignore` lines). Then the frontmatter keys from the answers
-(`form`, `branch`, `run`, `ui`, `catalogue`, `inherits`, `tools`,
-`mcp`, `reviews`), the commented lines of keys not used left in place,
+(`form`, `branch`, `run`, `land`, `ui`, `catalogue`, `inherits`,
+`tools`, `mcp`, `reviews`), the commented lines of keys not used left in place,
 and only the body's empty or missing headings filled with what step 1
 found: **While working** from `package.json` scripts or a Makefile,
 **Reading** from the tools on (the kinds table's reading tools, none

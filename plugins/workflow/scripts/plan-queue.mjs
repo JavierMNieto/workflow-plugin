@@ -13,9 +13,10 @@
 //                            line on a plan still asking; a planner's edit to
 //                            a taken plan; a planner's question records its
 //                            time and defers a start of the plan it asks about
-//   plan-queue.mjs stop      on Stop: the project's run on the push, then the
-//                            waiting plans (built here while the context is
-//                            fresh, or a fresh executor started when tired)
+//   plan-queue.mjs stop      on Stop: the project's run on the push, or the
+//                            checks on its pull requests, then the waiting
+//                            plans (built here while the context is fresh,
+//                            or a fresh executor started when tired)
 //   plan-queue.mjs wrote     on PostToolUse (Edit, Write, Bash): an executor's
 //                            Building line stops the retired planner of it;
 //                            one a shell wrote on a plan still asking is
@@ -259,7 +260,9 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     const section = sectionAfter(text, /^## Built/m);
     const named = /\bcommit `?([0-9a-f]{8})[0-9a-f]*`?/.exec(section);
     const sha = named ? named[1] : (/\b[0-9a-f]{8}\b/.exec(section)?.[0] ?? "");
-    return { ...plan, state: "built", builtDay: (built[1] || "").trim(), sha };
+    // **A plan landed by pull request** (`land: pull-request`) names it first.
+    const pr = Number(/^Pull request #(\d+)/m.exec(section)?.[1] || 0);
+    return { ...plan, state: "built", builtDay: (built[1] || "").trim(), sha, pr };
   }
   const resumed = [
     ...text.matchAll(/^## Resumed, [^,\n]+, session [^,\s]+, at step ([^\s,.]+)/gm),
@@ -1115,6 +1118,7 @@ export function decideStop({
   usage = null,
   ceiling = REUSE_DEFAULT,
   now = Date.now(),
+  land = "push",
 }) {
   if (retired) return null;
   // **A red or unfinished run refuses the first stop of every turn**. On a
@@ -1130,6 +1134,16 @@ export function decideStop({
     !(run.status === "completed" && run.conclusion === "success")
   ) {
     const how = run.status === "completed" ? "failed" : "in progress";
+    // **A pull request's checks, in the pull request mode** (`land:
+    // pull-request`): the same rule, read off the pull request.
+    if (run.pull) {
+      const n = run.pull.number;
+      return {
+        refuse: true,
+        runId: run.id,
+        reason: `The checks on pull request #${n} (${run.pull.url}) are ${run.status === "completed" ? "failing" : "still running"}. Read them before you stop: \`gh pr checks ${n} --watch --fail-fast\`, then on a failure the job's log (\`gh run view <run id> --log-failed\`, the id from \`gh pr checks ${n} --json link\`), fix it, push the branch, and read the new checks.${run.pull.also?.length ? ` ${run.pull.also.length === 1 ? "Pull request" : "Pull requests"} ${andList(run.pull.also.map((m) => `#${m}`))} ${run.pull.also.length === 1 ? "is" : "are"} not green either.` : ""} An open pull request is not done until its checks are green.`,
+      };
+    }
     return {
       refuse: true,
       runId: run.id,
@@ -1164,10 +1178,14 @@ export function decideStop({
   const keep = verdict.reuse;
   const paths = fresh.map((plan) => plan.path);
   if (!keep) return { retire: true, paths, why: verdict.why };
+  const how =
+    land === "pull-request"
+      ? `a branch per plan off origin/${branch()} (or stacked on the open pull request it rests on), Building lines, the suites before each plan's pull request, one commit and one pull request per plan, its checks watched`
+      : `a new branch off origin/${branch()}, Building lines, the suites once at the end, one commit per plan, the push`;
   return {
     refuse: true,
     told: paths,
-    reason: `Plans are waiting and this session can take them: ${fresh.map(annotate).join(", ")}. Build them as a new batch by your agent file: ReadNotifications first, a new branch off origin/${branch()}, Building lines, the suites once at the end, one commit per plan, the push. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
+    reason: `Plans are waiting and this session can take them: ${fresh.map(annotate).join(", ")}. Build them as a new batch by your agent file: ReadNotifications first, ${how}. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
   };
 }
 
@@ -2072,6 +2090,23 @@ function onWhere(sha) {
   }
 }
 
+/**
+ * The pull requests' states, by number, in lower case (`open`, `merged`,
+ * `closed`), from one `gh pr list --state all`; null when `gh` cannot be read.
+ */
+function pullStates() {
+  try {
+    const out = execFileSync(
+      "gh",
+      ["pr", "list", "--state", "all", "--limit", "100", "--json", "number,state"],
+      { cwd: root, encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return new Map(JSON.parse(out).map((pull) => [pull.number, String(pull.state).toLowerCase()]));
+  } catch {
+    return null;
+  }
+}
+
 function git(args, options = {}) {
   return execFileSync("git", args, {
     cwd: root,
@@ -2303,10 +2338,14 @@ export function list({ all = false, live } = {}) {
         .join(", "),
   );
   const built = plans.filter((p) => p.state === "built");
-  group(
-    all ? "Built" : "Built today",
-    all ? built : built.filter((p) => p.builtDay.startsWith(today(now))),
-    (p) => [p.sha, onWhere(p.sha)].filter(Boolean).join(", "),
+  const shown = all ? built : built.filter((p) => p.builtDay.startsWith(today(now)));
+  // A plan landed by pull request is listed by it, its state from one `gh`
+  // call, made only when a row names one.
+  const states = shown.some((p) => p.pr) ? pullStates() : null;
+  group(all ? "Built" : "Built today", shown, (p) =>
+    p.pr
+      ? [`#${p.pr}`, states?.get(p.pr)].filter(Boolean).join(", ")
+      : [p.sha, onWhere(p.sha)].filter(Boolean).join(", "),
   );
   const old = plans.filter((p) => p.state === "old").length;
   if (old)
@@ -2402,6 +2441,98 @@ function imageRun() {
     };
   } catch {
     process.stderr.write(`plan-queue: the ${workflow} run could not be read (gh)\n`);
+    return null;
+  }
+}
+
+/** A check run's conclusions that make a pull request's checks red. */
+const RED_CONCLUSIONS = [
+  "FAILURE",
+  "TIMED_OUT",
+  "CANCELLED",
+  "ACTION_REQUIRED",
+  "STARTUP_FAILURE",
+  "STALE",
+];
+
+/**
+ * **The verdict on a pull request's checks**, from `gh pr list --json
+ * statusCheckRollup`: "red" when a check run concluded in failure (any of
+ * `RED_CONCLUSIONS`) or a status context's state is FAILURE or ERROR,
+ * "running" when a check run is not COMPLETED or a context is PENDING or
+ * EXPECTED, else "green", an empty rollup included: a project with no checks
+ * has nothing to wait for. Red beats running.
+ */
+export function checksVerdict(rollup = []) {
+  let running = false;
+  for (const check of rollup || []) {
+    if (!check) continue;
+    const context =
+      check.__typename === "StatusContext" || (!("status" in check) && "state" in check);
+    if (context) {
+      const state = String(check.state || "").toUpperCase();
+      if (state === "FAILURE" || state === "ERROR") return "red";
+      if (state === "PENDING" || state === "EXPECTED") running = true;
+      continue;
+    }
+    if (RED_CONCLUSIONS.includes(String(check.conclusion || "").toUpperCase())) return "red";
+    if (String(check.status || "").toUpperCase() !== "COMPLETED") running = true;
+  }
+  return running ? "running" : "green";
+}
+
+/**
+ * **The checks on this checkout's pull requests** (`land: pull-request`): the
+ * open pull requests whose head branch is a local branch here at the same
+ * commit, from one `gh pr list`; the first whose checks are not green, in the
+ * run's shape (`id` its number and commit, so a push is asked about again),
+ * for `decideStop`. Null when all are green, none is this checkout's, or `gh`
+ * cannot be read.
+ */
+function pullChecks() {
+  try {
+    const out = execFileSync(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        // Past fifty, so a busy repository's own pull request is still read.
+        "--limit",
+        "200",
+        "--json",
+        "number,url,headRefName,headRefOid,statusCheckRollup",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    // The local branches at their commits, in one call; a pull request whose
+    // head is none of them is another person's.
+    const local = new Map(
+      git(["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"], {
+        timeout: 4000,
+      })
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split(" ")),
+    );
+    const open = JSON.parse(out)
+      .filter((pull) => local.get(pull.headRefName) === pull.headRefOid)
+      .map((pull) => ({ ...pull, verdict: checksVerdict(pull.statusCheckRollup) }))
+      .filter((pull) => pull.verdict !== "green");
+    if (!open.length) return null;
+    const [first, ...rest] = open;
+    return {
+      // Every pull request not green is in the id, so the loop guard lets a
+      // continued stop pass only once all of them were named.
+      id: open.map((pull) => `${pull.number}@${pull.headRefOid}`).join(","),
+      status: first.verdict === "red" ? "completed" : "in_progress",
+      conclusion: first.verdict === "red" ? "failure" : null,
+      onHead: true,
+      pull: { number: first.number, url: first.url, also: rest.map((pull) => pull.number) },
+    };
+  } catch {
+    process.stderr.write("plan-queue: the pull requests' checks could not be read (gh)\n");
     return null;
   }
 }
@@ -2548,11 +2679,14 @@ export function planTaken(text = "") {
 /**
  * Who took a plan, for the planner's messages: "Executor 5 [b92bfc2b] on
  * 26 October 2026" (the live row's name, else "session b92bfc2b"), or
- * "built, commit <sha>" once it is built; "" when nothing took it.
+ * "built, commit <sha>" once it is built ("built, pull request #<n>" when it
+ * landed by one); "" when nothing took it.
  */
 export function whoTook(text = "", live = null) {
   if (/^## Built(?:,|\s*$)/m.test(text)) {
-    const sha = stateOf(text)?.sha || "";
+    const built = stateOf(text);
+    if (built?.pr) return `built, pull request #${built.pr}`;
+    const sha = built?.sha || "";
     return sha ? `built, commit ${sha}` : "built";
   }
   const line = /^## (?:Building|Resumed|Handing over), ([^,\n]+)(?:, session ([^\s,]+))?/m.exec(
@@ -3204,7 +3338,8 @@ function hook(mode, input) {
       compactions: state.compactions,
       waiting,
       handed,
-      run: imageRun(),
+      // The pull request mode reads its pull requests' checks, the push mode its run.
+      run: proj().land === "pull-request" ? pullChecks() : imageRun(),
       told: state.told,
       paused: Boolean(pausedSince()),
       retired: state.retired,
@@ -3212,6 +3347,7 @@ function hook(mode, input) {
       refusedRun: state.runRefused ?? null,
       usage: sessionUsage(input.transcript_path),
       ceiling: proj().reuse,
+      land: proj().land,
     });
     if (!decision) {
       armEnd(sessionId, live);

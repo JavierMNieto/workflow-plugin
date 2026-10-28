@@ -27,6 +27,7 @@ import {
   agentEffort,
   canStart,
   changedFiles,
+  checksVerdict,
   decidePlannerStop,
   plannerPrompt,
   sessionsOf,
@@ -65,6 +66,7 @@ import {
   related,
   resetTime,
   stateOf,
+  today,
   unreadPlans,
   withoutStatus,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
@@ -474,6 +476,48 @@ describe("plan-queue", () => {
     expect(related(text, ["docs/copy.md"])).toBe(false);
   });
 
+  describe("checksVerdict", () => {
+    const run = (status: string, conclusion = "") => ({
+      __typename: "CheckRun",
+      status,
+      conclusion,
+    });
+    const context = (state: string) => ({ __typename: "StatusContext", state });
+    it("is green for no checks and for passing ones", () => {
+      expect(checksVerdict([])).toBe("green");
+      expect(checksVerdict(null as never)).toBe("green");
+      expect(
+        checksVerdict([
+          run("COMPLETED", "SUCCESS"),
+          run("COMPLETED", "NEUTRAL"),
+          run("COMPLETED", "SKIPPED"),
+          context("SUCCESS"),
+        ]),
+      ).toBe("green");
+    });
+    it("is running for a queued or running check and a pending context", () => {
+      expect(checksVerdict([run("QUEUED")])).toBe("running");
+      expect(checksVerdict([run("COMPLETED", "SUCCESS"), run("IN_PROGRESS")])).toBe("running");
+      expect(checksVerdict([context("PENDING")])).toBe("running");
+      expect(checksVerdict([context("EXPECTED")])).toBe("running");
+    });
+    it("is red for a failed check or context, and red beats running", () => {
+      for (const conclusion of [
+        "FAILURE",
+        "TIMED_OUT",
+        "CANCELLED",
+        "ACTION_REQUIRED",
+        "STARTUP_FAILURE",
+        "STALE",
+      ])
+        expect(checksVerdict([run("COMPLETED", conclusion)]), conclusion).toBe("red");
+      expect(checksVerdict([context("ERROR")])).toBe("red");
+      expect(checksVerdict([context("FAILURE")])).toBe("red");
+      expect(checksVerdict([run("IN_PROGRESS"), run("COMPLETED", "FAILURE")])).toBe("red");
+      expect(checksVerdict([context("PENDING"), context("ERROR")])).toBe("red");
+    });
+  });
+
   describe("decideStop", () => {
     const failed = { id: 7, status: "completed", conclusion: "failure", onHead: true };
 
@@ -487,6 +531,48 @@ describe("plan-queue", () => {
       ).toContain("in progress");
       expect(decideStop({ run: { ...failed, onHead: false } })).toBeNull();
       expect(decideStop({ run: { ...failed, conclusion: "success" } })).toBeNull();
+    });
+
+    it("refuses on a pull request's checks with its own words, and lets a continued stop pass", () => {
+      const pull = {
+        id: "21@61c4a812",
+        status: "completed",
+        conclusion: "failure",
+        onHead: true,
+        pull: { number: 21, url: "https://github.com/o/r/pull/21" },
+      };
+      const first = decideStop({ run: pull });
+      expect(first).toMatchObject({ refuse: true, runId: "21@61c4a812" });
+      expect(first!.reason).toContain(
+        "The checks on pull request #21 (https://github.com/o/r/pull/21) are failing.",
+      );
+      expect(first!.reason).toContain("`gh pr checks 21 --watch --fail-fast`");
+      expect(
+        decideStop({ run: { ...pull, status: "in_progress", conclusion: null } })!.reason,
+      ).toContain("are still running");
+      expect(decideStop({ run: pull, continuing: true, refusedRun: "21@61c4a812" })).toBeNull();
+      // Two pull requests not green: both named, and both in the id.
+      const two = { ...pull, id: "21@61c4a812,22@0badc0de", pull: { ...pull.pull, also: [22] } };
+      expect(decideStop({ run: two })!.reason).toContain("Pull request #22 is not green either.");
+      expect(decideStop({ run: two, continuing: true, refusedRun: "21@61c4a812" })).toMatchObject({
+        refuse: true,
+      });
+      // A push to the branch is a new commit, so a new id, asked about again.
+      expect(
+        decideStop({
+          run: { ...pull, id: "21@0badc0de" },
+          continuing: true,
+          refusedRun: "21@61c4a812",
+        }),
+      ).toMatchObject({ refuse: true, runId: "21@0badc0de" });
+    });
+
+    it("names a pull request per plan to an executor taking more, in the pull request mode", () => {
+      const waiting = [plan("plans/a.md")];
+      expect(decideStop({ waiting })!.reason).toContain("the suites once at the end");
+      const reason = decideStop({ waiting, land: "pull-request" })!.reason;
+      expect(reason).toContain("one commit and one pull request per plan");
+      expect(reason).not.toContain("the suites once at the end");
     });
 
     it("lets a continued stop pass the run it was refused for, and no other", () => {
@@ -1531,6 +1617,11 @@ describe("the planner queue", () => {
       ),
     ).toBe("built, commit 1234abcd");
     expect(whoTook("# X\n\nPlan only, 26 October 2026.\n")).toBe("");
+    expect(
+      whoTook(
+        "# X\n\nPlan only, 26 October 2026, for Javi.\n\n## Built, 28 October 2026\n\nPull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; open, checks green.\n",
+      ),
+    ).toBe("built, pull request #21");
   });
 
   it("tells a planner where each of its plans stands", () => {
@@ -1828,6 +1919,20 @@ describe("the queue's faults, closed", () => {
   });
 
   describe("stateOf", () => {
+    it("reads the pull request a Built section names, and none as 0", () => {
+      const head = "# P\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, 28 October 2026\n\n";
+      expect(
+        stateOf(
+          `${head}Pull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; open, checks green.\n`,
+        ),
+      ).toMatchObject({ state: "built", sha: "61c4a812", pr: 21 });
+      expect(stateOf(`${head}Branch x, commit 61c4a812 on test.\n`)).toMatchObject({
+        state: "built",
+        sha: "61c4a812",
+        pr: 0,
+      });
+    });
+
     it("reads a plan that names the brief it replaced as a plan", () => {
       const text =
         "# A plan\n\nPlan only, 27 October 2026, for Javi.\nIt replaces the brief (Brief for the planner, 27 October 2026).\n";
@@ -1873,6 +1978,71 @@ describe("the queue's faults, closed", () => {
     expect(stop(true)).toBe("");
     // A later turn's first stop refuses again.
     expect(stop(false)).toContain("(7) is failed");
+  });
+
+  it("lists a plan built as a pull request by its number and state, and one pushed by its commit", () => {
+    const dir = fixture("Listed", "land: pull-request\n");
+    const day = today();
+    writeFileSync(
+      join(dir, "plans", "by-pull.md"),
+      `# A\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nPull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; open, checks green.\n`,
+    );
+    writeFileSync(
+      join(dir, "plans", "pushed.md"),
+      `# B\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nBranch y, commit 1234abcd on test.\n`,
+    );
+    const bin = temp("queue-gh-list-");
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\nif [ "$1 $2 $3 $4" = "pr list --state all" ]; then echo '[{"number":21,"state":"OPEN"}]'; else exit 1; fi\n`,
+    );
+    chmodSync(join(bin, "gh"), 0o755);
+    const listed = runIn(dir, ["list"], { PATH: `${bin}:${process.env.PATH}` });
+    expect(listed).toMatch(/plans\/by-pull\.md\s+#21, open\n/);
+    expect(listed).toMatch(/plans\/pushed\.md\s+1234abcd, on test/);
+    // No `gh` on the PATH: the number alone.
+    const empty = temp("queue-no-gh-");
+    for (const tool of ["git", "node"])
+      execFileSync("ln", [
+        "-s",
+        execFileSync("which", [tool], { encoding: "utf8" }).trim(),
+        join(empty, tool),
+      ]);
+    const bare = runIn(dir, ["list"], { PATH: empty });
+    expect(bare).toMatch(/plans\/by-pull\.md\s+#21\n/);
+  });
+
+  it("refuses the first stop on a red pull request of this checkout, in the pull request mode", () => {
+    const dir = fixture("Pull", "land: pull-request\nrun: checks.yml\n");
+    writeFileSync(join(dir, "README"), "one\n");
+    g(dir, "add", ".");
+    g(dir, "commit", "-q", "-m", "one");
+    g(dir, "branch", "land-x");
+    const sha = g(dir, "rev-parse", "land-x");
+    const bin = temp("queue-gh-pr-");
+    // A `gh` that answers `pr list` only: the run list is not the mode's.
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\nif [ "$1 $2" = "pr list" ]; then echo '[{"number":21,"url":"https://github.com/o/r/pull/21","headRefName":"land-x","headRefOid":"${sha}","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}]'; else echo '[{"databaseId":7,"status":"completed","conclusion":"failure","headSha":"${sha}"}]'; fi\n`,
+    );
+    chmodSync(join(bin, "gh"), 0o755);
+    const env = { PATH: `${bin}:${process.env.PATH}` };
+    const stop = (active: boolean) =>
+      runIn(dir, ["stop"], env, {
+        session_id: `red-pull-${process.pid}`,
+        agent_type: "executor",
+        stop_hook_active: active,
+      });
+    const first = stop(false);
+    expect(first).toContain('"decision":"block"');
+    expect(first).toContain("pull request #21");
+    expect(first).not.toContain("(7) is failed");
+    expect(stop(true)).toBe("");
+    // The branch moved on: the pull request's head is no longer this checkout's.
+    g(dir, "checkout", "-q", "land-x");
+    writeFileSync(join(dir, "README"), "two\n");
+    g(dir, "commit", "-q", "-am", "two");
+    expect(stop(false)).toBe("");
   });
 
   describe("the lock", () => {

@@ -64,7 +64,16 @@ ${user_config.owner}.
    and the plan replaces it. **Mark the brief**: when the queue started you
    on a brief, write `## Planning, <date>, session <id>` under its header
    line as your first edit (the id is in the prompt hook's context line);
-   the plan you write over the brief drops it. `plans` reads it.
+   the plan you write over the brief drops it. `plans` reads it. **A
+   change to another person's part** is one that changes a catalogue rule
+   whose tier carries that person's name, or a thing the project file's
+   **People** heading gives to that person (judged from the heading's
+   words, as a tier is): the brief says so in a line (`Touches <name>'s
+   part`), or you find the overlap yourself. It is built as any other
+   plan, and the pull request is where the people discuss it; the plan
+   carries the group's message ("For the group", below). When the brief
+   says the group has already agreed, the agreement goes in "Decided" and
+   there is no message.
 2. **Research the products people know, first.** For each control, flow
    or screen, name the familiar product whose version people know (the
    `design-research` skill gives the order, and the project file's
@@ -142,6 +151,11 @@ characters is the usual size; longer is a plan that should be two.
    the project's rule for a new read path, when it has one.
 10. **Not in this plan**: what was left out and why, so the executor does
     not add it and ${user_config.owner} knows where the edge is.
+    **For the group**, after it, only for a change to another person's
+    part: the message in ${user_config.owner}'s words, short enough for a
+    chat group, saying what he wants to change, which of the person's
+    decisions it touches and why, what he asks (agree, or say what to
+    keep), and that the detail comes as a pull request.
 11. **Decisions for ${user_config.owner}**: numbered, the recommended
     option first, what each alternative costs.
 12. **Sources**: each address with a line on what it showed.
@@ -186,6 +200,11 @@ block headed `For the assistant's chat in Remote Control`, under about 600
 characters, naming the plan's path and the change in a line each; the
 assistant writes a follow-up plan or a brief. A new topic, in any state,
 starts in the assistant's chat ("Which session a topic goes to").
+
+A plan with a **For the group** section gives its message in the final
+message, ready to paste, before the plan's path, so ${user_config.owner}
+can send it while the plan is built rather than after the pull request
+surprises someone.
 
 ${user_config.owner} sees only the final message, question-tool prompts
 and files sent with SendUserFile; nothing written between tool calls
