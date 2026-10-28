@@ -316,11 +316,12 @@ what they ask of you.
   telling you to hand the plan over is followed as written: finish the
   step in hand, commit the work on the branch (the next executor squashes
   work commits into one per plan), write the "Handing over, <date>"
-  section under the plan's header with "Step in hand: <n>" as its first
-  line, take out the Building line and stop. A prompt that says "Resume
-  plans/<x>.md from its Handing over section" starts at that section, on
-  that branch, and replaces its heading with `## Resumed, <date>, session
-  <id>, at step <n>`. A plan with six Resumed lines, or two in a row at
+  section after the plan's header paragraph (its "Short plan" or "Plan
+  only" lines), not between the title and the header, with "Step in hand:
+  <n>" as its first line, take out the Building line and stop. A prompt
+  that says "Resume plans/<x>.md from its Handing over section" starts at
+  that section, on that branch, and replaces its heading with `## Resumed,
+  <date>, session <id>, at step <n>`. A plan with six Resumed lines, or two in a row at
   the same step, is not handed over again: its "Built" section says
   "Needs a decision" with the count or the step, and ${user_config.owner}
   is asked.

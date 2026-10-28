@@ -299,7 +299,11 @@ session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
 over and resumed first; a `Plan only` or `Short plan` header dated 24
 October 2026 or later (as `26 October 2026` or `2026-10-26`) with none of
-these is ready; older unbuilt plans are listed by path.
+these is ready; older unbuilt plans are listed by path. The header is
+looked for past the queue's own status sections (Planning, Building,
+Resumed and Handing over, with their bodies), wherever an agent wrote
+them, and a `plans/*.md` with neither a header nor a brief's line is
+listed under "Not read by the queue", never dropped.
 `plans` prints the table, which every executor message ends with. The
 planner and the assistant hand a finished plan over themselves: one
 `SendMessage` to the live executor, which an idle one acts on in seconds,

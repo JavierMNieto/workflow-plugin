@@ -55,6 +55,8 @@ export const FIVE_HOUR_MAX: number;
 export const SEVEN_DAY_MAX: number;
 export function parseDay(text: string): number;
 export function today(now?: number): string;
+/** A plan's text without the queue's status sections (Planning, Building, Resumed, Handing over). */
+export function withoutStatus(text: string): string;
 export function stateOf(
   text: string,
   options?: { mtime?: number; live?: string[] | null },
@@ -363,4 +365,6 @@ export function readPlans(
   dir?: string,
   live?: string[] | null,
 ): (PlanState & { path: string; file: string; text: string })[];
+/** The `plans/*.md` the queue cannot read: no header and no brief line, or no read at all. */
+export function unreadPlans(dir?: string): { headless: string[]; failed: string[] };
 export function resetTime(usage: Partial<Usage> | null, transcriptText?: string): number;

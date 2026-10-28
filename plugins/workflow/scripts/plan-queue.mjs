@@ -191,6 +191,39 @@ function sectionAfter(text, heading) {
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
 
+/** The queue's own status lines, dated, never a plan's "## Building it" section. */
+const STATUS_HEADING = /^## (?:Planning, |Building, |Resumed, |Handing over\b)/;
+/**
+ * A plan's dated header line or a brief's line: where a status section above
+ * it ends. Dated, so a body line that only starts with the words does not end it.
+ */
+const HEADER_LINE = new RegExp(
+  `^(?:(?:Plan only|Short plan), (?:${DAY})|Brief for the planner\\b)`,
+);
+/** A plan's dated header line, as `stateOf` reads it. */
+const PLAN_HEADER = new RegExp(`^(?:Plan only|Short plan), (?:${DAY})`);
+
+/**
+ * **A plan's text without the queue's status sections**
+ * (plans/handed-plan-stays-in-queue.md): each Planning, Building, Resumed or
+ * Handing over line with its body, up to the next `## ` or the header line.
+ * A hand-over written between the title and the header pushed the header past
+ * the lines `stateOf` reads, and the plan fell out of every list.
+ */
+export function withoutStatus(text) {
+  const kept = [];
+  let skipping = false;
+  for (const line of text.split("\n")) {
+    if (STATUS_HEADING.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && (/^## /.test(line) || HEADER_LINE.test(line))) skipping = false;
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n");
+}
+
 /**
  * A plan's place in the queue, read from its text. `live` is the live
  * sessions' ids, or null when they could not be listed, which counts every
@@ -199,11 +232,14 @@ function sectionAfter(text, heading) {
 export function stateOf(text, { mtime = 0, live = null } = {}) {
   // **A plan is a plan before it is a brief**: its header is read first, and
   // the brief's line only at a line's start, so a plan whose first lines
-  // mention the brief it replaced reads as the plan.
+  // mention the brief it replaced reads as the plan. Both are looked for past
+  // the queue's own status sections, wherever an agent wrote them; the
+  // status checks below read the whole text.
+  const lines = withoutStatus(text).split("\n");
   const header = new RegExp(`^(Plan only|Short plan), (${DAY})`, "m").exec(
-    text.split("\n").slice(0, 12).join("\n"),
+    lines.slice(0, 12).join("\n"),
   );
-  const head = text.split("\n").slice(0, 6).join("\n");
+  const head = lines.slice(0, 6).join("\n");
   // **A brief is queued like a plan** (plans/planner-queue.md): one a
   // planner is working on carries its Planning line, live while its session is.
   const brief = header ? null : new RegExp(`^Brief for the planner(?:, (${DAY}))?`, "m").exec(head);
@@ -320,6 +356,34 @@ export function readPlans(dir = join(root, "plans"), live = null) {
       (a.date || 0) - (b.date || 0) ||
       a.mtime - b.mtime,
   );
+}
+
+/**
+ * **A plan file the queue cannot read is listed, never dropped**
+ * (plans/handed-plan-stays-in-queue.md): the `plans/*.md` with neither a
+ * plan's header nor a brief's line where `stateOf` looks (`headless`), and
+ * those that could not be read at all (`failed`, Codex, 28 October), by path.
+ * One gone between the listing and the read is gone, not failed.
+ */
+export function unreadPlans(dir = join(root, "plans")) {
+  const unread = { headless: [], failed: [] };
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((name) => name.endsWith(".md"));
+  } catch {
+    return unread;
+  }
+  for (const name of names.sort()) {
+    let text;
+    try {
+      text = readFileSync(join(dir, name), "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") unread.failed.push(`plans/${name}`);
+      continue;
+    }
+    if (!stateOf(text)) unread.headless.push(`plans/${name}`);
+  }
+  return unread;
 }
 
 /**
@@ -1078,7 +1142,7 @@ export function decideStop({
 /** The words after a compaction: hand the plan over at the third, unless it is stuck (the Stop hook says what then). */
 export function decideResumed({ compactions = 0, plan = null }) {
   if (compactions < HANDOVER_AT || !plan || plan.stuck) return "";
-  return `This session has compacted ${compactions} times inside ${plan.path}. Hand it over: finish the step in hand, commit what is done on the branch (a work commit is fine; the next executor squashes), write a "Handing over, ${today()}" section under the plan's header whose first line is "Step in hand: <n>" in the plan's "Building it" numbering (then the branch, the steps done, the step in progress and what failed in it, what is left, the specs run and their counts), take out the Building line, and stop. The hook starts a fresh executor on it.`;
+  return `This session has compacted ${compactions} times inside ${plan.path}. Hand it over: finish the step in hand, commit what is done on the branch (a work commit is fine; the next executor squashes), write a "Handing over, ${today()}" section after the plan's header paragraph (its "Short plan" or "Plan only" lines, not between the title and the header) whose first line is "Step in hand: <n>" in the plan's "Building it" numbering (then the branch, the steps done, the step in progress and what failed in it, what is left, the specs run and their counts), take out the Building line, and stop. The hook starts a fresh executor on it.`;
 }
 
 /** The windows above their threshold that have not reset yet: a number written before its reset says nothing after it. */
@@ -1245,16 +1309,26 @@ export function canStart({
   };
 }
 
-/** The hook's Handing over section for a session the usage limit cut off, the plan's Building line replaced by it. */
+/**
+ * The hook's Handing over section for a session the usage limit cut off, the
+ * plan's Building line taken out. **It goes after the header paragraph**, as
+ * the executor's does (plans/handed-plan-stays-in-queue.md), wherever the
+ * Building line was; with no header found, in the Building line's place.
+ */
 export function cutoffEdit(text, { sessionId, branch, day = today() }) {
   const section = `## Handing over, ${day}, by the hook\n\nStep in hand: unknown, the usage limit cut session ${sessionId} off on branch \`${branch}\`. Read the branch's commits and the task list's state in the final messages above.\n`;
-  const building = /^## Building, [^\n]*\n?/m;
-  if (building.test(text)) return text.replace(building, section);
-  const lines = text.split("\n");
-  const header = lines.findIndex((line) => /^(Plan only|Short plan), /.test(line));
-  let at = lines.findIndex((line, i) => i > header && line.trim() === "");
-  if (header < 0 || at < 0) at = lines.length;
-  lines.splice(at + 1, 0, section);
+  const building = /^## Building, [^\n]*(?:\n[ \t]*(?=\n))?\n?/m;
+  const lines = text.replace(building, "").split("\n");
+  const header = lines.findIndex((line) => PLAN_HEADER.test(line));
+  if (header < 0) {
+    if (building.test(text)) return text.replace(building, `${section}\n`);
+    return `${text.replace(/\n*$/, "\n\n")}${section}`;
+  }
+  // The header paragraph ends at a blank line, or at a heading written straight under it.
+  const at = lines.findIndex((line, i) => i > header && (line.trim() === "" || /^## /.test(line)));
+  if (at < 0) lines.push("", section);
+  else if (lines[at].trim() === "") lines.splice(at + 1, 0, section);
+  else lines.splice(at, 0, "", section);
   return lines.join("\n");
 }
 
@@ -2132,6 +2206,12 @@ export function list({ all = false, live } = {}) {
       "",
       `Older, by path only: ${old} plan${old === 1 ? "" : "s"} dated before 24 October with no Built`,
     );
+  const unread = unreadPlans();
+  if (unread.headless.length || unread.failed.length) out.push("");
+  if (unread.headless.length)
+    out.push(`Not read by the queue (no header found): ${unread.headless.join(", ")}`);
+  if (unread.failed.length)
+    out.push(`Not read by the queue (the file could not be read): ${unread.failed.join(", ")}`);
   // **The label is said where the queue is read** (plans/session-names-
   // across-machines.md), while the hostname stands in for it.
   if (!here.set)

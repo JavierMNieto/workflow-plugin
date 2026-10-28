@@ -64,6 +64,8 @@ import {
   related,
   resetTime,
   stateOf,
+  unreadPlans,
+  withoutStatus,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
 
@@ -392,6 +394,70 @@ describe("plan-queue", () => {
       expect(stateOf(handed + resumed(["3", "3"]))).toMatchObject({ stuck: true });
       expect(stateOf(handed + resumed(["3", "4"]))).toMatchObject({ stuck: false });
     });
+
+    // plans/handed-plan-stays-in-queue.md: a hand-over written between the
+    // title and the header pushed the header past line 12, and the plan fell
+    // out of every list.
+    const handOver = [
+      "## Handing over, 27 October 2026",
+      "",
+      "Step in hand: 1",
+      "",
+      "On branch `grip-work`, one work commit.",
+      "Done: nothing yet.",
+      "In progress: step 1, the store.",
+      "What failed: the usage window ran out.",
+      "Left: steps 2 to 5.",
+      "Specs run: none.",
+      "",
+      "The task list was in the final message.",
+      "Nothing pushed.",
+      "",
+    ].join("\n");
+    const short =
+      "Short plan, 27 October 2026, by the assistant with Javi; the executor builds\nit.\n\n## What was asked\n\nA thing.\n";
+
+    it("reads a plan whose long Handing over section sits above its header as handed", () => {
+      const text = `# A plan\n\n${handOver}${short}`;
+      // The header is past the twelve lines the queue read before.
+      expect(text.split("\n").findIndex((line) => line.startsWith("Short plan"))).toBe(15);
+      expect(stateOf(text)).toMatchObject({
+        state: "handed",
+        kind: "Short plan",
+        day: "27 October 2026",
+        step: "1",
+        branch: "grip-work",
+      });
+    });
+
+    it("reads Building and Resumed lines above the header as building while live, handed once not", () => {
+      const resumedHeading = handOver.replace(
+        "## Handing over, 27 October 2026",
+        "## Resumed, 28 October 2026, session r1, at step 1",
+      );
+      const text = `# A plan\n\n## Building, 28 October 2026, session abc\n\n${handOver}${resumedHeading}${short}`;
+      expect(stateOf(text, { live: ["abc"] })).toMatchObject({
+        state: "building",
+        session: "abc",
+        resumed: ["1"],
+      });
+      expect(stateOf(text, { live: [] })).toMatchObject({
+        state: "handed",
+        stale: true,
+        step: "1",
+      });
+    });
+
+    it("reads a brief with a Planning line still as a brief, and keeps a plan's Building it", () => {
+      const brief =
+        "# B\n\n## Planning, 28 October 2026, session p1\n\nBrief for the planner, 28 October 2026.\n";
+      expect(stateOf(brief, { live: ["p1"] })).toMatchObject({ state: "planning", session: "p1" });
+      expect(stateOf(brief, { live: [] })).toMatchObject({ state: "brief", stale: true });
+      // "## Building it" is the plan's own section, not the queue's line.
+      expect(withoutStatus(`${header("24 October 2026")}## Building it\n\n1. A step.\n`)).toContain(
+        "1. A step.",
+      );
+    });
   });
 
   it("finds the paths a plan names, once each, and not inside an address", () => {
@@ -609,6 +675,26 @@ describe("plan-queue", () => {
     expect(resetTime(null, '{"rate_limit_info":{"resetsAt":1500}}\n{"resetsAt":1700}')).toBe(1700);
   });
 
+  // plans/handed-plan-stays-in-queue.md: the hook's hand-over goes after the
+  // header paragraph, though the Building line sat between the title and the header.
+  it("puts the hook's hand-over after the header paragraph, wherever the Building line was", () => {
+    const options = { sessionId: "abc", branch: "queue", day: "24 October 2026" };
+    const section = `## Handing over, 24 October 2026, by the hook\n\nStep in hand: unknown, the usage limit cut session abc off on branch \`queue\`. Read the branch's commits and the task list's state in the final messages above.\n`;
+    const head = "Plan only, 24 October 2026, for Javi; the executor builds it.";
+    const above = `# A plan\n\n## Building, 24 October 2026, session abc\n\n${head}\n\n## What was asked\n`;
+    expect(cutoffEdit(above, options)).toBe(
+      `# A plan\n\n${head}\n\n${section}\n## What was asked\n`,
+    );
+    // /code-review, 28 October: a heading straight under the header ends its paragraph.
+    const tight = `# A plan\n\n${head}\n## Building, 24 October 2026, session abc\n\n## What was asked\n\nA thing.\n`;
+    expect(cutoffEdit(tight, options)).toBe(
+      `# A plan\n\n${head}\n\n${section}\n## What was asked\n\nA thing.\n`,
+    );
+    // No header found: the section takes the Building line's place.
+    const headless = `# Notes\n\n## Building, 24 October 2026, session abc\n\nSome notes.\n`;
+    expect(cutoffEdit(headless, options)).toBe(`# Notes\n\n${section}\nSome notes.\n`);
+  });
+
   it("prints the status line and keeps the usage, or leaves it before the first call", () => {
     const input = {
       model: { display_name: "Opus" },
@@ -676,6 +762,28 @@ describe("plan-queue", () => {
     expect(out).toContain("plans/ready.md");
     expect(out).toContain("0123abcd");
     expect(out).toContain("Older, by path only: 1 plan dated");
+    // plans/handed-plan-stays-in-queue.md: a file with no header and no brief line is said.
+    expect(out).not.toContain("Not read by the queue");
+    writeFileSync(join(repo, "plans", "x.md"), "# Notes\n\nSome notes, no header.\n");
+    // Codex, 28 October: a file that cannot be read is said too (a directory
+    // stands in for a file the user cannot read).
+    mkdirSync(join(repo, "plans", "y.md"));
+    try {
+      const said = execFileSync("node", [join(here, "plan-queue.mjs"), "list"], {
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+      });
+      expect(said).toContain("Not read by the queue (no header found): plans/x.md");
+      expect(said).toContain("Not read by the queue (the file could not be read): plans/y.md");
+      expect(said.indexOf("Older, by path only")).toBeLessThan(said.indexOf("Not read by"));
+      expect(unreadPlans(join(repo, "plans"))).toEqual({
+        headless: ["plans/x.md"],
+        failed: ["plans/y.md"],
+      });
+    } finally {
+      rmSync(join(repo, "plans", "x.md"));
+      rmSync(join(repo, "plans", "y.md"), { recursive: true });
+    }
   });
 
   /**
