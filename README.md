@@ -1,5 +1,27 @@
 # workflow
 
+## Install
+
+> Install the workflow plugin from https://github.com/JavierMNieto/workflow-plugin by following its INSTALL.md.
+
+Paste that line into Claude Code, in your project's folder. Claude
+installs the plugin, asks before it adds anything to your settings, and
+tells you what you now have.
+
+Or by hand:
+
+```
+claude plugin marketplace add JavierMNieto/workflow-plugin#main
+claude plugin install workflow@workflow --config owner="<your first name>"
+```
+
+Then the user settings in `plugins/workflow/docs/workflow.md`,
+"Installing", and in each project `/workflow:setup`, which writes
+`.claude/workflow.md`: the project's branch, its run, and what the
+executor does before a build and before a push.
+
+## What it is
+
 A Claude Code plugin: three agents and a plan queue, so that the person's
 part of building software is the decisions.
 
@@ -19,18 +41,6 @@ hooks: one executor at a time, bounded by the subscription's usage, with
 tired sessions replaced by fresh ones. The author uses it in all of the
 author's projects, through Remote Control.
 
-## Installing
-
-```
-claude plugin marketplace add JavierMNieto/workflow-plugin
-claude plugin install workflow@workflow
-```
-
-Then the user settings in `plugins/workflow/docs/workflow.md`,
-"Installing", and in each project `plans init`, which writes
-`.claude/workflow.md`: the project's branch, its run, and what the
-executor does before a build and before a push.
-
 ## How it changes
 
 Through itself: `/workflow:change` in any project writes a brief or a
@@ -46,6 +56,7 @@ session starts.
 plugins/workflow/                 the plugin: agents, hooks, scripts,
                                   skills, bin/plans, docs/workflow.md
 .claude/workflow.md               this repository's own project file
+INSTALL.md                        the install steps, written for Claude
 test/                             the hooks' tests and the public check
 ```
 

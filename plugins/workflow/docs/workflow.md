@@ -547,8 +547,17 @@ other.
 
 ```
 claude plugin marketplace add JavierMNieto/workflow-plugin#main
-claude plugin install workflow@workflow --config owner=<name>
+claude plugin install workflow@workflow --config owner="<name>"
 ```
+
+A newcomer pastes one line into Claude Code, "Install the workflow
+plugin from https://github.com/JavierMNieto/workflow-plugin by following
+its INSTALL.md", and Claude does the rest: `INSTALL.md` at the
+repository's root, written for Claude, runs these two commands, merges
+the settings below into the person's own with their yes, offers
+`/workflow:setup` for a project not set up yet, and ends with a short
+plain message. Its JSON block is a copy of the one below, and a test
+fails while they differ.
 
 On Javi's machines the dotfiles' `install.sh` merges
 `claude/settings.json` into the user settings (`~/.claude/settings.json`);
