@@ -1400,4 +1400,10 @@ describe("the hooks manifest", () => {
     );
     expect(manifest.description).toContain("the plain-words check of every question");
   });
+  it("runs the queue's tool hook on the question tool, for the window's time", () => {
+    const tool = manifest.hooks.PreToolUse.find((entry: { hooks: { command: string }[] }) =>
+      entry.hooks.some((h) => h.command.endsWith('plan-queue.mjs" tool')),
+    );
+    expect(tool.matcher.split("|")).toContain("AskUserQuestion");
+  });
 });

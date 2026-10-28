@@ -334,7 +334,12 @@ unknown); none after an executor that ended within ten minutes with
 nothing built for another reason; a tripwire at twenty-four starts a day;
 and `plans pause` and `plans resume`, which "pause the queue" and "resume
 the queue" from the owner mean in any session; a pause holds the
-deferred starts and the resume re-arms them. A usage limit mid-build
+deferred starts and the resume re-arms them. A start nobody is watching,
+a timer's, takes only the plans still waiting; the window's ("Asked
+once") replaces an idle executor whatever its warmth, since no command
+can message a session, and re-arms the plans asked again since; a busy
+executor refuses it and takes the plans at its next stop, and one
+waiting on the owner's answer is never replaced. A usage limit mid-build
 (`StopFailure`, `rate_limit`) releases the lock, hands the plan over and
 defers its resumption to the reset. A start waits ten seconds to see its
 session in `claude agents`, and says why when it does not appear, logging
@@ -447,9 +452,19 @@ owner or in a message, waits for it too, unless the owner says in its chat
 to build it now. Answered in time, the planner records
 "Decided" and hands the plan over; it writes the section only once every
 decision is answered, since a "Decided" section lets the plan go (Javi,
-28 October: a plan asked in two rounds keeps its hold until the last). Past the thirty minutes (counted from
-the planner's last turn, read from its transcript), or once the planner's
-chat has ended, the plan is ready and the executor takes it as any other,
+28 October: a plan asked in two rounds keeps its hold until the last).
+The thirty minutes are counted from the question: the queue's tool hook,
+run on the question tool in the planner's chat, records the time for
+each of its plans that asks and defers a start of them to thirty minutes
+later, in a deferral of its own (`.claude/asking.deferred`, held by a
+pause, re-armed by a resume, printed by `plans`), so a question never
+moves a usage limit's restart. Talking does not restart the window;
+another question inside it does, and a plan whose window ran out is not
+held again by a question about another. Between writing the plan and
+asking, the plan is held from when it was written. Past the thirty
+minutes, or once the planner's chat has
+ended, the plan is ready: the deferred start takes it, and any
+executor's next stop names it, and the executor builds it as any other,
 building each decision with no "Decided" by its recommended option and
 writing it there as taken for the owner, unanswered; the executor never
 asks a plan's listed decision. The planner's chat keeps its question

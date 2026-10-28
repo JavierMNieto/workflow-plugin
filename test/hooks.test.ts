@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2200,6 +2201,35 @@ describe("the cache-aware queue", () => {
     ).toMatchObject({ start: true });
   });
 
+  it("canStart, unwatched, replaces an idle executor whatever its warmth, and never a busy one", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const warm = one("idle", 100);
+    expect(
+      canStart({ now, usage, name: "Test", sessions: [warm] as never, unwatched: true }),
+    ).toMatchObject({
+      start: true,
+      replace: [
+        {
+          sessionId: "executor-idle-100",
+          why: "idle while a plan's thirty minutes ran out, and the queue cannot message it",
+        },
+      ],
+    });
+    expect(
+      canStart({ now, usage, sessions: [one("busy", 100)] as never, unwatched: true }),
+    ).toMatchObject({ refuse: true });
+    expect(
+      canStart({ now, usage, sessions: [one("waiting for input", 300)] as never, unwatched: true }),
+    ).toMatchObject({ refuse: true });
+    // Watched, the warm idle one refuses as before.
+    expect(canStart({ now, usage, sessions: [warm] as never }).why).toContain(
+      "An executor is alive",
+    );
+  });
+
   it("canStart never replaces a session with a plan under way, and skips a synthetic turn", () => {
     const usage = {
       at: now / 1000,
@@ -2436,7 +2466,7 @@ describe("a finished chat ends", () => {
     expect(describeSession(planner)).toBe(
       `Ends Planner 1 [p1000000], idle, ends at ${hhmm} if left quiet, holds plans/a.md (ready, for the executor), plans/b.md (unanswered, the executor decides) and plans/c.md (built)`,
     );
-    // "Asked once": within thirty minutes of its last turn, the plan is this planner's.
+    // "Asked once": within thirty minutes of its question, the plan is this planner's.
     const last = Date.now() - 5 * MIN;
     const [asking] = sessionsOf(
       "planner",
@@ -2445,8 +2475,12 @@ describe("a finished chat ends", () => {
       {
         trees: [],
         plans,
-        stateFor: () => ({ agent: "planner", plans: ["plans/b.md"] }),
-        usageFor: () => ({ context: 1000, at: last }),
+        stateFor: () => ({
+          agent: "planner",
+          plans: ["plans/b.md"],
+          asked: { "plans/b.md": last },
+        }),
+        usageFor: () => null,
       } as never,
     );
     expect(describeSession(asking)).toContain(
@@ -2713,13 +2747,19 @@ describe("asked once", () => {
     state: "blocked",
   };
   const ready = (path: string) => ({ path, ...stateOf(asks) });
+  /** The planner asked `minutesAgo` (none with null), as its tool hook records it. */
   const options = (minutesAgo: number | null, state: object = {}) => ({
-    stateFor: () => ({ agent: "planner", brief: "plans/asks.md", plans: [], ...state }),
-    usageFor: () => (minutesAgo === null ? null : { context: 1000, at: now - minutesAgo * MIN }),
+    stateFor: () => ({
+      agent: "planner",
+      brief: "plans/asks.md",
+      plans: [],
+      ...(minutesAgo === null ? {} : { asked: { "plans/asks.md": now - minutesAgo * MIN } }),
+      ...state,
+    }),
     now,
   });
 
-  it("askingIn: the live planner whose brief or plans name the plan, within thirty minutes of its last turn", () => {
+  it("askingIn: the live planner whose brief or plans name the plan, within thirty minutes of its question", () => {
     expect(ANSWER_WINDOW).toBe(30 * MIN);
     const held = askingIn(ready("plans/asks.md"), [row], options(5));
     expect(held).toMatchObject({ row: { sessionId: ids.planner }, until: now + 25 * MIN });
@@ -2727,7 +2767,7 @@ describe("asked once", () => {
       askingIn(ready("plans/asks.md"), [row], options(5, { brief: "", plans: ["plans/asks.md"] })),
     ).toMatchObject({ until: now + 25 * MIN });
     // A plan that does not ask; a planner not live; one naming another path;
-    // a last turn past the window; a transcript that gives no time.
+    // a question past the window; a planner that never asked.
     expect(askingIn({ path: "plans/asks.md", ...stateOf(head) }, [row], options(5))).toBeNull();
     expect(askingIn(ready("plans/asks.md"), [], options(5))).toBeNull();
     expect(askingIn(ready("plans/asks.md"), [row], options(5, { brief: "plans/x.md" }))).toBeNull();
@@ -2742,6 +2782,33 @@ describe("asked once", () => {
     ).toBeNull();
     expect(
       askingIn(ready("plans/asks.md"), [{ ...row, kind: "interactive" }], options(5)),
+    ).toBeNull();
+    // Talking does not restart the window: a question long ago holds nothing,
+    // however recent the planner's last turn (askingIn reads no transcript).
+    expect(askingIn(ready("plans/asks.md"), [row], options(45))).toBeNull();
+    expect(askingIn(ready("plans/asks.md"), [row], options(30))).toBeNull();
+    // Each plan has its own question: another plan's does not hold this one.
+    expect(
+      askingIn(ready("plans/asks.md"), [row], {
+        ...options(null),
+        stateFor: () => ({
+          agent: "planner",
+          plans: ["plans/asks.md", "plans/b.md"],
+          asked: { "plans/b.md": now - MIN },
+        }),
+      }),
+    ).toBeNull();
+    // Before its question, a plan is held from when it was written: the
+    // planner writes the plan, then asks.
+    expect(
+      askingIn({ ...ready("plans/asks.md"), mtime: now - 2 * MIN }, [row], options(null)),
+    ).toMatchObject({ until: now + 28 * MIN });
+    expect(
+      askingIn({ ...ready("plans/asks.md"), mtime: now - 40 * MIN }, [row], options(null)),
+    ).toBeNull();
+    // The question, once asked, is what counts, however recent the last edit.
+    expect(
+      askingIn({ ...ready("plans/asks.md"), mtime: now - MIN }, [row], options(40)),
     ).toBeNull();
   });
 
@@ -2781,20 +2848,19 @@ describe("asked once", () => {
         state: "done",
       },
     ];
-    /** The planner's last turn, `minutes` ago, in its transcript. */
-    const lastTurn = (minutes: number) => {
+    /** The planner's question, `minutes` ago, in its state as its tool hook writes it. */
+    const asked = (minutes: number) => {
       const at = Date.now() - minutes * MIN;
-      const slug = join(projects, dir.replace(/[^a-zA-Z0-9]/g, "-"));
-      mkdirSync(slug, { recursive: true });
       writeFileSync(
-        join(slug, `${ids.planner}.jsonl`),
-        `${JSON.stringify({
-          type: "assistant",
-          timestamp: new Date(at).toISOString(),
-          message: { usage: { input_tokens: 10, cache_read_input_tokens: 40_000 } },
-        })}\n`,
+        stateFile(ids.planner),
+        JSON.stringify({
+          agent: "planner",
+          brief: "plans/asks.md",
+          plans: [],
+          asked: { "plans/asks.md": at },
+        }),
       );
-      return Date.parse(new Date(at).toISOString());
+      return at;
     };
     const queue = (args: string[], input: object = {}, rows: object[] = live) =>
       execFileSync("node", [join(here, "plan-queue.mjs"), ...args], {
@@ -2838,7 +2904,7 @@ describe("asked once", () => {
     });
 
     it("lists a held plan under Asking Javi, and past the window under Ready", () => {
-      const at = lastTurn(5);
+      const at = asked(5);
       const out = queue(["list"]);
       // The headings in order: Briefs, Asking, Ready.
       expect(out.indexOf("Briefs, oldest first")).toBeGreaterThan(0);
@@ -2854,7 +2920,7 @@ describe("asked once", () => {
         ),
       );
       expect(out.slice(out.indexOf("Ready, oldest first"))).not.toContain("plans/asks.md");
-      lastTurn(40);
+      asked(40);
       const later = queue(["list"]);
       expect(later).not.toContain("Asking Javi");
       expect(later).toMatch(
@@ -2863,7 +2929,7 @@ describe("asked once", () => {
     });
 
     it("plans start leaves a held plan out, refuses it by path, and starts it past the window", () => {
-      const at = lastTurn(5);
+      const at = asked(5);
       const all = start();
       expect(all).toContain("plans/plain.md");
       expect(all).not.toContain("plans/asks.md");
@@ -2897,25 +2963,266 @@ describe("asked once", () => {
       expect(deferred).toContain("Would run: claude");
       expect(deferred).toContain("plans/plain.md");
       expect(deferred).not.toContain("plans/asks.md");
-      lastTurn(40);
+      asked(40);
       expect(start("plans/asks.md")).toContain("Would run: claude");
     });
 
+    const deferredFile = () => join(dir, ".claude", "asking.deferred");
+    /** The deferral the hook wrote, its timer killed so nothing fires after the test. */
+    const takeDeferral = () => {
+      const written = JSON.parse(readFileSync(deferredFile(), "utf8"));
+      try {
+        process.kill(written.pid);
+      } catch {
+        // Gone already.
+      }
+      rmSync(deferredFile(), { force: true });
+      return written;
+    };
+    const question = (state: object) => {
+      writeFileSync(
+        stateFile(ids.planner),
+        JSON.stringify({ agent: "planner", plans: [], ...state }),
+      );
+      const before = Date.now();
+      const out = queue(["tool"], {
+        session_id: ids.planner,
+        agent_type: "workflow:planner",
+        tool_name: "AskUserQuestion",
+        tool_input: { questions: [] },
+      });
+      return { out, before, state: JSON.parse(readFileSync(stateFile(ids.planner), "utf8")) };
+    };
+
+    it("the planner's question records its time and defers a start of the plan it asks about", () => {
+      rmSync(deferredFile(), { force: true });
+      // A usage limit's deferral stands apart: the question neither moves nor merges it.
+      const usageDeferral = join(dir, ".claude", "executor.deferred");
+      const usage = { until: Date.now() + 5 * MIN, why: "the usage limit", paths: ["plans/x.md"] };
+      writeFileSync(usageDeferral, JSON.stringify({ ...usage, pid: null }));
+      const { out, before, state } = question({ brief: "plans/asks.md" });
+      expect(out).toBe("");
+      const at = state.asked["plans/asks.md"];
+      expect(at).toBeGreaterThanOrEqual(before);
+      const written = takeDeferral();
+      expect(written.paths).toEqual(["plans/asks.md"]);
+      expect(written.why).toBe("Javi has thirty minutes to answer");
+      expect(written.until).toBeGreaterThanOrEqual(at + 30 * MIN);
+      expect(written.until).toBeLessThanOrEqual(at + 30 * MIN + 10_000);
+      expect(written.pid).toBeGreaterThan(0);
+      expect(JSON.parse(readFileSync(usageDeferral, "utf8"))).toMatchObject(usage);
+      rmSync(usageDeferral);
+      // A question about a plan that asks nothing, or before any plan: nothing held.
+      const plain = question({ brief: "plans/plain.md" });
+      expect(plain.out).toBe("");
+      expect(plain.state.asked).toEqual({});
+      expect(existsSync(deferredFile())).toBe(false);
+      expect(question({ brief: "" }).state.asked).toEqual({});
+      expect(existsSync(deferredFile())).toBe(false);
+      // A plan whose window ran out is not held again by a later question.
+      const late = question({
+        brief: "plans/asks.md",
+        asked: { "plans/asks.md": Date.now() - 40 * MIN },
+      });
+      expect(late.state.asked["plans/asks.md"]).toBeLessThan(late.before);
+      expect(existsSync(deferredFile())).toBe(false);
+      // A second round inside the window holds it from the new question.
+      const second = question({
+        brief: "plans/asks.md",
+        asked: { "plans/asks.md": Date.now() - 10 * MIN },
+      });
+      expect(second.state.asked["plans/asks.md"]).toBeGreaterThanOrEqual(second.before);
+      takeDeferral();
+      // The executor's question is never refused by the lock.
+      writeFileSync(
+        join(dir, ".claude", "executor.lock"),
+        JSON.stringify({ sessionId: ids.other, pid: process.pid, released: false }),
+      );
+      try {
+        expect(
+          queue(["tool"], {
+            session_id: ids.exec,
+            agent_type: "workflow:executor",
+            tool_name: "AskUserQuestion",
+            tool_input: { questions: [] },
+          }),
+        ).toBe("");
+      } finally {
+        rmSync(join(dir, ".claude", "executor.lock"), { force: true });
+      }
+    });
+
+    it("plans prints the window's deferral beside the Asking row, from the same question", () => {
+      rmSync(deferredFile(), { force: true });
+      const { state } = question({ brief: "plans/asks.md" });
+      const at = state.asked["plans/asks.md"];
+      const out = queue(["list"]);
+      takeDeferral();
+      expect(out).toContain(
+        `Deferred until ${hhmm(at + 30 * MIN + 5000)}: Javi has thirty minutes to answer; plans/asks.md`,
+      );
+      expect(out).toContain(`the executor decides at ${hhmm(at + 30 * MIN)}`);
+    });
+
+    it("a timer's start takes only what is still waiting, and the window's replaces an idle executor", () => {
+      const timerStart = (paths: string[], deferral = "asking") =>
+        execFileSync(
+          "node",
+          [
+            "--input-type=module",
+            "-e",
+            `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+             console.log(start(${JSON.stringify(paths)}, { dry: true, timer: true, deferral: ${JSON.stringify(deferral)} }));`,
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              CLAUDE_PROJECT_DIR: dir,
+              WORKFLOW_ROOT: dir,
+              WORKFLOW_PROJECTS: projects,
+              WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+              WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+              WORKFLOW_LIVE: JSON.stringify(live.map((one) => ({ ...one, cwd: dir }))),
+            },
+          },
+        );
+      asked(40);
+      writeFileSync(
+        join(dir, "plans", "built.md"),
+        `${head}\n## Built, 28 October 2026\n\nCommit \`0123abcd\`.\n`,
+      );
+      writeFileSync(
+        join(dir, "plans", "taken.md"),
+        `${head}\n## Building, 28 October 2026, session ${ids.exec}\n`,
+      );
+      writeFileSync(stateFile(ids.exec), JSON.stringify({ agent: "executor" }));
+      try {
+        expect(timerStart(["plans/built.md", "plans/taken.md"]).trim()).toBe(
+          "Nothing is waiting in the queue.",
+        );
+        rmSync(join(dir, "plans", "taken.md"));
+        const out = timerStart(["plans/built.md", "plans/asks.md"]);
+        expect(out).toContain("Would run: claude");
+        expect(out).toContain("Build the plans waiting in the queue, oldest first: plans/asks.md.");
+        expect(out).toContain(
+          "Would retire Asks Executor 1 [a3000000]: idle while a plan's thirty minutes ran out, and the queue cannot message it.",
+        );
+        // A usage limit's timer refuses beside the live executor, as before.
+        expect(timerStart(["plans/asks.md"], "")).toContain("An executor is alive");
+        // A plan dated before the queue, deferred by path, is kept.
+        writeFileSync(
+          join(dir, "plans", "older.md"),
+          "# O\n\nPlan only, 20 October 2026, for Javi.\n",
+        );
+        expect(timerStart(["plans/built.md", "plans/older.md"])).toContain(
+          "oldest first: plans/older.md.",
+        );
+      } finally {
+        rmSync(join(dir, "plans", "older.md"), { force: true });
+        rmSync(join(dir, "plans", "built.md"), { force: true });
+        rmSync(join(dir, "plans", "taken.md"), { force: true });
+        rmSync(stateFile(ids.exec), { force: true });
+      }
+    });
+
+    it("a question does not hold a plan written over thirty minutes ago and never asked", () => {
+      rmSync(deferredFile(), { force: true });
+      const file = join(dir, "plans", "asks.md");
+      const long = (Date.now() - 40 * MIN) / 1000;
+      utimesSync(file, long, long);
+      try {
+        const { state } = question({ brief: "plans/asks.md" });
+        expect(state.asked).toEqual({});
+        expect(existsSync(deferredFile())).toBe(false);
+      } finally {
+        const fresh = Date.now() / 1000;
+        utimesSync(file, fresh, fresh);
+      }
+    });
+
+    it("the window's start, deferred by usage, stays the window's", () => {
+      rmSync(deferredFile(), { force: true });
+      asked(40);
+      const usageFile = join(dir, ".claude", "usage.json");
+      const now = Date.now() / 1000;
+      writeFileSync(
+        usageFile,
+        JSON.stringify({ at: now, five_hour: { used_percentage: 90, resets_at: now + 3600 } }),
+      );
+      try {
+        execFileSync(
+          "node",
+          [
+            "--input-type=module",
+            "-e",
+            `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+             console.log(start(["plans/asks.md"], { timer: true, deferral: "asking" }));`,
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              CLAUDE_PROJECT_DIR: dir,
+              WORKFLOW_ROOT: dir,
+              WORKFLOW_USAGE_FILE: usageFile,
+              WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+              WORKFLOW_LIVE: JSON.stringify([{ ...live[0], cwd: dir }]),
+            },
+          },
+        );
+        expect(existsSync(join(dir, ".claude", "executor.deferred"))).toBe(false);
+        expect(takeDeferral()).toMatchObject({
+          paths: ["plans/asks.md"],
+          why: "the five-hour window is at 90 percent",
+        });
+      } finally {
+        rmSync(usageFile, { force: true });
+      }
+    });
+
+    it("a window's timer that finds its plan asked again re-arms it at the new window", () => {
+      rmSync(deferredFile(), { force: true });
+      const at = asked(5);
+      const out = execFileSync(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+           console.log(start(["plans/asks.md"], { timer: true, deferral: "asking" }));`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: dir,
+            WORKFLOW_ROOT: dir,
+            WORKFLOW_LIVE: JSON.stringify([{ ...live[0], cwd: dir }]),
+          },
+        },
+      );
+      expect(out).toContain("plans/asks.md asks Javi in Asks Planner 3");
+      const written = takeDeferral();
+      expect(written.paths).toEqual(["plans/asks.md"]);
+      expect(written.until).toBe(at + 30 * MIN + 5000);
+    });
+
     it("the executor's Stop hook names a held plan only past the window, or with its planner gone", () => {
-      lastTurn(5);
+      asked(5);
       rmSync(stateFile(ids.exec), { force: true });
       const reason = () =>
         JSON.parse(queue(["stop"], { session_id: ids.exec, agent_type: "executor" })).reason;
       const within = reason();
       expect(within).toContain("plans/plain.md");
       expect(within).not.toContain("plans/asks.md");
-      lastTurn(40);
+      asked(40);
       rmSync(stateFile(ids.exec), { force: true });
       expect(reason()).toContain(
         'plans/asks.md (decisions unanswered: the recommended options, "Asked once")',
       );
       // The planner's chat gone: the plan is the executor's at once.
-      lastTurn(5);
+      asked(5);
       rmSync(stateFile(ids.exec), { force: true });
       const gone = JSON.parse(
         queue(["stop"], { session_id: ids.exec, agent_type: "executor" }, [live[1]]),

@@ -10,7 +10,8 @@
 //   plan-queue.mjs tool      on PreToolUse: refuses an executor's edit or
 //                            writing command while another executor holds
 //                            the lock, or after retiring; a planner's edit to
-//                            a taken plan
+//                            a taken plan; a planner's question records its
+//                            time and defers a start of the plan it asks about
 //   plan-queue.mjs stop      on Stop: the project's run on the push, then the
 //                            waiting plans (built here while the context is
 //                            fresh, or a fresh executor started when tired)
@@ -134,7 +135,9 @@ const AFTER_RESET = 120;
 const files = {
   lock: () => join(root, ".claude", "executor.lock"),
   pause: () => join(root, ".claude", "executor.pause"),
-  // One deferral per kind, so a planner's never drops an executor's.
+  // One deferral per kind, so a planner's never drops an executor's; the
+  // thirty minutes of "Asked once" have their own (`asking`), so a question
+  // never moves a usage limit's restart.
   deferred: (kind = "executor") => join(root, ".claude", `${kind}.deferred`),
   usage: () => process.env.WORKFLOW_USAGE_FILE || join(data(), "usage.json"),
   starts: () => process.env.WORKFLOW_STARTS_LOG || join(data(), "starts.log"),
@@ -563,11 +566,7 @@ export function sessionsOf(
                   standingOf(
                     plans.find((plan) => plan.path === path),
                     live,
-                    {
-                      self: row.sessionId,
-                      stateFor,
-                      usageFor,
-                    },
+                    { self: row.sessionId, stateFor },
                   ),
                 ]),
               ),
@@ -765,6 +764,15 @@ export const CACHE_TTL = 60 * MINUTE;
 export const WARM = CACHE_TTL - 5 * MINUTE;
 /** How long a planner's question holds its plan from the executor ("Asked once"). */
 export const ANSWER_WINDOW = 30 * MINUTE;
+/**
+ * How long after the window closes its deferred start runs: a timer can fire
+ * a millisecond early, and a start that still found the plan held would drop it.
+ */
+const WINDOW_SLACK = 5000;
+/** The deferrals, by file: the executor's, the planner's and the window's. */
+const DEFERRALS = ["executor", "planner", "asking"];
+/** The agent a deferral's timer starts. */
+const agentOfDeferral = (file) => (file === "planner" ? "planner" : "executor");
 
 /**
  * **A session's context and its age, from its transcript**: the last
@@ -838,30 +846,37 @@ function hhmm(at) {
  * **Asked once** (docs/workflow.md, "The queue"): the planner holding a plan
  * that asks the owner, while its question is under thirty minutes old. For a
  * ready plan that asks, the live row the queue counts as a planner whose
- * state names the plan (its `brief`, or one of its `plans`) and whose last
- * turn is within `ANSWER_WINDOW` of `now`: `{ row, until }`, `until` the time
- * the window closes. Null otherwise; a planner whose transcript gives no time
- * is past the window, so the worst case is a decision taken early, never a
- * question asked twice.
+ * state names the plan (its `brief`, or one of its `plans`) and whose window
+ * on it opened under `ANSWER_WINDOW` before `now`: `{ row, until }`, `until`
+ * the time the window closes. The window opens at the plan's question, which
+ * the planner's tool hook records per plan (`asked`), so talking does not
+ * restart it; before any question it opens when the plan was written
+ * (`mtime`), since the planner writes the plan and then asks. Null otherwise.
  */
-export function askingIn(
-  plan,
-  live,
-  {
-    stateFor = readState,
-    usageFor = (row) => sessionUsage(transcriptOf(row)),
-    now = Date.now(),
-  } = {},
-) {
+export function askingIn(plan, live, { stateFor = readState, now = Date.now() } = {}) {
   if (!plan || plan.state !== "ready" || !plan.asks || !live) return null;
   for (const row of live) {
     const state = withPlans(stateFor(row.sessionId));
     if (!isSession("planner", row, state, null)) continue;
     if (state?.brief !== plan.path && !(state?.plans || []).includes(plan.path)) continue;
-    const at = usageFor(row)?.at || 0;
-    if (at && now - at <= ANSWER_WINDOW) return { row, until: at + ANSWER_WINDOW };
+    const at = windowOpened(state, plan);
+    if (at && now - at < ANSWER_WINDOW) return { row, until: at + ANSWER_WINDOW };
   }
   return null;
+}
+
+/** When a plan's window opened: its question, or before any, when the plan was written. */
+function windowOpened(state, plan) {
+  return state?.asked?.[plan.path] || plan.mtime || 0;
+}
+
+/** A plan's modification time, or 0 when it is gone. */
+function mtimeOf(path) {
+  try {
+    return statSync(join(root, path)).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 /** The plans with `askingIn` set on each, for the callers that have the live rows in hand. */
@@ -1046,6 +1061,7 @@ export function canStart({
   ceiling = REUSE_DEFAULT,
   taken = [],
   machine = "",
+  unwatched = false,
 }) {
   // **Session names carry the project and the machine** (`Docs Executor 2
   // (lab)`), and the count is per project and per machine (the log is this
@@ -1070,8 +1086,19 @@ export function canStart({
   // it. A busy executor, or any session still worth reusing, refuses as before.
   // A session with a plan or a brief under way (its Building or Planning
   // line) is never stale: replacing it would orphan that work.
-  const stale = (one) => (one.on ? { reuse: true } : mayReuse({ usage: one.usage, now, ceiling }));
+  // **A start nobody is watching** (`unwatched`, a timer's) replaces an idle
+  // executor whatever its warmth: no command can message a session, so the
+  // plans it is started for would otherwise wait on a chat nobody prompts.
   const idle = (one) => /^idle\b/.test(one.status || "");
+  const stale = (one) =>
+    one.on
+      ? { reuse: true }
+      : unwatched && idle(one)
+        ? {
+            reuse: false,
+            why: "idle while a plan's thirty minutes ran out, and the queue cannot message it",
+          }
+        : mayReuse({ usage: one.usage, now, ceiling });
   let replace = [];
   let beside = [];
   if (sessions.length && sessions.every((one) => !stale(one).reuse)) {
@@ -1513,12 +1540,13 @@ export function endCommand(ids = []) {
 }
 
 /**
- * Defers a start to `until` (ms): one timer at a time, the deferral written
+ * Defers a start to `until` (ms): one timer per deferral file (`file`, the
+ * agent's by default, or `asking` for the window's), the deferral written
  * where `plans` shows it. **Paused, the deferral is held**: the file is
  * written with no timer (`pid: null`), and `resume` re-arms it.
  */
-function defer(until, why, paths, replace = "", agent = "executor") {
-  const old = readJson(files.deferred(agent));
+function defer(until, why, paths, replace = "", agent = "executor", file = agent) {
+  const old = readJson(files.deferred(file));
   if (old?.pid) {
     try {
       process.kill(old.pid);
@@ -1528,9 +1556,13 @@ function defer(until, why, paths, replace = "", agent = "executor") {
   }
   // One timer for every deferred plan, at the later time, so a new
   // deferral never drops a pending one; and never in the past, so a timer
-  // cannot fire straight into another deferral.
+  // cannot fire straight into another deferral. The window's is at the
+  // earlier time: its start re-arms the plans still held, each at its own.
   const all = [...new Set([...(old?.paths || []), ...paths])];
-  const when = Math.max(until, old?.until || 0, Date.now() + MINUTE);
+  const when =
+    file === "asking"
+      ? Math.max(Math.min(until, old?.until || Infinity), Date.now() + MINUTE)
+      : Math.max(until, old?.until || 0, Date.now() + MINUTE);
   const stop = replace || old?.replace || "";
   const held = Boolean(pausedSince());
   // The timer runs as the command, so its root is said: this project's.
@@ -1545,11 +1577,12 @@ function defer(until, why, paths, replace = "", agent = "executor") {
           String(when),
           ...(stop ? ["--replace", stop] : []),
           ...(agent === "executor" ? [] : ["--agent", agent]),
+          ...(file === agent ? [] : ["--deferral", file]),
           ...all,
         ],
         { ...process.env, WORKFLOW_ROOT: root },
       );
-  writeJson(files.deferred(agent), { until: when, why, paths: all, pid, replace: stop });
+  writeJson(files.deferred(file), { until: when, why, paths: all, pid, replace: stop });
   const hhmm = new Date(when).toTimeString().slice(0, 5);
   return held
     ? `Deferred until ${hhmm}, held while the queue is paused: ${why}; ${all.join(", ")}.`
@@ -1590,7 +1623,7 @@ export function agentEffort(agent, dir = join(here, "..", "agents")) {
 
 function startHere(
   paths,
-  { replace = "", dry = false, agent = "executor", at = 0, timer = false } = {},
+  { replace = "", dry = false, agent = "executor", at = 0, timer = false, deferral = "" } = {},
 ) {
   if (!proj().found) return NO_PROJECT;
   const live = liveSessions();
@@ -1617,7 +1650,27 @@ function startHere(
     // nobody is watching, starts the rest and leaves the held ones to the queue.
     if (held.length && !timer) return held.map(askingWords).join("\n");
     paths = paths.filter((path) => !held.some((p) => p.path === path));
+    // A timer's held plans, asked again since it was armed, get the window's
+    // deferral back at the earliest of their windows.
+    if (timer && held.length && !dry)
+      defer(
+        Math.min(...held.map((p) => p.askingIn.until)) + WINDOW_SLACK,
+        `${owner()} has thirty minutes to answer`,
+        held.map((p) => p.path),
+        "",
+        "executor",
+        "asking",
+      );
     if (!paths.length) return held.map(askingWords).join("\n");
+    // **A timer's start takes only what is still waiting**: a plan being
+    // built or built since the timer was armed, or gone, is dropped, and with
+    // none left nothing starts. A plan answered and still waiting is started.
+    if (timer) {
+      paths = paths.filter((path) =>
+        plans.some((p) => p.path === path && ["ready", "handed", "old"].includes(p.state)),
+      );
+      if (!paths.length) return "Nothing is waiting in the queue.";
+    }
   }
   if (kind === "planner") {
     // A planner is started on one brief, waiting or left by a session that is gone.
@@ -1651,9 +1704,21 @@ function startHere(
         ceiling: proj().reuse,
         taken: liveNames(),
         machine: machine().name,
+        // Only the window's timer: a usage limit's restart refuses beside a live executor as before.
+        unwatched: timer && deferral === "asking",
       });
   if (decision.refuse) return decision.why;
-  if (decision.defer) return defer(decision.until, decision.why, paths, replace, kind);
+  // The window's start, deferred by usage, stays the window's, so at the reset
+  // it still replaces an idle executor.
+  if (decision.defer)
+    return defer(
+      decision.until,
+      decision.why,
+      paths,
+      replace,
+      kind,
+      deferral === "asking" ? "asking" : kind,
+    );
   const prompt = probe
     ? "Reply with the single word ok"
     : kind === "planner"
@@ -1710,10 +1775,18 @@ function startHere(
     }
     return seen;
   }
-  try {
-    unlinkSync(files.deferred(kind));
-  } catch {
-    // Nothing was deferred.
+  // The deferrals keep the paths this start did not take, and their timers.
+  for (const file of kind === "executor" ? ["executor", "asking"] : ["planner"]) {
+    const deferred = readJson(files.deferred(file));
+    if (!deferred) continue;
+    const rest = (deferred.paths || []).filter((path) => !paths.includes(path));
+    if (rest.length) writeJson(files.deferred(file), { ...deferred, paths: rest });
+    else
+      try {
+        unlinkSync(files.deferred(file));
+      } catch {
+        // Gone already.
+      }
   }
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
@@ -1937,11 +2010,11 @@ export function list({ all = false, live } = {}) {
   const paused = pausedSince();
   if (paused)
     out.push(`The queue is paused since ${paused} ("resume the queue" in any session lifts it).`);
-  for (const kind of ["executor", "planner"]) {
+  for (const kind of DEFERRALS) {
     const deferred = readJson(files.deferred(kind));
     if (deferred)
       out.push(
-        `Deferred until ${new Date(deferred.until).toTimeString().slice(0, 5)}: ${deferred.paths.join(", ")}${deferred.pid ? "" : ", held while the queue is paused"}`,
+        `Deferred until ${new Date(deferred.until).toTimeString().slice(0, 5)}: ${deferred.why ? `${deferred.why}; ` : ""}${deferred.paths.join(", ")}${deferred.pid ? "" : ", held while the queue is paused"}`,
       );
   }
   const width = Math.max(40, ...plans.map((p) => p.path.length + 2));
@@ -2382,7 +2455,7 @@ export function plannerContext(state, live = null, textOf = planText, options = 
       return `${path} was taken by ${whoTook(text, live)}: it is the executor's, and no edit to it passes.`;
     const yours = `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps the chat alive, and the plan with it for thirty minutes).`;
     // **Asked once**: the plan's question holds it for thirty minutes.
-    const plan = { path, ...stateOf(text) };
+    const plan = { path, ...stateOf(text, { mtime: mtimeOf(path) }) };
     if (plan.state !== "ready" || !plan.asks) return yours;
     const asking = askingIn(plan, live, options);
     return asking
@@ -2429,6 +2502,37 @@ function plannerHook(mode, input, sessionId, statePath) {
   let state = readState(sessionId);
   state = { ...state, plans: state.plans || [] };
   if (mode === "tool") {
+    // **The window starts at the question** ("Asked once"): its time goes in
+    // the state, which `askingIn` reads, and a start of each plan it asks
+    // about is deferred to the window's end, so an unanswered plan is built
+    // with nobody watching. The question goes ahead; the plain-words hook
+    // judges its words.
+    if (input.tool_name === "AskUserQuestion") {
+      const now = Date.now();
+      const asked = { ...(state.asked || {}) };
+      const opened = [];
+      for (const path of new Set([state.brief, ...state.plans].filter(Boolean))) {
+        const plan = { path, ...stateOf(planText(path), { mtime: mtimeOf(path) }) };
+        if (plan.state !== "ready" || !plan.asks) continue;
+        // A plan whose window ran out is the executor's: a question about
+        // another plan does not hold it again.
+        const at = windowOpened(state, plan);
+        if (at && now - at >= ANSWER_WINDOW) continue;
+        asked[path] = now;
+        opened.push(path);
+      }
+      writeJson(statePath, { ...state, asked });
+      if (opened.length)
+        defer(
+          now + ANSWER_WINDOW + WINDOW_SLACK,
+          `${owner()} has thirty minutes to answer`,
+          opened,
+          "",
+          "executor",
+          "asking",
+        );
+      return;
+    }
     const filePath = input.tool_input?.file_path;
     const editing = ["Edit", "Write", "MultiEdit"].includes(input.tool_name);
     // **A taken plan refuses every edit**, retired or not, one plan at a time:
@@ -2629,6 +2733,9 @@ function hook(mode, input) {
     return;
   }
   if (!executor) return;
+  // The question tool reaches the tool hook for the planner's sake; the lock
+  // never refuses an executor's question.
+  if (mode === "tool" && input.tool_name === "AskUserQuestion") return;
   if (mode === "wrote") {
     // **The Building line takes the plan from its planner**: a retired
     // planner whose plan this is has its chat stopped (decision 1 of
@@ -3032,7 +3139,7 @@ export function main(args = process.argv.slice(2)) {
     // **A pause holds the deferred starts**: each timer is killed and its
     // deferral kept, with no timer, for the resume to re-arm.
     const held = [];
-    for (const kind of ["executor", "planner"]) {
+    for (const kind of DEFERRALS) {
       const deferred = readJson(files.deferred(kind));
       if (!deferred) continue;
       if (deferred.pid) {
@@ -3061,11 +3168,18 @@ export function main(args = process.argv.slice(2)) {
       // It was not paused.
     }
     const armed = [];
-    for (const kind of ["executor", "planner"]) {
+    for (const kind of DEFERRALS) {
       const deferred = readJson(files.deferred(kind));
       if (!deferred) continue;
       // A timer at the later of its time and a minute from now.
-      defer(deferred.until, deferred.why, deferred.paths || [], deferred.replace || "", kind);
+      defer(
+        deferred.until,
+        deferred.why,
+        deferred.paths || [],
+        deferred.replace || "",
+        agentOfDeferral(kind),
+        kind,
+      );
       armed.push(deferredWords(readJson(files.deferred(kind)) || deferred));
     }
     process.stdout.write(
@@ -3083,6 +3197,7 @@ export function main(args = process.argv.slice(2)) {
       else if (rest[i] === "--at") options.at = Number(rest[++i]);
       else if (rest[i] === "--replace") options.replace = rest[++i];
       else if (rest[i] === "--timer") timer = Number(rest[++i]);
+      else if (rest[i] === "--deferral") options.deferral = rest[++i];
       else paths.push(rest[i]);
     }
     if (timer) {
@@ -3090,7 +3205,11 @@ export function main(args = process.argv.slice(2)) {
       setTimeout(
         () => {
           try {
-            unlinkSync(files.deferred(options.agent === "planner" ? "planner" : "executor"));
+            unlinkSync(
+              files.deferred(
+                options.deferral || (options.agent === "planner" ? "planner" : "executor"),
+              ),
+            );
           } catch {
             // Cleared already.
           }

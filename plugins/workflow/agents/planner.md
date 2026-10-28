@@ -94,7 +94,8 @@ ${user_config.owner}.
    "Asked in plain words". Write the file before you ask, with the
    recommended option marked on every decision, since it is what gets
    built if he does not answer. For thirty minutes from the question the
-   plan is yours and no executor takes it ("Asked once"): his answer comes
+   plan is yours and no executor takes it ("Asked once"), counted from the
+   question itself: his answer comes
    here, goes in "Decided" with its reason, and the plan is handed over by
    "The final message". After thirty minutes the executor takes it and
    builds the recommended options; an answer that comes later and differs

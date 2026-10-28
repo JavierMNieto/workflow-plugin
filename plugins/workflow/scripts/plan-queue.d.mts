@@ -174,12 +174,17 @@ export function sessionsOf(
 /** How long a planner's question holds its plan from the executor ("Asked once"). */
 export const ANSWER_WINDOW: number;
 export type AskingOptions = {
-  stateFor?: (sessionId: string) => { agent?: string; brief?: string; plans?: string[] } | null;
-  usageFor?: (row: LiveRow) => SessionUsage | null;
+  stateFor?: (sessionId: string) => {
+    agent?: string;
+    brief?: string;
+    plans?: string[];
+    /** Each plan's last question, by path. */
+    asked?: Record<string, number>;
+  } | null;
   now?: number;
 };
 export function askingIn(
-  plan: { path: string; state?: string; asks?: boolean } | null | undefined,
+  plan: { path: string; state?: string; asks?: boolean; mtime?: number } | null | undefined,
   live: LiveRow[] | null,
   options?: AskingOptions,
 ): { row: LiveRow; until: number } | null;
@@ -347,6 +352,8 @@ export function canStart(facts: {
   ceiling?: number;
   taken?: string[];
   machine?: string;
+  /** A timer's start: an idle executor is replaced whatever its warmth. */
+  unwatched?: boolean;
 }): StartDecision;
 export function cutoffEdit(
   text: string,
