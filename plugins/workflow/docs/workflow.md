@@ -256,14 +256,20 @@ its file lands.
 **The catalogue is the record.** The project file's `catalogue` names a
 directory (a `README.md` with the rules that apply everywhere and a table
 of the files, then one file per kind of thing a person sees, at any
-depth) or one file, each rule a bold list item ending with its tier and
-date. What is not there was not decided, as far as the next agent can
-tell. The long reasoning is in `plans/`; the entry names the plan when
-there is one. An entry may open with an id in backticks, ``- `presenter-bold`
-**The presenter's name is bold.** (Javi, 2026-10-21)``, and is then cited
-as `file#id` in replies, plans and the project's own notes; a rule that
-replaces one keeps the old line struck through under it. The date is
-written as the project writes dates, `21 October` or `2026-10-21`.
+depth) or one file, each rule a bold list item with its tier and date
+right after the bold statement or ending the rule. The tier is read
+there and nowhere else: a parenthesis inside the statement
+(`**Per-step (per row) toggle.**`) or in the middle of the body is never
+one, and a fenced example is no rule. The README's bulleted rules are
+entries like any file's, checked the same; its prose and its table are
+not rules. What is not there was not decided, as far as the next agent
+can tell. The long reasoning is in `plans/`; the entry names the plan
+when there is one. An entry may open with an id in backticks,
+``- `presenter-bold` **The presenter's name is bold.** (Javi, 2026-10-21)``,
+and is then cited as `file#id` in replies, plans and the project's own
+notes; a rule that replaces one keeps the old line struck through under
+it. The date is written as the project writes dates, `21 October` or
+`2026-10-21`.
 
 **A catalogue inherits others.** `inherits` lists catalogues above the
 project's (a workspace's, every talk's), farthest first; the project's

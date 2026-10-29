@@ -705,16 +705,21 @@ describe("the audit's tier check", () => {
     ).toEqual([]);
   });
 
-  it("checks no README, and suggests a tier the check accepts", () => {
+  it("checks the README's rules, not its prose, and suggests a tier the check accepts", () => {
     const rule = {
       catalogue: "docs/patterns",
       texts: {
-        "docs/patterns/README.md": "- **paths**: the globs a file governs\n",
+        "docs/patterns/README.md":
+          "# Patterns\n\nThe rules for everywhere.\n\n| File | Governs |\n| --- | --- |\n| a.md | buttons |\n\n- **Bare.**\n",
         "docs/patterns/a.md": "- **No tier.**\n",
       },
       day: "27 October",
     };
-    expect(reasonFor(["docs/patterns/README.md"], "", "", rule)).toBe("");
+    expect(reasonFor(["docs/patterns/README.md"], "", "", rule)).toContain(
+      'docs/patterns/README.md has 1 rule without a tier and date: "**Bare.**"',
+    );
+    const prose = { ...rule, texts: { "docs/patterns/README.md": "# Patterns\n\nProse only.\n" } };
+    expect(reasonFor(["docs/patterns/README.md"], "", "", prose)).toBe("");
     expect(reasonFor(["docs/patterns/a.md"], "", "", { ...rule, who: "the owner" })).toContain(
       "(<a person's name>, 27 October)",
     );
@@ -882,6 +887,20 @@ describe("the catalogue follow-up", () => {
     const good = plansIn(linted(true), ["check"]);
     expect(good).toMatchObject({ code: 0 });
     expect(good.out).toContain("1 entries in 1 file, no faults.");
+  });
+
+  it("plans check reads a catalogue's README: a bare rule there is a fault", () => {
+    const root = linted(true);
+    writeFileSync(
+      join(root, "decisions", "README.md"),
+      "# Decisions\n\nThe rules for everywhere.\n\n- **Everywhere.** (the agent's choice, 2026-10-21)\n",
+    );
+    const bad = plansIn(root, ["check"]);
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain(
+      "decisions/README.md: no reason: **Everywhere.** (the agent's choice, 2026-10-21)",
+    );
+    expect(bad.out).toContain("2 entries in 2 files, 1 fault.");
   });
 
   it("plans check lints deny: an agent the plugin has not, a pattern that is no regular expression or no MCP name", () => {

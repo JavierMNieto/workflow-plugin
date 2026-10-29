@@ -198,36 +198,82 @@ export function listToJudge(state, now) {
   return changed.filter((file) => wrote.has(file));
 }
 
-/** A rule's tier and date, as the catalogue writes them (the first project's check). */
-const TIER =
-  /\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as .+? do(?:es)?|per .+?|observed in .+?|the agent's choice), (?:\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,[^)]*)?\)/u;
+/** A rule's opening: the list item, its id in backticks when it has one, and its bold statement, which holds no `**` of its own. */
+const OPENING = /^- (?:`([\w.-]+)` )?\*\*((?:[^*]|\*(?!\*))+?)\*\*\s*/;
+
+/** A product's or a source's name: no parenthesis of its own but a closed one, "Style Guide (2024)". */
+const NAME = String.raw`(?:[^()]|\([^()]*\))+?`;
+
+/** A tier and date, as the catalogue writes them (the first project's check). */
+const TAG = String.raw`\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as ${NAME} do(?:es)?|per ${NAME}|observed in ${NAME}|the agent's choice), (?:\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,[^)]*)?\)`;
+const TAG_FIRST = new RegExp(`^${TAG}`, "u");
+const TAG_LAST = new RegExp(`(${TAG})\\.?\\s*$`, "u");
 
 /**
- * The rules of a catalogue file: each rule is a list item opening with bold
- * text, read as its first paragraph (its continuation lines, up to a nested
- * item). `untiered` keeps those without their tier and date.
+ * **A rule's tier is read in one of two places**: the tag right after its
+ * bold statement, `**Rule.** (Javi, 21 October) The body.`, or the tag that
+ * ends its first paragraph, `**Rule.** The body. (Javi, 21 October)`. A
+ * parenthesis inside the statement ("Per-step (per row) toggle.") or in the
+ * middle of the body is never the tier; a closed one inside a source's name
+ * is part of it; a struck-through predecessor kept under the rule is
+ * history. Returns {id, statement, tag (without its parentheses), after
+ * (the text after a tag right after the statement)}, or null for a rule
+ * without its tier and date. The audit, `plans check` and the edit-time
+ * hook all read the tier here.
  */
-function rules(text) {
+export function tierOf(rule) {
+  const open = OPENING.exec(rule);
+  if (!open) return null;
+  const body = rule.slice(open[0].length).split("~~")[0];
+  const first = TAG_FIRST.exec(body);
+  const last = first ? null : TAG_LAST.exec(body);
+  const tag = first ? first[0] : last ? last[1] : "";
+  if (!tag) return null;
+  return {
+    id: open[1] || "",
+    statement: open[2],
+    tag: tag.slice(1, -1),
+    after: first ? body.slice(tag.length) : "",
+  };
+}
+
+/**
+ * The rules of a catalogue file, the one reader the audit, the edit-time hook
+ * and `plans check` share: each rule is a list item opening with bold text
+ * (an id may come first), read as its first paragraph on one line (its
+ * continuation lines, up to a nested item), with its line number. A fenced
+ * code block is an example, never a rule. `untiered` keeps those without
+ * their tier and date.
+ */
+export function paragraphs(text) {
   const lines = text.split("\n");
-  const found = [];
+  const items = [];
+  let fence = "";
   lines.forEach((line, i) => {
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (open && (!fence || (open[1][0] === fence[0] && open[1].length >= fence.length))) {
+      fence = fence ? "" : open[1];
+      return;
+    }
     // A rule may open with its id in backticks: - `id` **Rule.** (tier, date)
-    if (!/^- (?:`[\w.-]+` )?\*\*/.test(line)) return;
-    let rule = line;
+    if (fence || !/^- (?:`[\w.-]+` )?\*\*/.test(line)) return;
+    let item = line;
     for (
       let j = i + 1;
       j < lines.length && /^ {2}\S/.test(lines[j]) && !/^ {2}- /.test(lines[j]);
       j++
     )
-      rule += " " + lines[j].trim();
-    found.push(rule);
+      item += " " + lines[j].trim();
+    items.push({ item, line: i + 1 });
   });
-  return found;
+  return items;
 }
+
+const rules = (text) => paragraphs(text).map(({ item }) => item);
 
 export function untiered(text) {
   return rules(text)
-    .filter((rule) => !TIER.test(rule))
+    .filter((rule) => !tierOf(rule))
     .map((rule) => rule.slice(2));
 }
 
@@ -243,7 +289,7 @@ const says = (text) => /\p{L}/u.test(text.replace(/<[^>]*>/g, ""));
  * says who may change a rule"): the rules of a catalogue file at that tier
  * that are the tag alone, nothing after the date and nothing after the tag;
  * with `day` (dates as entries write them), only those dated then. A rule's
- * tier is its first tag; a struck-through predecessor kept under it is
+ * tier is read by `tierOf`; a struck-through predecessor kept under it is
  * history, neither its tier nor its reason. Presence is what a script can
  * check, as Rust's and ESLint's lints check that a reason is there, never
  * whether it is a good one; a placeholder copied from a hint is not one.
@@ -252,11 +298,10 @@ export function unreasoned(text, day) {
   const days = day === undefined ? null : [day].flat();
   return rules(text)
     .filter((rule) => {
-      const tier = TIER.exec(rule);
-      const tag = tier && AGENTS_CHOICE.exec(tier[0]);
+      const tier = tierOf(rule);
+      const tag = tier && AGENTS_CHOICE.exec(`(${tier.tag})`);
       if (!tag || tag.index !== 0) return false;
-      const after = rule.slice(tier.index + tier[0].length).split("~~")[0];
-      if (says(tag[2] || "") || says(after)) return false;
+      if (says(tag[2] || "") || says(tier.after)) return false;
       return !days || days.includes(tag[1]);
     })
     .map((rule) => rule.slice(2));
@@ -321,12 +366,11 @@ export function reasonFor(
     );
   }
   // **Every rule carries its tier and date**: a catalogue file this turn
-  // changed, with a rule that does not, is asked for them.
-  // The README explains the format and holds no tiered rules of its own.
+  // changed, with a rule that does not, is asked for them; the README too,
+  // whose rules are the ones for everywhere (its prose holds none).
   const ruleFiles = catalogue
-    ? [...new Set([...changed, ...wrote])].filter(
-        (f) =>
-          [catalogue, ...inherits].some((at) => inCatalogue(f, at)) && basename(f) !== "README.md",
+    ? [...new Set([...changed, ...wrote])].filter((f) =>
+        [catalogue, ...inherits].some((at) => inCatalogue(f, at)),
       )
     : [];
   // The name the tier suggests is one the check accepts.

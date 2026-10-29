@@ -23,6 +23,7 @@ import {
   shellWrites,
   treeFiles,
   unreasoned,
+  untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
 import {
   allowedWhileLocked,
@@ -326,7 +327,7 @@ describe("unreasoned", () => {
     ]);
   });
 
-  it("reads a rule's tier from its first tag, never from the struck-through rule kept under it", () => {
+  it("reads a rule's tier from its own tag, never from the struck-through rule kept under it", () => {
     const history = `- **Save, not Submit.** (Javi, 29 October)
   ~~**Submit.**~~ (the agent's choice, 1 January)
 - **Bare over history.** (the agent's choice, 29 October)
@@ -335,6 +336,51 @@ describe("unreasoned", () => {
     expect(unreasoned(history)).toEqual([
       "**Bare over history.** (the agent's choice, 29 October) ~~**Older.**~~ (Javi, 1 January) He said so.",
     ]);
+  });
+
+  it("reads the tier only right after the bold statement or at the rule's end, never a parenthesis inside the statement or mid-body", () => {
+    expect(
+      unreasoned("- **Per-step (per row) toggle.** (the agent's choice, 29 October)\n"),
+    ).toEqual(["**Per-step (per row) toggle.** (the agent's choice, 29 October)"]);
+    expect(
+      unreasoned(
+        "- **Sorted (as GitHub does, 1 May) by date.** (the agent's choice, 29 October)\n",
+      ),
+    ).toEqual(["**Sorted (as GitHub does, 1 May) by date.** (the agent's choice, 29 October)"]);
+    expect(untiered("- **X.** (as GitHub does, 29 October)\n")).toEqual([]);
+    // A tag-shaped parenthesis in the body, or in the statement, is no tier.
+    expect(
+      untiered(
+        "- **Rows toggle.** Each row (Javi, 29 October) has one.\n- **Per-step (per row, 2 May) toggle.**\n",
+      ),
+    ).toEqual([
+      "**Rows toggle.** Each row (Javi, 29 October) has one.",
+      "**Per-step (per row, 2 May) toggle.**",
+    ]);
+    // A reason in the body after the tag still counts.
+    expect(
+      unreasoned(
+        "- **Toggle.** (the agent's choice, 29 October) Gmail (per row) and GitHub differ.\n",
+      ),
+    ).toEqual([]);
+    // The tag that ends the rule is its tier, as the audit's hint writes it; an agent's choice there is bare.
+    expect(untiered("- **Rows toggle.** Each row has one switch. (Javi, 21 October)\n")).toEqual(
+      [],
+    );
+    expect(unreasoned("- **Save.** Saves the draft. (the agent's choice, 29 October)\n")).toEqual([
+      "**Save.** Saves the draft. (the agent's choice, 29 October)",
+    ]);
+    // A closed parenthesis inside a source's name is part of the tier.
+    expect(
+      untiered("- **Use sentence case.** (per Microsoft Writing Style Guide (2024), 29 October)\n"),
+    ).toEqual([]);
+  });
+
+  it("reads no rule inside a fenced example", () => {
+    const readme =
+      "# Decisions\n\nAn entry looks like this:\n\n```md\n- **Example.** (the agent's choice, 29 October)\n- **No tier.**\n```\n\n- **Real.** (the agent's choice, 29 October)\n";
+    expect(unreasoned(readme)).toEqual(["**Real.** (the agent's choice, 29 October)"]);
+    expect(untiered(readme)).toEqual([]);
   });
 
   it("takes a placeholder copied from the hint for no reason", () => {

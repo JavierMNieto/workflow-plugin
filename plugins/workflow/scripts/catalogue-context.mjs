@@ -5,7 +5,7 @@
 // review. Nothing without a project file naming a `catalogue` or `inherits`;
 // in both forms, full and compact.
 //
-// A catalogue is a directory of `.md` files (the README aside, any depth) or
+// A catalogue is a directory of `.md` files (the README too, any depth) or
 // one `.md` file. A file may carry a frontmatter with `paths`, the components
 // and routes it governs, and `signals`, the words in code or in a tool call
 // that mean the control is being drawn ("delete", "ConfirmButton", "<Tabs",
@@ -28,7 +28,9 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { globToRegExp } from "./turn-audit.mjs";
+import { globToRegExp, paragraphs, tierOf } from "./turn-audit.mjs";
+
+export { paragraphs };
 import { matches, owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -57,10 +59,7 @@ export function frontmatter(text) {
   return lists;
 }
 
-/** One entry: `- \`id\` **Rule.** (tier, date)`, the id optional. */
-const ENTRY = /^- (?:`([\w.-]+)` )?\*\*(.+?)\*\* \(([^)]*)\)/s;
-
-/** The `.md` files of a catalogue location, a directory at any depth (the README aside) or one file. */
+/** The `.md` files of a catalogue location, a directory at any depth (its README, the rules for everywhere, among them) or one file. */
 export function catalogueFiles(path) {
   if (path.endsWith(".md")) return existsSync(path) ? [{ path, name: basename(path) }] : [];
   const out = [];
@@ -68,7 +67,7 @@ export function catalogueFiles(path) {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, e.name);
       if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith(".md") && e.name !== "README.md")
+      else if (e.name.endsWith(".md"))
         out.push({ path: full, name: relative(path, full).replaceAll("\\", "/") });
     }
   };
@@ -96,14 +95,15 @@ export function readCatalogue(locations) {
       // Each rule as its first paragraph, its continuation lines joined, so a
       // rule whose bold text wraps is read as the audit reads it.
       for (const { item, line } of paragraphs(text)) {
-        const m = ENTRY.exec(item);
+        // An entry is a rule with its tier, read as the audit reads it.
+        const m = tierOf(item);
         if (m)
           entries.push({
-            id: m[1] || "",
-            rule: m[2],
-            tag: m[3],
-            key: `${label || cite}#${m[1] || `${cite}:${line}`}`,
-            cite: m[1] ? `${cite}#${m[1]}` : "",
+            id: m.id,
+            rule: m.statement,
+            tag: m.tag,
+            key: `${label || cite}#${m.id || `${cite}:${line}`}`,
+            cite: m.id ? `${cite}#${m.id}` : "",
           });
       }
       files.push({
@@ -140,24 +140,6 @@ export function readCatalogue(locations) {
     });
   }
   return files;
-}
-
-/** A catalogue file's list items that open with bold text (an id may come first), each its first paragraph on one line, with its line number. */
-export function paragraphs(text) {
-  const lines = text.split("\n");
-  const items = [];
-  lines.forEach((line, i) => {
-    if (!/^- (?:`[\w.-]+` )?\*\*/.test(line)) return;
-    let item = line;
-    for (
-      let j = i + 1;
-      j < lines.length && /^ {2}\S/.test(lines[j]) && !/^ {2}- /.test(lines[j]);
-      j++
-    )
-      item += " " + lines[j].trim();
-    items.push({ item, line: i + 1 });
-  });
-  return items;
 }
 
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
