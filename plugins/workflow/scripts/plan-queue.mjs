@@ -59,7 +59,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shellWrites, unreasoned, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
@@ -1498,6 +1498,11 @@ function startPrompt(paths, plans) {
  * the new chat's Bash tool naming another project or plugin (the plugin data
  * named the Codex plugin's directory, and the starts log went there); and
  * `CLAUDE_SESSION_ID`, which `plans pause` records, is the starting chat's.
+ * **Nor the plugins' `bin` folders on its PATH**: Claude Code adds each
+ * enabled plugin's after the PATH it inherits, so a chat started from one
+ * that began on an older version ran that version's `plans` first, and its
+ * start never cleared the asking deferral, which it did not know
+ * (plans/research-order-and-asking-cleared.md).
  */
 export function sessionEnv(env = process.env) {
   const {
@@ -1508,8 +1513,15 @@ export function sessionEnv(env = process.env) {
     CLAUDE_SESSION_ID: _session,
     ...rest
   } = env;
+  if (rest.PATH)
+    rest.PATH = rest.PATH.split(delimiter)
+      .filter((dir) => !PLUGIN_BIN.test(dir))
+      .join(delimiter);
   return rest;
 }
+
+/** A plugin's `bin` folder in Claude Code's cache: `<plugins>/cache/<marketplace>/<plugin>/<version>/bin`. */
+const PLUGIN_BIN = /[\\/]plugins[\\/]cache[\\/][^\\/]+[\\/][^\\/]+[\\/][^\\/]+[\\/]bin[\\/]?$/;
 
 /** Blocks for `ms`: the hooks and the command are synchronous, and print their answer on return. */
 function sleep(ms) {
@@ -1796,6 +1808,27 @@ export function endCommand(ids = [], { immediate = false } = {}) {
 }
 
 /**
+ * Takes `paths` out of a deferral, and the file when none is left. Its
+ * timer stays: firing, it starts only what is still waiting. **A plan leaves
+ * the asking deferral once it is decided or taken** ("Asked once"): the
+ * planner's write of its "Decided", an executor's Building line and a start
+ * each call this.
+ */
+function dropDeferred(file, paths) {
+  const deferred = readJson(files.deferred(file));
+  if (!deferred) return;
+  const rest = (deferred.paths || []).filter((path) => !paths.includes(path));
+  if (rest.length === (deferred.paths || []).length) return;
+  if (rest.length) writeJson(files.deferred(file), { ...deferred, paths: rest });
+  else
+    try {
+      unlinkSync(files.deferred(file));
+    } catch {
+      // Gone already.
+    }
+}
+
+/**
  * Defers a start to `until` (ms): one timer per deferral file (`file`, the
  * agent's by default, or `asking` for the window's), the deferral written
  * where `plans` shows it. **Paused, the deferral is held**: the file is
@@ -2035,18 +2068,8 @@ function startHere(
     return seen;
   }
   // The deferrals keep the paths this start did not take, and their timers.
-  for (const file of kind === "executor" ? ["executor", "asking"] : ["planner"]) {
-    const deferred = readJson(files.deferred(file));
-    if (!deferred) continue;
-    const rest = (deferred.paths || []).filter((path) => !paths.includes(path));
-    if (rest.length) writeJson(files.deferred(file), { ...deferred, paths: rest });
-    else
-      try {
-        unlinkSync(files.deferred(file));
-      } catch {
-        // Gone already.
-      }
-  }
+  for (const file of kind === "executor" ? ["executor", "asking"] : ["planner"])
+    dropDeferred(file, paths);
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
   if (!probe) {
@@ -2889,6 +2912,24 @@ function noteFinished(state, plans) {
 }
 
 function plannerHook(mode, input, sessionId, statePath) {
+  // **A decided plan stops asking**: the write that gives it a "Decided"
+  // covering every decision takes it out of the asking deferral, so `plans`
+  // no longer prints it as waiting on the owner.
+  // A shell command names no file, so every plan the deferral holds is read.
+  if (mode === "wrote") {
+    const written = planPath(input.tool_input?.file_path);
+    const held = written
+      ? [written]
+      : input.tool_name === "Bash"
+        ? readJson(files.deferred("asking"))?.paths || []
+        : [];
+    const decided = held.filter((path) => {
+      const text = planText(path);
+      return /^## Decided/m.test(text) && stateOf(text, { mtime: mtimeOf(path) })?.asks === false;
+    });
+    if (decided.length) dropDeferred("asking", decided);
+    return;
+  }
   let state = readState(sessionId);
   state = { ...state, plans: state.plans || [] };
   if (mode === "tool") {
@@ -3162,8 +3203,9 @@ function hook(mode, input) {
     writeJson(statePath, countCompaction(readState(sessionId)));
     return;
   }
-  // Only an executor's Building line takes a plan; any other session's edit returns at once.
-  if (mode === "wrote" && !executor) return;
+  // Only an executor's Building line takes a plan, and only a planner's
+  // "Decided" lets one go; any other session's edit returns at once.
+  if (mode === "wrote" && !executor && kindOf(input) !== "planner") return;
   if (kindOf(input) === "planner") {
     plannerHook(mode, input, sessionId, statePath);
     return;
@@ -3201,6 +3243,7 @@ function hook(mode, input) {
       const taken = (state.taken || []).filter((path) => mine.some((p) => p.path === path));
       const unjudged = mine.filter((p) => !taken.includes(p.path));
       const said = [];
+      const newly = [];
       if (unjudged.length) {
         const live = liveSessions({ timeout: 4000 });
         const own = new RegExp(`${building.source}[^\\n]*\\n?`, "gm");
@@ -3211,6 +3254,7 @@ function hook(mode, input) {
           // judged, so a failing list is not asked again on every command.
           if (!asking) {
             taken.push(plan.path);
+            newly.push(plan.path);
             continue;
           }
           writeFileSync(plan.file, plan.text.replace(own, ""));
@@ -3219,8 +3263,9 @@ function hook(mode, input) {
       }
       if (String(taken) !== String(state.taken || []))
         writeJson(statePath, { ...readState(sessionId), taken });
-      // The batch starts at a Building line that stays.
+      // The batch starts at a Building line that stays, and the plan stops asking.
       if (taken.length) markBase();
+      if (newly.length) dropDeferred("asking", newly);
       if (said.length)
         process.stdout.write(JSON.stringify({ decision: "block", reason: said.join("\n") }));
       return;
@@ -3229,6 +3274,7 @@ function hook(mode, input) {
     if (!path) return;
     if (!building.test(planText(path))) return;
     markBase();
+    dropDeferred("asking", [path]);
     stopPlannersOn(path, liveSessions());
     return;
   }
@@ -3672,17 +3718,20 @@ export function main(args = process.argv.slice(2)) {
     }
     if (timer) {
       // The deferred start: a wait and then the same start, nothing else.
+      // **A timer clears only its own deferral**: one whose plans were all
+      // decided or taken lost its file, and a newer deferral with another
+      // timer may stand there now.
       setTimeout(
         () => {
-          try {
-            unlinkSync(
-              files.deferred(
-                options.deferral || (options.agent === "planner" ? "planner" : "executor"),
-              ),
-            );
-          } catch {
-            // Cleared already.
-          }
+          const file = files.deferred(
+            options.deferral || (options.agent === "planner" ? "planner" : "executor"),
+          );
+          if (readJson(file)?.pid === process.pid)
+            try {
+              unlinkSync(file);
+            } catch {
+              // Cleared already.
+            }
           start(paths, { ...options, timer: true });
         },
         Math.max(0, timer - Date.now()),

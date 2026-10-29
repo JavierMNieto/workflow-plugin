@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   canStart,
@@ -509,6 +509,15 @@ describe("the plugin's queue in any project", () => {
         HOME: "/h",
       }),
     ).toEqual({ PATH: "/bin", HOME: "/h" });
+  });
+
+  it("starts a chat without the plugins' bin folders it inherited, so its plans is the installed one", () => {
+    const old = "/home/u/.claude/plugins/cache/workflow/workflow/822635629e80/bin";
+    const now = "/home/u/.claude/plugins/cache/workflow/workflow/73aa1d388dcc/bin";
+    const path = (...dirs: string[]) => dirs.join(delimiter);
+    expect(sessionEnv({ PATH: path(old, "/usr/bin", now, "/bin") }).PATH).toBe(
+      path("/usr/bin", "/bin"),
+    );
   });
 
   it("finds any path of two segments with an extension, and no address or plan", () => {

@@ -537,7 +537,11 @@ run on the question tool in the planner's chat, records the time for
 each of its plans that asks and defers a start of them to thirty minutes
 later, in a deferral of its own (`.claude/asking.deferred`, held by a
 pause, re-armed by a resume, printed by `plans`), so a question never
-moves a usage limit's restart. Talking does not restart the window;
+moves a usage limit's restart. A plan leaves that deferral once it is
+decided or taken: the planner's write of a "Decided" that covers every
+decision, an executor's Building line and a start of it each take it out.
+A started chat's PATH drops the plugins' `bin` folders it inherited, so
+its `plans` is the installed version's. Talking does not restart the window;
 another question inside it does, and a plan whose window ran out is not
 held again by a question about another. Between writing the plan and
 asking, the plan is held from when it was written. Past the thirty

@@ -129,6 +129,7 @@ describe("catalogue-context", () => {
     expect(ctx).toContain("design-research");
     expect(ctx).toContain("skips the question, never the research");
     expect(ctx).not.toContain("make your own call");
+    expect(ctx).toContain("for a new screen or flow, the skill's question comes first");
     expect(
       run(context, [], {
         tool_input: {

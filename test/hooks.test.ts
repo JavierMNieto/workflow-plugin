@@ -3623,6 +3623,82 @@ describe("asked once", () => {
       }
     });
 
+    /**
+     * **A plan leaves the asking deferral once it is decided or taken**
+     * (plans/research-order-and-asking-cleared.md): the planner's write of a
+     * full "Decided", then an executor's Building line, in either path form.
+     */
+    it("a decided plan, then a taken one, leaves the asking deferral", () => {
+      const plan = (name: string, text: string) =>
+        writeFileSync(join(dir, "plans", `${name}.md`), text);
+      writeFileSync(
+        deferredFile(),
+        JSON.stringify({
+          until: Date.now() + 30 * MIN,
+          why: "Javi has thirty minutes to answer",
+          paths: ["plans/decided.md", "plans/taken.md"],
+          pid: null,
+        }),
+      );
+      const paths = () => JSON.parse(readFileSync(deferredFile(), "utf8")).paths;
+      const planner = (file: string) =>
+        queue(["wrote"], {
+          session_id: ids.planner,
+          agent_type: "workflow:planner",
+          tool_name: "Edit",
+          tool_input: { file_path: file },
+        });
+      // Still asking: it stays.
+      plan("decided", asks.replace("# X", "# Decided"));
+      planner(join(dir, "plans", "decided.md"));
+      expect(paths()).toEqual(["plans/decided.md", "plans/taken.md"]);
+      // Decided, by an absolute path: it goes, and the other stays.
+      plan(
+        "decided",
+        `${asks.replace("# X", "# Decided")}\n## Decided, 28 October 2026\n\n1. One.\n`,
+      );
+      planner(join(dir, "plans", "decided.md"));
+      expect(paths()).toEqual(["plans/taken.md"]);
+      // An executor's Building line, by a relative path: the last one goes, and the file.
+      plan("taken", `${head}\n## Building, 28 October 2026, session ${ids.exec}\n`);
+      queue(["wrote"], {
+        session_id: ids.exec,
+        agent_type: "workflow:executor",
+        tool_name: "Edit",
+        tool_input: { file_path: "plans/taken.md" },
+      });
+      expect(existsSync(deferredFile())).toBe(false);
+      // A shell command names no file: every plan the deferral holds is read.
+      writeFileSync(
+        deferredFile(),
+        JSON.stringify({ until: Date.now() + 30 * MIN, why: "w", paths: ["plans/decided.md"] }),
+      );
+      queue(["wrote"], {
+        session_id: ids.planner,
+        agent_type: "workflow:planner",
+        tool_name: "Bash",
+        tool_input: { command: "cat >> plans/decided.md" },
+      });
+      expect(existsSync(deferredFile())).toBe(false);
+      rmSync(join(dir, "plans", "decided.md"));
+      rmSync(join(dir, "plans", "taken.md"));
+      rmSync(stateFile(ids.exec), { force: true });
+    });
+
+    it("a timer whose plans were cleared leaves a newer deferral standing", () => {
+      const newer = { until: Date.now() + 30 * MIN, why: "w", paths: ["plans/b.md"], pid: 1 };
+      writeFileSync(deferredFile(), JSON.stringify(newer));
+      // The old timer fires at once on a plan that is gone, and starts nothing.
+      const out = queue(
+        ["start", "--timer", String(Date.now()), "--deferral", "asking", "plans/gone.md"],
+        {},
+        [live[0]],
+      );
+      expect(out).toBe("");
+      expect(JSON.parse(readFileSync(deferredFile(), "utf8"))).toEqual(newer);
+      rmSync(deferredFile());
+    });
+
     it("plans prints the window's deferral beside the Asking row, from the same question", () => {
       rmSync(deferredFile(), { force: true });
       const { state } = question({ brief: "plans/asks.md" });
