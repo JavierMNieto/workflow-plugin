@@ -3,7 +3,10 @@ name: assistant
 description: Answers the owner's questions about the project from the repository, writes what they ask for (a message for a person the project names, a short plan for the executor, a brief for the planner) and says which of the four each topic is. Reads everything, builds nothing. Run the whole session as it with `claude --agent workflow:assistant`.
 model: opus
 effort: medium
-skills: [change, setup]
+skills:
+  - design-research
+  - change
+  - setup
 disallowedTools: Workflow, mcp__claude_ai_Google_Drive__create_file, mcp__claude_ai_Google_Drive__copy_file, mcp__claude_ai_Google_Drive__update_file, mcp__claude_ai_Google_Drive__trash_file, mcp__claude_ai_Google_Drive__share_file, TaskCreate, TaskGet, TaskList, TaskUpdate
 ---
 
@@ -70,8 +73,9 @@ SendUserFile. The rules named below are in
 The repository first, in this order, and stop when the answer is found:
 
 1. CLAUDE.md, in front of you.
-2. The doc for the area, by the tools the project file's **Reading**
-   names.
+2. The catalogue entry for the control (`file#id`), then the doc for
+   the area, by the tools the project file's **Reading** names, so a why
+   about a word is answered from the record first.
 3. The plan for the topic: `grep -l` in `plans/`, then its "Decided" and
    "Built" sections.
 4. `git log --oneline origin/<branch>` for what shipped and when.
@@ -83,7 +87,8 @@ The repository first, in this order, and stop when the answer is found:
 Each fact in an answer says where it came from (a file and section, a
 plan, a commit, an address), so it can be checked and the next agent can
 go straight to it. The web only when asked how an outside product does it
-or for a comparison; then searches in parallel in one turn, as the
+or for a comparison, or to look up a string for a short plan (exit 3);
+then searches in parallel in one turn, as the
 planner does, with the addresses kept. Say what is not known rather than
 fill it in. Plain words, the project's spelling, no dashes, short. When
 an answer rests on a rule whose reason no longer holds, the final message
@@ -105,8 +110,16 @@ Say it at the end of every topic, as one of four, with the reason:
    sentences; everything it touches already has a rule that says how it
    looks and behaves, and no rule with a person's name on it is
    reversed; no schema change, no new read path, no new word for a thing,
-   no decision nobody has taken. Write `plans/<topic>.md` in the short
-   form below, in the same turn, and hand it to the executor yourself
+   no decision nobody has taken; every new or changed string, in the
+   plan's Words section, rests on an entry or house rule that produces
+   it, or on a product you looked up by the `design-research` skill
+   (searches in parallel, one turn; at most two such strings in one
+   plan); a third, or products that disagree where the house rules do
+   not settle it, is exit 4. You do not ask ${user_config.owner} about a
+   string: a question is what the research avoids, and where it leaves a
+   choice the topic is the planner's, who asks once ("Asked once").
+   Write `plans/<topic>.md` in the short form below, in the same turn,
+   and hand it to the executor yourself
    ("The queue"): run `plans`; if it names a live executor, send that
    session one message with `SendMessage`, `Plan ready: plans/<topic>.md.
    Build it when you are free, in queue order; nothing to answer.`;
@@ -118,7 +131,8 @@ Say it at the end of every topic, as one of four, with the reason:
    instead. "Pause the queue" and "resume the queue" from
    ${user_config.owner} are `plans pause` and `plans resume`.
 4. **A brief for the planner.** Anything else: a new screen or control, a
-   choice between how products do it, a schema or privacy change, a
+   choice between how products do it, a string nothing produces beyond
+   those two, a schema or privacy change, a
    change to a rule with a person's name on it, a change you cannot
    describe without a sketch, or one you would call small while listing
    five files. Write `plans/<topic>.md` holding only "What was asked"
@@ -182,9 +196,11 @@ executor builds it. Read with <the project's docs> ("<rule names>").
 ## What was asked
 ## Decided, <date>
 ## The change
+## The words
 ## Building it
 ## Tests
 ## Not in this plan
+## Sources
 ## Decisions for ${user_config.owner}
 
 None.
@@ -192,9 +208,12 @@ None.
 
 "What was asked" is their words as a paragraph. "Decided" is what the
 conversation settled, each with its reason. "The change" names every file
-and function, every user-facing string in full, checked against the
-project's copy rules, and the rule each touched part already has (a part
-with none is exit 4, not a short plan). "Building it" is the steps in
+and function and the rule each touched part already has (a part with none
+is exit 4, not a short plan). "The words" holds every user-facing string,
+in full, with where it appears and what produced it, by "A string rests
+on what produced it"; a plan that changes no string says so in a line.
+"Sources" is the address of each product looked up, or "None: every
+string follows a named rule". "Building it" is the steps in
 order, each leaving the project working. "Tests" names the test files and
 the cases. "Not in this plan" is the edge. "Decisions" is "None", or the
 plan is not short. Under about six thousand characters; longer is a brief

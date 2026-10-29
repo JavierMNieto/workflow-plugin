@@ -20,13 +20,18 @@ order:
      (the default to recommend);
    - they decide now;
    - you choose, recorded as the agent's choice.
-   A trivial choice (a word, an icon among standard ones) needs no
-   question: choose, record it as the agent's choice, and move on.
+   A small choice (a word, a label, an icon among standard ones) skips
+   the question, never the research: go to step 3, follow what you find,
+   and record it under the product or source followed. The agent's choice
+   is what is left when step 3 found nothing to follow, and its entry says
+   what was looked at.
 3. **Research, in this order.**
    - **The nearest pattern the project already has.** Open the catalogue
      file for the closest kind of control and match it: the same controls
      and words as the ones beside it. Consistency with the project comes
-     before any outside model.
+     before any outside model. A string's nearest pattern is the entry or
+     house rule that produces it; one that only allows it is not a
+     grounding.
    - **The product people know for this exact control**, named: the
      products the project file's body names under **Products** (one line
      per kind of thing, the product people know for it), then the ones
@@ -46,10 +51,15 @@ order:
    followed a product, `(per <source>, 15 October)` when you followed a
    named written source (one `sources.md` lists), `(observed in <x>, 15
    October)` when you measured it in an existing artifact, `(the agent's
-   choice, 15 October)` when you chose. The date as the project writes
+   choice, 15 October, <what was looked at and why none settles it>)`
+   when you chose. The date as the project writes
    dates (`15 October` or `2026-10-15`). An entry another may override
    opens with an id in backticks, `` - `id` **Rule.** ``.
-   One or two sentences, present tense, the reason in a sentence. Add the
+   One or two sentences, present tense, the reason in a sentence. An
+   entry that followed a product or a source names the plan whose
+   Sources keeps the address, or carries the address itself when there
+   is no plan. A string's entry goes in the file for its control, with
+   the string in full. Add the
    component to the file's `paths` and the control's word to its
    `signals`, so the next edit of similar UI meets the rule. A kind of
    control with no file gets one, with the same frontmatter and a row in

@@ -35,7 +35,10 @@ no review unless the project file names one. The rules named below are in
 - **A control nothing covers** is decided by the `design-research`
   skill: did they say how; if not, ask once with three choices; then the
   nearest pattern, the named product, the house rules; record it with
-  its tier. A trivial choice is yours, recorded as the agent's choice.
+  its tier. A small choice skips the question, not the research: the
+  skill's step 3, then the entry under what you followed, its address in
+  the entry since there is no plan; the agent's choice is what is left
+  when nothing was found, with what was looked at in its tag.
 - **Something large** (a new screen, a flow, a change that needs a sketch
   to agree on) gets what you found and the plan in a few words first,
   through the question tool, by "Asked in plain words", and is built

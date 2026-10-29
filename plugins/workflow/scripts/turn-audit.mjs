@@ -203,13 +203,13 @@ const TIER =
   /\((?:\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'-]+)*|as .+? do(?:es)?|per .+?|observed in .+?|the agent's choice), (?:\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,[^)]*)?\)/u;
 
 /**
- * The rules of a catalogue file without their tier and date: each rule is a
- * list item opening with bold text, read as its first paragraph (its
- * continuation lines, up to a nested item).
+ * The rules of a catalogue file: each rule is a list item opening with bold
+ * text, read as its first paragraph (its continuation lines, up to a nested
+ * item). `untiered` keeps those without their tier and date.
  */
-export function untiered(text) {
+function rules(text) {
   const lines = text.split("\n");
-  const missing = [];
+  const found = [];
   lines.forEach((line, i) => {
     // A rule may open with its id in backticks: - `id` **Rule.** (tier, date)
     if (!/^- (?:`[\w.-]+` )?\*\*/.test(line)) return;
@@ -220,14 +220,57 @@ export function untiered(text) {
       j++
     )
       rule += " " + lines[j].trim();
-    if (!TIER.test(rule)) missing.push(rule.slice(2));
+    found.push(rule);
   });
-  return missing;
+  return found;
+}
+
+export function untiered(text) {
+  return rules(text)
+    .filter((rule) => !TIER.test(rule))
+    .map((rule) => rule.slice(2));
+}
+
+/** The agent's choice tier: its date, and the clause after the date when it has one. */
+const AGENTS_CHOICE =
+  /\(the agent's choice, (\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,([^)]*))?\)/;
+
+/** Whether text says something: a letter, once a placeholder such as `<what was looked at>` is taken out. */
+const says = (text) => /\p{L}/u.test(text.replace(/<[^>]*>/g, ""));
+
+/**
+ * **The agent's choice carries its reason** (docs/workflow.md, "The tier
+ * says who may change a rule"): the rules of a catalogue file at that tier
+ * that are the tag alone, nothing after the date and nothing after the tag;
+ * with `day` (dates as entries write them), only those dated then. A rule's
+ * tier is its first tag; a struck-through predecessor kept under it is
+ * history, neither its tier nor its reason. Presence is what a script can
+ * check, as Rust's and ESLint's lints check that a reason is there, never
+ * whether it is a good one; a placeholder copied from a hint is not one.
+ */
+export function unreasoned(text, day) {
+  const days = day === undefined ? null : [day].flat();
+  return rules(text)
+    .filter((rule) => {
+      const tier = TIER.exec(rule);
+      const tag = tier && AGENTS_CHOICE.exec(tier[0]);
+      if (!tag || tag.index !== 0) return false;
+      const after = rule.slice(tier.index + tier[0].length).split("~~")[0];
+      if (says(tag[2] || "") || says(after)) return false;
+      return !days || days.includes(tag[1]);
+    })
+    .map((rule) => rule.slice(2));
 }
 
 /** Today as a catalogue entry writes it: "27 October". */
 function entryDay(now = new Date()) {
   return now.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+}
+
+/** Today in the other form an entry may write it: "2026-10-27". */
+function isoDay(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /** The reason to refuse the stop, or "" to let it pass. */
@@ -242,6 +285,7 @@ export function reasonFor(
     texts = {},
     who = "the owner",
     day = entryDay(),
+    days = [day, `${day} ${new Date().getFullYear()}`, isoDay()],
     calls = [],
     wrote = [],
   } = {},
@@ -292,7 +336,18 @@ export function reasonFor(
     if (!missing.length) continue;
     const first = missing[0].length > 80 ? `${missing[0].slice(0, 77)}...` : missing[0];
     reasons.push(
-      `${file} has ${missing.length} rule${missing.length === 1 ? "" : "s"} without a tier and date: "${first}". Every rule ends with who it rests on and when: (${person}, ${day}), (as GitHub does, ${day}) or (the agent's choice, ${day}).`,
+      `${file} has ${missing.length} rule${missing.length === 1 ? "" : "s"} without a tier and date: "${first}". Every rule ends with who it rests on and when: (${person}, ${day}), (as GitHub does, ${day}) or (the agent's choice, ${day}, <what was looked at>).`,
+    );
+  }
+  // **The agent's choice carries its reason**: today's bare one is asked for
+  // it; an older one is `plans check`'s, so no session is pushed to invent a
+  // reason for an entry it did not write.
+  for (const file of ruleFiles) {
+    const bare = unreasoned(texts[file] || "", days);
+    if (!bare.length) continue;
+    const first = bare[0].length > 80 ? `${bare[0].slice(0, 77)}...` : bare[0];
+    reasons.push(
+      `${file} has ${bare.length} agent's choice${bare.length === 1 ? "" : "s"} dated today with no reason: "${first}". An agent's choice says what was looked at and why none of it settles the thing, in its tag after the date, (the agent's choice, ${day}, <what was looked at>), or in the sentence after it.`,
     );
   }
   return reasons.join("\n\n");

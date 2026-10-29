@@ -184,7 +184,7 @@ export function draws(text) {
 function nothingCovers(catalogue, who) {
   return [
     `No recorded design decision covers what you are writing here (nothing in ${catalogue} matches this file, its name, or the text).`,
-    `Before building a control nothing covers: did ${who} say how it should work and look? If not, ask them with one question and three choices: research how the product people already know does it (the design-research skill: name the product, match the nearest pattern this project has, keep its look), let them decide, or make your own call. Whatever is chosen, add the entry to ${catalogue} with its tier (a person's name, \`as <product> does\`, or \`the agent's choice\`) and today's date in the same change, and add the control's word to that file's \`signals\`.`,
+    `Before building a control nothing covers: did ${who} say how it should work and look? If not, look it up (the design-research skill: name the product people already know, match the nearest pattern this project has, keep its look) and record what you followed; a small choice skips the question, never the research. Ask ${who} only when the research leaves a choice the house rules do not settle. Whatever is followed, add the entry to ${catalogue} with its tier (a person's name, \`as <product> does\`, \`per <source>\`, or \`the agent's choice\` with what was looked at) and today's date in the same change, and add the control's word to that file's \`signals\`.`,
   ].join("\n");
 }
 

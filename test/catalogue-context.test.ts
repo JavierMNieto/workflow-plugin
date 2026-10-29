@@ -117,7 +117,7 @@ describe("catalogue-context", () => {
     expect(ctx).not.toContain("Undo where it is cheap");
   });
 
-  it("says that nothing covers a control drawn where no rule matches, and asks for the question", () => {
+  it("says that nothing covers a control drawn where no rule matches, and sends it to the research", () => {
     const out = run(context, [], {
       tool_input: {
         file_path: join(repo, "apps/forum/src/components/Wizard.tsx"),
@@ -127,6 +127,8 @@ describe("catalogue-context", () => {
     const ctx = JSON.parse(out).hookSpecificOutput.additionalContext as string;
     expect(ctx).toContain("No recorded design decision covers");
     expect(ctx).toContain("design-research");
+    expect(ctx).toContain("skips the question, never the research");
+    expect(ctx).not.toContain("make your own call");
     expect(
       run(context, [], {
         tool_input: {

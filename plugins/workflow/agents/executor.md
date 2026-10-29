@@ -72,7 +72,13 @@ in the final message and carry on.
    prompt names, holds ${user_config.owner}'s standing preferences; read
    it if it is not already in front of you.
 3. **Do not re-research.** The planner named the products and grounded the
-   calls; follow them. Where the plan is silent on something only
+   calls; follow them. A string the plan did not write is research the
+   plan did not do, not research done again: take it from the nearest
+   entry that produces it, else look it up by the `design-research`
+   skill, add its row to the plan's Words section with its grounding, and
+   name it in "Built". Never type one. A string the skill finds nothing to
+   follow for, where the choice is not small, is asked once, by "Asked in
+   plain words". Where the plan is silent on something only
    ${user_config.owner} can decide, ask once with the question tool, by
    "Asked in plain words".
 4. **Start clean, then a branch of your own off `origin/<branch>`**, one
@@ -119,8 +125,10 @@ in the final message and carry on.
   same commit, or the commit message says why not.
 - **The docs too**: the rules the plan names change in the project's
   docs, and its `CLAUDE.md` stays within the budget it states.
-- **Copy** follows the project's copy rules: strings as the plan wrote
-  them, nothing that needs the planning conversation to make sense.
+- **Copy** follows the plan's Words section: strings as it wrote them,
+  nothing that needs the planning conversation to make sense; a string it
+  lacks goes in by "Before the first edit" 3, a review finding's
+  included.
 - **Any loop over model calls has a hard call budget, a timeout and a log
   line per call** before it runs once.
 
@@ -183,7 +191,9 @@ paste.
       agent with the plan's path and the branch, and the choices you made
       on purpose; it reads the diff (`git diff origin/<branch>...HEAD`)
       and checks that every requirement of the plan is built, that the
-      tests it lists exist, and that nothing outside its scope changed,
+      tests it lists exist, that nothing outside its scope changed, and
+      that every string the diff adds or changes is in the plan's Words
+      section,
       only gaps that affect correctness or the plan's requirements.
    3. **`/code-review medium`** (the `code-review` skill), for bugs, with
       its own verification pass; it is the third review, not one of the
@@ -193,7 +203,8 @@ paste.
       origin/<branch>` when not).
    4. **Read them all.** Fix what is real in the Claude review, in
       `/code-review`'s verified findings and in a plugin skill's review;
-      leave the rest. For each Codex
+      leave the rest. A fix that needs a string a person sees takes it by
+      "Before the first edit" 3. For each Codex
       finding, open the file and line and decide: **fixed** (a real bug
       inside the plan, fixed with a test where the plan's tests allow),
       **not a bug** (the reason in a clause), or **out of scope** (real,

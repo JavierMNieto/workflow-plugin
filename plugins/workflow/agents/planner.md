@@ -74,8 +74,8 @@ ${user_config.owner}.
    carries the group's message ("For the group", below). When the brief
    says the group has already agreed, the agreement goes in "Decided" and
    there is no message.
-2. **Research the products people know, first.** For each control, flow
-   or screen, name the familiar product whose version people know (the
+2. **Research the products people know, first.** For each control, flow,
+   screen or string, name the familiar product whose version people know (the
    `design-research` skill gives the order, and the project file's
    **Products** heading names the products to follow first) and
    look it up rather than recall it: searches in parallel in one turn, a
@@ -95,8 +95,10 @@ ${user_config.owner}.
    model: the same words and places as what is beside it, one word per
    thing, one mechanism for one kind of thing, nothing made up. Prefer one
    mechanism that does three jobs to three mechanisms. Write every
-   user-facing string out in the plan, checked against the project's copy
-   rules, so the executor types nothing of its own. Draft the catalogue
+   user-facing string out in the plan's Words section, each with where it
+   appears and what produced it ("A string rests on what produced it"), so
+   the executor types nothing of its own and ${user_config.owner}'s why has
+   its answer before he asks. Draft the catalogue
    entries the executor will add, when the project has a catalogue.
 5. **Put to ${user_config.owner} only what research cannot settle**, and
    put all of it through the question tool, never in prose, written by
@@ -144,21 +146,26 @@ characters is the usual size; longer is a plan that should be two.
 6. **What the products do**: named, with what each settles here.
 7. **The change, part by part**: each part's place, look, words and
    states; ASCII sketches where a picture says it faster.
-8. **Building it**: the steps in order, each leaving the project working,
+8. **The words**: a table of every user-facing string the change adds or
+   changes, in full, with where it appears and what it rests on (the
+   entry or rule by name, the product with its Sources line, the person,
+   or the agent's choice with what was looked at); a plan that changes no
+   string says so in a line.
+9. **Building it**: the steps in order, each leaving the project working,
    naming the files, functions, schema changes, docs to update and
    CLAUDE.md lines to change.
-9. **Tests**: by file, the cases to add and the ones that stay, including
+10. **Tests**: by file, the cases to add and the ones that stay, including
    the project's rule for a new read path, when it has one.
-10. **Not in this plan**: what was left out and why, so the executor does
+11. **Not in this plan**: what was left out and why, so the executor does
     not add it and ${user_config.owner} knows where the edge is.
     **For the group**, after it, only for a change to another person's
     part: the message in ${user_config.owner}'s words, short enough for a
     chat group, saying what he wants to change, which of the person's
     decisions it touches and why, what he asks (agree, or say what to
     keep), and that the detail comes as a pull request.
-11. **Decisions for ${user_config.owner}**: numbered, the recommended
+12. **Decisions for ${user_config.owner}**: numbered, the recommended
     option first, what each alternative costs.
-12. **Sources**: each address with a line on what it showed.
+13. **Sources**: each address with a line on what it showed.
 
 ## The final message
 

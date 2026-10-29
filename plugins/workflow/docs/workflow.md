@@ -62,7 +62,10 @@ executor, and a dependency on an earlier plan is written into the plan.
 of four exits: answered; a message for a person the project names, which
 the owner sends; a short plan for the executor; or a brief for the
 planner, which the planner's plan replaces. A change you can describe in a
-few sentences, inside rules the project already holds, with no schema or
+few sentences, inside rules the project already holds, every new string
+resting on one of them or on a product the assistant looked up (at most
+two such strings; more, or products that disagree where the house rules
+do not settle it, is the planner's), with no schema or
 privacy change and no rule a person's name is on reversed, is a short
 plan, as Anthropic's best practices say a diff you can describe in a
 sentence needs no plan; anything else goes to the planner, as Shape Up
@@ -268,16 +271,36 @@ entry of the same id overrides an inherited one, says so with
 `overrides <file>#<id>`, and the edit-time hook shows the project's with
 the one it overrides named. `plans check` lints every catalogue the
 project file names: the tier and date on every entry, an id used twice,
-an override naming no inherited id; and the `deny` key (above).
+an override naming no inherited id, an agent's choice with no reason;
+and the `deny` key (above).
 
 **The tier says who may change a rule.** A person's name is their call; a
 named product (`as GitHub does`) is replaced only by a better-grounded
 standard, named, as is one `per <source>` (a written source) or
 `observed in <x>` (measured in an existing artifact); `the agent's
-choice` is changed with a reason. A
+choice` is changed with a reason, and carries one: an entry at that tier
+says, in its tag after the date or in the sentence after it, what was
+looked at and why none of it settles the thing; `plans check` and the
+audit flag an entry that is the tag alone. The address of a product or
+source followed is written once, in the plan's Sources when there is a
+plan, which the entry names, else in the entry (the compact form). A
 replaced rule stays struck through under its replacement with its date; a
 retired one is struck through with "retired". (MADR's accepted,
 superseded and deprecated, in the catalogue's shape.)
+
+**A string rests on what produced it.** Every word a person sees, a
+label, a button, a message, a sentence they are told to paste, is
+written in the plan with what produced it, one of four: a catalogue
+entry or a house rule that produces the string (`file#id`, or the
+doc's rule name; a rule that merely allows the string is not it), a
+product looked up and named, whose address the plan's Sources keeps, a
+person's decision, or the agent's choice with what was looked at and
+why none of it settles the string. Nothing is too small to look up;
+what a small choice skips is the question to the owner, not the
+research. A plan's "Words" section holds them, the executor types
+nothing outside it, and the review against the plan checks the diff's
+strings against it. (Javi, 29 October: even simple text goes through
+the research; a grounded answer exists before he asks why.)
 
 **A rule whose reason is gone is put to the owner, not followed**: the
 component deleted, the bug impossible, the product changed. The agent
@@ -305,7 +328,8 @@ a thing.
 **The audit's checks**: a path under `ui` changed, or a call to one of
 the `tools` made, and nothing in the catalogue written, answered by the
 entry or a `decisions: none (<why>)` line; a rule written without its
-tier and date. Each is refused once, and the second stop passes.
+tier and date; an agent's choice dated today with no reason. Each is
+refused once, and the second stop passes.
 
 **The talk setup retires into the plugin.** A talk's agent file is the
 maker with a project file (`mcp`, `inherits`, `tools`, `catalogue`, no
@@ -584,7 +608,9 @@ file was needed; and when the project names the paths a user sees and its
 catalogue, a turn that changed one of those paths, or called one of the
 project's `tools`, and wrote nothing in the catalogue is asked for the
 entry, or a `decisions: none (<why>)` line; and a catalogue file changed
-with a rule that lacks its tier and date is asked to add them. A session is
+with a rule that lacks its tier and date is asked to add them, and an
+agent's-choice entry dated today that is the tag alone is asked for its
+reason. A session is
 charged only with its own writes; the planner and the assistant are never
 audited. The refusal is one per turn, so nothing loops. The plain-words
 hook (`scripts/plain-words.mjs`) checks every question to the owner the

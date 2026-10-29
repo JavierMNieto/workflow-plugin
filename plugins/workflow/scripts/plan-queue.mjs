@@ -61,7 +61,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { shellWrites, untiered } from "./turn-audit.mjs";
+import { shellWrites, unreasoned, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
 import {
   PROJECT_FILE,
@@ -3442,7 +3442,8 @@ export function checkDeny(project = proj(), agents = pluginAgents()) {
 
 /**
  * **`plans check`**: every catalogue the project file names, linted. One line
- * per fault: an entry without its tier and date, an id used twice in one
+ * per fault: an entry without its tier and date, an agent's choice with no
+ * reason (old or new: each is a why with no answer), an id used twice in one
  * catalogue, a project entry that says it overrides a `file#id` no inherited
  * catalogue has. Then the count.
  */
@@ -3474,6 +3475,8 @@ export function checkCatalogues(project = proj(), dir = root) {
         lines.push(
           `${where}: no tier and date: ${rule.length > 80 ? `${rule.slice(0, 77)}...` : rule}`,
         );
+      for (const rule of unreasoned(f.text))
+        lines.push(`${where}: no reason: ${rule.length > 80 ? `${rule.slice(0, 77)}...` : rule}`);
       for (const { item, line } of paragraphs(f.text)) {
         entries++;
         const id = /^- `([\w.-]+)`/.exec(item)?.[1];

@@ -630,24 +630,42 @@ describe("the two forms", () => {
     expect(queue(root, ["prompt"], { session_id: "compact-1", agent_type: "executor" })).toBe("");
   });
 
-  it("has a maker agent, and every agent but the assistant names the design-research skill", () => {
+  it("has a maker agent, and every agent names the design-research skill", () => {
     const agents = new URL("../plugins/workflow/agents/", import.meta.url).pathname;
     const maker = readFileSync(join(agents, "maker.md"), "utf8");
     for (const key of ["name: maker", "model: opus", "effort: high", "skills:"])
       expect(maker).toContain(key);
-    for (const agent of ["maker", "planner", "executor"]) {
+    for (const agent of ["maker", "planner", "executor", "assistant"]) {
       const front = /^---\n([\s\S]*?)\n---/.exec(
         readFileSync(join(agents, `${agent}.md`), "utf8"),
       )![1];
       expect(front, agent).toMatch(/skills:\n {2}- design-research/);
     }
-    const assistant = /^---\n([\s\S]*?)\n---/.exec(
-      readFileSync(join(agents, "assistant.md"), "utf8"),
-    )![1];
-    expect(assistant).not.toContain("design-research");
     expect(
       existsSync(new URL("../plugins/workflow/skills/design-research/SKILL.md", import.meta.url)),
     ).toBe(true);
+  });
+});
+
+describe("every string rests on what produced it", () => {
+  const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+  it("the planner, the assistant, the executor and the reviewer name the plan's Words; the skill no longer skips the research", () => {
+    for (const agent of ["planner", "assistant", "executor", "reviewer"])
+      expect(readFileSync(join(plugin, "agents", `${agent}.md`), "utf8"), agent).toContain("Words");
+    expect(
+      readFileSync(join(plugin, "skills", "design-research", "SKILL.md"), "utf8"),
+    ).not.toContain("needs no question");
+  });
+
+  it("the audit's tier hint asks for what was looked at", () => {
+    expect(
+      reasonFor(["docs/patterns/a.md"], "", "", {
+        catalogue: "docs/patterns",
+        texts: { "docs/patterns/a.md": "- **No tier.**\n" },
+        day: "27 October",
+        who: "Javi",
+      }),
+    ).toContain("(the agent's choice, 27 October, <what was looked at>)");
   });
 });
 
@@ -811,7 +829,10 @@ describe("the catalogue follow-up", () => {
     writeFileSync(join(root, "decisions", "a.md"), "- `x` **One.** (Javi, 2026-10-21)\n");
     if (!clean) {
       writeFileSync(join(root, "decisions", "b.md"), "- `x` **Two.** (Javi, 2026-10-21)\n");
-      writeFileSync(join(root, "decisions", "c.md"), "- **No tier.**\n");
+      writeFileSync(
+        join(root, "decisions", "c.md"),
+        "- **No tier.**\n- **Bare choice.** (the agent's choice, 2026-10-21)\n",
+      );
     }
     return root;
   };
@@ -835,7 +856,10 @@ describe("the catalogue follow-up", () => {
     expect(bad.code).toBe(1);
     expect(bad.out).toContain("decisions/c.md: no tier and date: **No tier.**");
     expect(bad.out).toContain("id x is used twice in decisions");
-    expect(bad.out).toContain("3 entries in 3 files, 2 faults.");
+    expect(bad.out).toContain(
+      "decisions/c.md: no reason: **Bare choice.** (the agent's choice, 2026-10-21)",
+    );
+    expect(bad.out).toContain("4 entries in 3 files, 3 faults.");
     const good = plansIn(linted(true), ["check"]);
     expect(good).toMatchObject({ code: 0 });
     expect(good.out).toContain("1 entries in 1 file, no faults.");

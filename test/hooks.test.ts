@@ -22,6 +22,7 @@ import {
   recordTool,
   shellWrites,
   treeFiles,
+  unreasoned,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
 import {
   allowedWhileLocked,
@@ -215,6 +216,131 @@ describe("turn-audit", () => {
   it("stays quiet for a turn that changed nothing", () => {
     run(audit, ["prompt"], { session_id: "t4", prompt: "Explain the keypad" });
     expect(run(audit, ["stop"], { session_id: "t4", stop_hook_active: false })).toBe("");
+  });
+
+  /**
+   * **The agent's choice carries its reason** (plans/every-word-researched.md):
+   * today's entry that is the tag alone is asked for it once; one with a
+   * reason, or dated an earlier day, passes.
+   */
+  it("asks once for the reason of an agent's choice dated today that is the tag alone", () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reasons-"));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    mkdirSync(join(root, ".claude"));
+    mkdirSync(join(root, "docs", "patterns"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "workflow.md"),
+      '---\nname: Reasons\nui:\n  - "src/**"\ncatalogue: docs/patterns\n---\n',
+    );
+    const day = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+    const file = join(root, "docs", "patterns", "words.md");
+    const turn = (id: string, entry: string) => {
+      run(
+        audit,
+        ["prompt"],
+        { session_id: id, prompt: "Record the word" },
+        { CLAUDE_PROJECT_DIR: root },
+      );
+      writeFileSync(file, `# Words\n\n${entry}\n`);
+      run(
+        audit,
+        ["tool"],
+        { session_id: id, tool_name: "Write", tool_input: { file_path: file } },
+        { CLAUDE_PROJECT_DIR: root },
+      );
+      return run(
+        audit,
+        ["stop"],
+        { session_id: id, stop_hook_active: false, last_assistant_message: "Done." },
+        { CLAUDE_PROJECT_DIR: root },
+      );
+    };
+    const id = `reasons-${process.pid}`;
+    const first = turn(id, `- **Save, not Submit.** (the agent's choice, ${day})`);
+    expect(JSON.parse(first).reason).toContain(
+      `docs/patterns/words.md has 1 agent's choice dated today with no reason: "**Save, not Submit.** (the agent's choice, ${day})". An agent's choice says what was looked at`,
+    );
+    expect(
+      run(
+        audit,
+        ["stop"],
+        { session_id: id, stop_hook_active: true },
+        { CLAUDE_PROJECT_DIR: root },
+      ),
+    ).toBe("");
+    expect(
+      turn(
+        `${id}-tag`,
+        `- **Save, not Submit.** (the agent's choice, ${day}, GitHub and Gmail differ and the house rules say nothing)`,
+      ),
+    ).toBe("");
+    expect(
+      turn(
+        `${id}-after`,
+        `- **Save, not Submit.** (the agent's choice, ${day}) GitHub and Gmail differ.`,
+      ),
+    ).toBe("");
+    // Forty days back is never today.
+    const earlier = new Date(Date.now() - 40 * 86_400_000).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+    });
+    expect(turn(`${id}-old`, `- **Save, not Submit.** (the agent's choice, ${earlier})`)).toBe("");
+    rmSync(root, { recursive: true, force: true });
+    // Thirteen hook runs, each a node process.
+  }, 30_000);
+});
+
+describe("unreasoned", () => {
+  const text = `# Words
+
+- **Bare today.** (the agent's choice, 29 October)
+- **With a clause.** (the agent's choice, 29 October, nothing found in GitHub or Gmail)
+- **With a sentence.** (the agent's choice, 29 October) GitHub and Gmail differ.
+- **Bare and older.** (the agent's choice, 2 May)
+- **Bare in ISO.** (the agent's choice, 2026-10-29)
+- **A person's, bare.** (Javi, 29 October)
+- **A product's.** (as GitHub does, 29 October)
+`;
+
+  it("lists each agent's choice that is the tag alone, never a person's or a product's", () => {
+    expect(unreasoned(text)).toEqual([
+      "**Bare today.** (the agent's choice, 29 October)",
+      "**Bare and older.** (the agent's choice, 2 May)",
+      "**Bare in ISO.** (the agent's choice, 2026-10-29)",
+    ]);
+  });
+
+  it("with a day, only those dated that day, in either way of writing it", () => {
+    expect(unreasoned(text, "29 October")).toEqual([
+      "**Bare today.** (the agent's choice, 29 October)",
+    ]);
+    expect(unreasoned(text, ["29 October", "2026-10-29"])).toEqual([
+      "**Bare today.** (the agent's choice, 29 October)",
+      "**Bare in ISO.** (the agent's choice, 2026-10-29)",
+    ]);
+    const withYears =
+      "- **This year.** (the agent's choice, 29 October 2026)\n- **Last year.** (the agent's choice, 29 October 2025)\n";
+    expect(unreasoned(withYears, ["29 October", "29 October 2026"])).toEqual([
+      "**This year.** (the agent's choice, 29 October 2026)",
+    ]);
+  });
+
+  it("reads a rule's tier from its first tag, never from the struck-through rule kept under it", () => {
+    const history = `- **Save, not Submit.** (Javi, 29 October)
+  ~~**Submit.**~~ (the agent's choice, 1 January)
+- **Bare over history.** (the agent's choice, 29 October)
+  ~~**Older.**~~ (Javi, 1 January) He said so.
+`;
+    expect(unreasoned(history)).toEqual([
+      "**Bare over history.** (the agent's choice, 29 October) ~~**Older.**~~ (Javi, 1 January) He said so.",
+    ]);
+  });
+
+  it("takes a placeholder copied from the hint for no reason", () => {
+    expect(
+      unreasoned("- **Save.** (the agent's choice, 29 October, <what was looked at>)\n"),
+    ).toEqual(["**Save.** (the agent's choice, 29 October, <what was looked at>)"]);
   });
 });
 
