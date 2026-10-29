@@ -13,17 +13,20 @@ order:
 1. **Did the person say how?** If the request already says how the
    control looks or behaves, that is their call: build it and record it
    under their name. If they said to research, skip to step 3.
-2. **Ask, once, with three choices.** Say that no recorded decision covers
-   this control and ask (with the question tool where there is one, by
-   "Asked in plain words" in the workflow's docs):
+2. **A new screen or flow: ask, once, with three choices.** Say that no
+   recorded decision covers it and ask (with the question tool where
+   there is one, by "Asked in plain words" in the workflow's docs):
    - research how the product people already know does it, and follow it
      (the default to recommend);
    - they decide now;
    - you choose, recorded as the agent's choice.
-   A small choice (a word, a label, an icon among standard ones) skips
-   the question, never the research: go to step 3, follow what you find,
-   and record it under the product or source followed. The agent's choice
-   is what is left when step 3 found nothing to follow, and its entry says
+   **Any other control, large or small**, skips the question, never the
+   research (a date-range picker, a word, a label, an icon among standard
+   ones): go to step 3, follow what you find, and record it under the
+   product or source followed. Ask the person only when the research
+   leaves a choice the house rules do not settle, as one question with
+   the options found, by "Asked in plain words". The agent's choice is
+   what is left when step 3 found nothing to follow, and its entry says
    what was looked at.
 3. **Research, in this order.**
    - **The nearest pattern the project already has.** Open the catalogue
@@ -42,9 +45,10 @@ order:
      you looked at.
    - **The house rules**: the docs the project's `CLAUDE.md` names for
      copy and look, and the catalogue's README.
-4. **Say what you found before building anything large**: the product,
-   what it does, and the plan, in a few words. Build after the answer, or
-   at once when the choice is small.
+4. **Say what you found before building a new screen or flow**: the
+   product, what it does, and the plan, in a few words, and build after
+   the answer. Any other control is built at once, unless the research
+   left a choice the house rules do not settle (step 2).
 5. **Record it.** Add the entry to the catalogue file for the control's
    kind, with the tier and today's date: `(<the person's name>, 15
    October)` when they decided, `(as GitHub does, 15 October)` when you

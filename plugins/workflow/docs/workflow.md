@@ -295,9 +295,11 @@ entry or a house rule that produces the string (`file#id`, or the
 doc's rule name; a rule that merely allows the string is not it), a
 product looked up and named, whose address the plan's Sources keeps, a
 person's decision, or the agent's choice with what was looked at and
-why none of it settles the string. Nothing is too small to look up;
-what a small choice skips is the question to the owner, not the
-research. A plan's "Words" section holds them, the executor types
+why none of it settles the string. Nothing is too small to look up,
+and nothing is asked first but a new screen or flow: any other control,
+large or small, skips the question to the owner, not the research, and
+he is asked only when the research leaves a choice the house rules do
+not settle. A plan's "Words" section holds them, the executor types
 nothing outside it, and the review against the plan checks the diff's
 strings against it. (Javi, 29 October: even simple text goes through
 the research; a grounded answer exists before he asks why.)

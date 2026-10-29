@@ -666,6 +666,16 @@ describe("every string rests on what produced it", () => {
     ).not.toContain("needs no question");
   });
 
+  it("the skill's question and the edit-time line name one boundary, a new screen or flow", () => {
+    const skill = readFileSync(join(plugin, "skills", "design-research", "SKILL.md"), "utf8");
+    const step2 = /^2\. [\s\S]*?(?=^3\. )/m.exec(skill)![0];
+    expect(step2).toContain("A new screen or flow: ask, once, with three choices");
+    expect(step2).toContain("Any other control, large or small");
+    expect(readFileSync(join(plugin, "agents", "maker.md"), "utf8")).toContain(
+      "a new screen or flow is asked about",
+    );
+  });
+
   it("the audit's tier hint asks for what was looked at", () => {
     expect(
       reasonFor(["docs/patterns/a.md"], "", "", {

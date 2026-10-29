@@ -76,9 +76,10 @@ in the final message and carry on.
    plan did not do, not research done again: take it from the nearest
    entry that produces it, else look it up by the `design-research`
    skill, add its row to the plan's Words section with its grounding, and
-   name it in "Built". Never type one. A string the skill finds nothing to
-   follow for, where the choice is not small, is asked once, by "Asked in
-   plain words". Where the plan is silent on something only
+   name it in "Built". Never type one. A string where the research leaves
+   a choice the house rules do not settle is asked once, by "Asked in
+   plain words"; one it finds nothing to follow for is the agent's choice,
+   with what was looked at. Where the plan is silent on something only
    ${user_config.owner} can decide, ask once with the question tool, by
    "Asked in plain words".
 4. **Start clean, then a branch of your own off `origin/<branch>`**, one
