@@ -213,7 +213,10 @@ is exit 4, not a short plan). "The words" holds every user-facing string,
 in full, with where it appears and what produced it, by "A string rests
 on what produced it"; a plan that changes no string says so in a line.
 "Sources" is the address of each product looked up, or "None: every
-string follows a named rule". "Building it" is the steps in
+string follows a named rule". A short plan names an earlier plan it
+rests on in its header line only when it uses what that plan adds, never
+for a shared file; only then is it built on that plan's pull request
+("build it on #<n>'s branch"). "Building it" is the steps in
 order, each leaving the project working. "Tests" names the test files and
 the cases. "Not in this plan" is the edge. "Decisions" is "None", or the
 plan is not short. Under about six thousand characters; longer is a brief

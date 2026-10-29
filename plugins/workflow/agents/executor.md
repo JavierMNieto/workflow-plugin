@@ -97,7 +97,8 @@ in the final message and carry on.
    branch, is removed (`git worktree remove --force
    .claude/worktrees/<name>`, `git branch -D <its branch>`). No local
    branch of that name is checked out. Nothing is committed straight to
-   the branch or to `main`, nothing is force-pushed, and a production
+   the branch or to `main`, nothing is force-pushed but a conflicting pull
+   request's own head branch ("In pull request mode"), and a production
    branch moves only when ${user_config.owner} says, unless the project
    file says otherwise.
 5. **Mark the plan as being built**: when you start it, write `## Building,
@@ -256,22 +257,41 @@ With `land: pull-request` in the project file, where this file says
 never `gh pr merge`, never a draft, never a push to the branch itself.
 
 - **A branch per plan**, off `origin/<branch>`, named after the plan's
-  work: `git switch -c <name> origin/<branch>`. **Stacked** when the
-  plan's header names an earlier plan it rests on whose pull request is
-  open, or the plan changes a file an open pull request of this queue
-  changed (`gh pr list --state open --json number,headRefName`, then `gh
-  pr diff <n> --name-only` against the files the plan names): then `git
+  work: `git switch -c <name> origin/<branch>`. **Stacked** only when
+  the plan's header names an earlier plan it rests on, one whose
+  additions it uses, and that plan's pull request is open: then `git
   switch -c <name> <that head branch>`, the pull request's `--base` is
   that branch, and the first line of its body is `Builds on #<n>; merge
   that first.` GitHub retargets it to the branch when the first's head
   branch is deleted on merge (the repository's "Automatically delete head
-  branches"). **At a batch's start**, `git fetch --prune`; then each open
-  pull request of this queue whose base is a branch whose pull request
-  has merged is retargeted, `gh pr edit <n> --base <branch>`; then a local
+  branches"). A plan that only changes a file an open pull request
+  changes is not stacked, so each can be merged or held alone.
+- **At a batch's start**, `git fetch --prune`; then each open pull
+  request of this queue whose base is a branch whose pull request has
+  merged is retargeted, `gh pr edit <n> --base <branch>`; then a local
   branch is deleted (`git branch -D`) only when `gh pr view <name> --json
   state,headRefOid` says MERGED at the branch's own commit. A branch
   whose pull request was closed unmerged, or that holds commits past it,
   stays, named in the final message.
+- **Then a conflicting pull request is refreshed**, each open pull
+  request of this queue that GitHub reports as conflicting (`gh pr view
+  <n> --json mergeable,baseRefName,headRefName,headRefOid`, `mergeable`
+  `CONFLICTING`; one still `UNKNOWN` is asked again once the others are
+  done, and named in the final message if it stays so), a pull request
+  before the ones stacked on it. Its work starts from its head as GitHub
+  has it, `git switch -C <head branch> origin/<head branch>`, unless the
+  local branch holds commits that head lacks: then it is left and named.
+  It is rebased onto its own base, `origin/<baseRefName>` (the branch, or
+  the head branch it is stacked on; one stacked on a pull request just
+  refreshed, `git rebase --onto origin/<base> <the base's old head>`).
+  The project's checks and suites run again, and it is pushed with `git
+  push --force-with-lease=<head branch>:<headRefOid> origin <head
+  branch>`, to its own head branch only, never to the branch, and only
+  if nobody pushed to it since the fetch. Its plan's "Built" gets a line,
+  `Refreshed <date> onto <base>: <the files whose conflicts were
+  settled>`. A conflict that cannot be settled from the two plans is left
+  as it is (`git rebase --abort`) and named in the final message; then
+  `git checkout --detach origin/<branch>` before the first plan's branch.
 - **"Before the push" runs once per plan**, before that plan's pull
   request, the screenshots, the reviews and the suites included: each
   pull request is checked on its own.

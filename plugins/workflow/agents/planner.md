@@ -133,7 +133,10 @@ characters is the usual size; longer is a plan that should be two.
 
 1. **Title**, then one line: "Plan only, <date>, for ${user_config.owner};
    the executor builds it. Read with <the project's docs> ("<rule
-   names>") and the earlier plans it rests on."
+   names>") and the earlier plans it rests on." A plan rests on another
+   only when it uses what that plan adds, never for a shared file; only
+   then is it built on that plan's pull request ("build it on #<n>'s
+   branch").
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When

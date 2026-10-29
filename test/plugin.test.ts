@@ -1308,6 +1308,37 @@ describe("a plan still asking, whoever names it", () => {
   });
 });
 
+describe("a pull request stacked only on one it cannot be built without", () => {
+  const read = (path: string) =>
+    readFileSync(new URL(`../plugins/workflow/${path}`, import.meta.url), "utf8");
+
+  it("has the executor stack on use, never on a shared file, and refresh a conflicting pull request", () => {
+    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
+      .exec(read("agents/executor.md"))![0]
+      .replace(/\s+/g, " ");
+    expect(mode).not.toContain("--name-only");
+    expect(mode).toContain("one whose additions it uses");
+    expect(mode).toContain("only changes a file an open pull request changes is not stacked");
+    expect(mode).toContain("`mergeable` `CONFLICTING`");
+    // From the head as GitHub has it, onto its own base, leased against the fetched head.
+    expect(mode).toContain("`git switch -C <head branch> origin/<head branch>`");
+    expect(mode).toContain("rebased onto its own base, `origin/<baseRefName>`");
+    expect(mode).toContain(
+      "`git push --force-with-lease=<head branch>:<headRefOid> origin <head branch>`, to its own head branch only, never to the branch",
+    );
+  });
+
+  it("has the docs, the planner and the assistant name a plan rested on only when it is used", () => {
+    expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
+      "rests on an open pull request (uses what it adds) is stacked on it; one that only changes the same file is not",
+    );
+    for (const agent of ["planner", "assistant"])
+      expect(read(`agents/${agent}.md`).replace(/\s+/g, " ")).toContain(
+        "only when it uses what that plan adds, never for a shared file",
+      );
+  });
+});
+
 describe("the reuse ceiling and the reviewer", () => {
   it("has the executor stop at one retry of a push refused for credentials", () => {
     const text = readFileSync(

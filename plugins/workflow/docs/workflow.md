@@ -173,12 +173,19 @@ line each, then where to try it. The project's "Before the push" runs
 once per plan, since each pull request is checked on its own; the Stop
 hook reads the pull request's checks instead of the run ("The queue");
 the merge is the people's, and the executor never merges. A plan that
-rests on an open pull request, or changes a file one changes, is stacked
-on it: its branch starts at that pull request's head, its base is that
-branch, and GitHub retargets it when the first's head branch is deleted
-on merge (the executor retargets it at its next batch otherwise). The
-compact form has no pull request mode: the maker reads no `land`, and a
-compact project that wants pull requests is the full form's. Absent, the
+rests on an open pull request (uses what it adds) is stacked on it; one
+that only changes the same file is not, and is rebased if it conflicts
+once the other merges. A stacked plan's branch starts at that pull
+request's head, its base is that branch, and GitHub retargets it when
+the first's head branch is deleted on merge (the executor retargets it
+at its next batch otherwise). At a batch's start the executor rebases
+each open pull request GitHub reports as conflicting onto its own base,
+from its head as GitHub has it, runs its checks again and pushes it with
+`--force-with-lease` against that head to its own head branch, never to
+the branch (Javi, 29 October: each pull request is merged or held
+alone). The compact form has no pull request mode: the maker reads no
+`land`, and a compact project that wants pull requests is the full
+form's. Absent, the
 executor pushes to the branch, fast-forward. One pull request per plan,
 opened ready, not as a draft (Javi, 28 October): each is one topic the
 other person approves or turns down alone. `run` keeps its meaning; in
