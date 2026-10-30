@@ -1521,7 +1521,11 @@ describe("a pull request per topic", () => {
     expect(mode).toContain("never `gh pr ready` without `--undo`");
     // plans/draft-says-nothing-about-itself.md: GitHub already shows a draft as one.
     expect(mode).not.toContain("Opened as a draft");
+    expect(read("docs/workflow.md")).not.toContain("The draft's first line says so");
     expect(mode).toContain("`gh pr comment <n> --body 'Added");
+    // Javi, 30 October: the comment says nothing of the draft either.
+    expect(mode).not.toContain("a draft again until");
+    expect(mode).not.toContain("its comment says so");
     // The shorter description.
     expect(mode).toContain("## Screenshots");
     expect(mode).not.toContain("None: no rule changed");

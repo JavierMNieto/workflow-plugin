@@ -278,8 +278,8 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   request"): a topic's `gh pr create` takes `--draft`, and a plan that
   joins a pull request he has marked ready (`gh pr view <n> --json
   isDraft` says false) converts it back with `gh pr ready --undo <n>`
-  before its commit is pushed, so its work is never mergeable unread,
-  and its comment says so; a conversion that fails stops the push.
+  before its commit is pushed, so its work is never mergeable unread;
+  a conversion that fails stops the push.
   The refresh and the retarget, which add no work of yours, leave the
   state as it is; the day's fixes pull request opens ready and is never
   converted, since a fix has nothing to decide. You never run `gh pr
@@ -308,12 +308,11 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
     names an earlier plan it rests on, one whose additions it uses, and
     that plan's pull request is open: then `git switch -c <name> <that
     head branch>`, the pull request's `--base` is that branch, and the
-    first line of its body is `Builds on #<n>;
-    merge that first.` GitHub
-    retargets it to the branch when the first's head branch is deleted on
-    merge (the repository's "Automatically delete head branches"). A plan
-    that only changes a file an open pull request changes is not stacked,
-    so each can be merged or held alone.
+    first line of its body is `Builds on #<n>; merge that first.`
+    GitHub retargets it to the branch when the first's head branch is
+    deleted on merge (the repository's "Automatically delete head
+    branches"). A plan that only changes a file an open pull request
+    changes is not stacked, so each can be merged or held alone.
   - **A waiting branch** (`origin/<name>` exists and no open pull request
     has it as head): `git switch -C <name> origin/<name>`, unless the local
     branch holds commits the remote lacks (then the local one, pushed
@@ -407,15 +406,14 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
     (`gh pr view <n> --json body`), and set with `gh pr edit <n>
     --body-file`, the pull request made a draft again before the push
     when it was not one (`gh pr view <n> --json isDraft`, `gh pr ready
-    --undo <n>`), since the plan's work is his to review; then one comment, since GitHub tells the people of a comment
-    and not of a push or an edit: `gh pr comment <n> --body 'Added "<the
-    plan's title>": <its decisions' bold sentences, a semicolon between;
-    or "no decision in it">. The description above now includes it.'`,
-    and, when it was converted back, `Added "<the plan's title>": <its
-    decisions, as above>; a draft again until ${user_config.owner} has
-    reviewed it. The description above now includes it.`, with `--attach
-    <file>#<the line>` for each of the plan's screenshots, since `gh pr
-    edit` attaches nothing, and the description lists those by their line
+    --undo <n>`), since the plan's work is his to review; then one
+    comment, since GitHub tells the people of a comment and not of a push
+    or an edit: `gh pr comment <n> --body 'Added "<the plan's title>":
+    <its decisions' bold sentences, a semicolon between; or "no decision
+    in it">. The description above now includes it.'`, the same when it
+    was converted back, since GitHub's timeline shows that already, with
+    `--attach <file>#<the line>` for each of the plan's screenshots, since
+    `gh pr edit` attaches nothing, and the description lists those by their line
     with `(in the comment below)` in place of the image. "Built" opens with
     `Pull request #<n> (<url>) joined, commit <sha>; draft, checks green.`;
     for a plan marked waiting, a line says the pull request was open

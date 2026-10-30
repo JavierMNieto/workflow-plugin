@@ -291,9 +291,9 @@ ready for review on GitHub, the one act that lets anyone merge it and
 asks for anyone else's reading; no agent marks it ready, and the
 plugin refuses an agent's `gh pr ready` (`--undo` allowed); a later
 plan's work he has not reviewed makes it a draft again, while a merge of
-the base changes nothing he must read and leaves it as it is. The day's fixes pull
-request opens ready, since a fix has nothing to decide, and a fix wanted
-now opens no pull request; neither asks for a reading. (GitHub's draft
+the base changes nothing he must read and leaves it as it is. The day's
+fixes pull request opens ready, since a fix has nothing to decide, and a
+fix wanted now opens no pull request; neither asks for a reading. (GitHub's draft
 pull requests, which nobody can merge until the author marks them ready;
 Gerrit's work in progress, visible to anyone and asking nothing of a
 reviewer. Javi, 30 October: no pull request asks anyone else's time
