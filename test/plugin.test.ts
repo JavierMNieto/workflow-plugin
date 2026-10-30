@@ -1354,6 +1354,11 @@ describe("a pull request per topic", () => {
     expect(mode).toContain("`fixes-<yyyy-mm-dd>`");
     expect(mode).toContain('--title "Small fixes, <d Month yyyy>"');
     expect(mode).toContain("--head fixes-<yyyy-mm-dd>");
+    // A fix after the day's pull request merged waits for tomorrow's (Javi, 30 October).
+    expect(mode).toContain("the fix **waits for tomorrow**");
+    expect(mode).toContain(
+      "`fixes-<the next day's yyyy-mm-dd>`, pushed, and no pull request opens",
+    );
     // A fix wanted now: the fast-forward push to the branch, then the Already on list.
     expect(mode).toContain("**A fix wanted now**, `Lands: fix, now.`");
     expect(mode).toContain("`git push origin HEAD:<branch>` as a fast-forward");

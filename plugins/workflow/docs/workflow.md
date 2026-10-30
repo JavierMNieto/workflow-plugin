@@ -637,9 +637,12 @@ commit's title and the plan's path; the screenshots the fixes sent, each
 with its line; under `Already on <branch>`, the day's fixes pushed
 straight, read off `git log`, the commits whose title does not end in
 GitHub's squash suffix ` (#<n>)`; and where to try it. The queue keeps no
-state for it: the day's pull request is found by its branch, a day
-whose pull request was merged starts a new one, and an earlier day's
-still open is left to the people.
+state for it: the day's pull request is found by its branch, and an
+earlier day's still open is left to the people. A fix that comes after
+the day's pull request was merged or closed waits for tomorrow (the
+owner, 30 October: never two in a day): it is built on the next day's
+branch, pushed, and listed with the topics waiting for a pull request,
+which the next day's first fix, or the next batch on that day, opens.
 
 **What a context costs.** Every turn re-reads the session's whole
 context at the cache-read price: a plan of about 120 turns reads about

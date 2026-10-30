@@ -376,14 +376,27 @@ merge`, never a draft, and the branch itself is pushed only for a
   --body-file`, and no comment, since a fix
   has nothing to decide; a later fix's screenshots go up in one comment,
   `gh pr comment <n> --body "<the line>" --attach <file>#<the line>`, as
-  `gh pr edit` attaches nothing. With none open (none yet, or the
-  day's merged or closed): `git switch -C fixes-<yyyy-mm-dd>
-  origin/<branch>`, one commit, `git push -u origin fixes-<yyyy-mm-dd>`
-  (`--force-with-lease=fixes-<yyyy-mm-dd>:<its fetched tip>` when an old
-  one is still there), then `gh pr create --base <branch> --title "Small
-  fixes, <d Month yyyy>" --body-file plans/<the plan>/pull-request.md
-  --attach ...`, the date as the plans write it (`30 October 2026`). An
-  earlier day's fixes pull request still open is left to the people.
+  `gh pr edit` attaches nothing. With none open and none merged or closed that day (`gh pr list
+  --state all --head fixes-<yyyy-mm-dd>` finds none): `git switch -C
+  fixes-<yyyy-mm-dd> origin/fixes-<yyyy-mm-dd>` when an earlier fix waits
+  on it (below), rebased onto `origin/<branch>`, else `git switch -C
+  fixes-<yyyy-mm-dd> origin/<branch>`; one commit, `git push -u origin
+  fixes-<yyyy-mm-dd>` (`--force-with-lease=fixes-<yyyy-mm-dd>:<its fetched
+  tip>` after the rebase), then `gh pr create --base <branch> --title
+  "Small fixes, <d Month yyyy>" --body-file plans/<the plan>/pull-request.md
+  --attach ...`, the date as the plans write it (`30 October 2026`). With
+  the day's pull request merged or closed already, the fix **waits for
+  tomorrow** (${user_config.owner}, 30 October: never two fixes pull
+  requests in a day): it is built the same way on the next day's branch,
+  `fixes-<the next day's yyyy-mm-dd>`, pushed, and no pull request opens;
+  "Built" opens with `On topic fixes-<the next day's yyyy-mm-dd>, commit
+  <sha>, branch pushed; its pull request waits.`, and `plans` lists it
+  under "Topics waiting for a pull request". On that day the first fix
+  takes the branch, as above, and opens its pull request with both; at a
+  batch's start, a `fixes-<yyyy-mm-dd>` branch whose day has come, with
+  no pull request, has its pull request opened by the same command, its
+  plans' Built sections each getting the "opened" line. An earlier day's
+  fixes pull request still open is left to the people.
   "Built" opens with `Pull request #<n>
   (<url>) of the day's fixes, commit <sha>; open, checks green.`
 - **A fix wanted now**, `Lands: fix, now.`: a branch of its own off
