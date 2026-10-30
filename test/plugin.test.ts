@@ -1519,7 +1519,8 @@ describe("a pull request per topic", () => {
     // plans/owner-reviews-before-anyone-else.md: a topic's pull request opens as a draft.
     expect(mode).toContain("gh pr create --draft --base");
     expect(mode).toContain("never `gh pr ready` without `--undo`");
-    expect(mode).toContain("Opened as a draft, which it stays until <owner> has reviewed it");
+    // plans/draft-says-nothing-about-itself.md: GitHub already shows a draft as one.
+    expect(mode).not.toContain("Opened as a draft");
     expect(mode).toContain("`gh pr comment <n> --body 'Added");
     // The shorter description.
     expect(mode).toContain("## Screenshots");

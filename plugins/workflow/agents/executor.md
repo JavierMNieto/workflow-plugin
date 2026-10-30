@@ -308,7 +308,7 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
     names an earlier plan it rests on, one whose additions it uses, and
     that plan's pull request is open: then `git switch -c <name> <that
     head branch>`, the pull request's `--base` is that branch, and the
-    first line of its body after the draft's line is `Builds on #<n>;
+    first line of its body is `Builds on #<n>;
     merge that first.` GitHub
     retargets it to the branch when the first's head branch is deleted on
     merge (the repository's "Automatically delete head branches"). A plan
@@ -524,9 +524,6 @@ project's spelling; every string from the plans or the catalogue; the
 whole of it, screenshots aside, fits one screen:
 
 ```
-Opened as a draft, which it stays until <owner> has reviewed it
-himself and marked it ready for review; before that it asks for
-nobody's time.
 Builds on #<n>; merge that first.             <- stacked plans only
 Related: #<n>.                                <- plans with a Related line only
 
@@ -555,16 +552,9 @@ tracked). Checks: <the checks workflow's name>.
 <the attribution lines the session gives for a pull request>
 ```
 
-- **The draft's line** is first, so GitHub's notification of the new
-  pull request, which shows the body's start, says it before anything
-  else; `<owner>` is ${user_config.owner}'s name as the project writes
-  it; every rewrite of the description keeps it word for word, and
-  nobody edits the body when he marks it ready, which is why it is worded
-  to hold after he does. The day's fixes description has
-  no such line: it opens ready.
 - **Related**: the plans' `Related` lines as written (`Related: #31.`,
   `Related: #31 and branch <name>.`), each item kept, one line, right
-  after `Builds on`, or after the draft's line; GitHub links it and writes a backlink on
+  after `Builds on`, or first; GitHub links it and writes a backlink on
   the other pull request's timeline, so its people see it where they
   read. With no line, nothing. You never look for related work yourself,
   since the plan's author did, and never comment on another person's pull
