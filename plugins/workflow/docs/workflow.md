@@ -211,7 +211,13 @@ each open pull request GitHub reports as conflicting onto its own base,
 from its head as GitHub has it, runs its checks again and pushes it with
 `--force-with-lease` against that head to its own head branch, never to
 the branch (Javi, 29 October: each pull request is merged or held
-alone). The compact form has no pull request mode: the maker reads no
+alone). The executor refreshes only its own person's pull requests, with
+the checks alone: those opened by its machine's GitHub account (`gh pr
+list --author @me`) whose number or head branch a plan in its
+checkout's `plans/` names (a fix's "Built" names the day's pull request
+by its number), never another person's, which their own executor
+refreshes, and not the suites, since the pull request's CI runs on the
+push (Javi, 30 October). The compact form has no pull request mode: the maker reads no
 `land`, and a compact project that wants pull requests is the full
 form's. Absent, the executor pushes everything to the branch,
 fast-forward, and the `Lands` line means nothing. A pull request per

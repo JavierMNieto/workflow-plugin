@@ -305,15 +305,19 @@ merge`, never a draft, and the branch itself is pushed only for a
     `origin/<branch>` or the head it is stacked on): the plan's squash goes
     back to it and no further.
 - **At a batch's start**, `git fetch --prune`; then each open pull
-  request of this queue whose base is a branch whose pull request has
-  merged is retargeted, `gh pr edit <n> --base <branch>`; then a local
-  branch is deleted (`git branch -D`) only when `gh pr view <name> --json
+  request of this queue (opened by this account, `gh pr list --author
+  @me`, whose number or head branch a plan in this checkout's `plans/`
+  names) whose base is a branch whose pull request has merged is
+  retargeted, `gh pr edit <n> --base <branch>`; then a local branch is
+  deleted (`git branch -D`) only when `gh pr view <name> --json
   state,headRefOid` says MERGED at the branch's own commit. A branch
   whose pull request was closed unmerged, or that holds commits past it,
   stays, named in the final message.
 - **Then a conflicting pull request is refreshed**, each open pull
-  request of this queue that GitHub reports as conflicting (`gh pr view
-  <n> --json mergeable,baseRefName,headRefName,headRefOid`, `mergeable`
+  request of this queue (opened by this account, `gh pr list --author
+  @me`, whose number or head branch a plan in this checkout's `plans/`
+  names) that GitHub reports as conflicting (`gh pr view <n> --json
+  mergeable,baseRefName,headRefName,headRefOid`, `mergeable`
   `CONFLICTING`; one still `UNKNOWN` is asked again once the others are
   done, and named in the final message if it stays so), a pull request
   before the ones stacked on it. Its work starts from its head as GitHub
@@ -322,10 +326,11 @@ merge`, never a draft, and the branch itself is pushed only for a
   It is rebased onto its own base, `origin/<baseRefName>` (the branch, or
   the head branch it is stacked on; one stacked on a pull request just
   refreshed, `git rebase --onto origin/<base> <the base's old head>`).
-  The project's checks and suites run again, and it is pushed with `git
-  push --force-with-lease=<head branch>:<headRefOid> origin <head
-  branch>`, to its own head branch only, never to the branch, and only
-  if nobody pushed to it since the fetch. Its plan's "Built" gets a line,
+  The project's checks run again (not the suites; the pull request's CI
+  runs on the push), and it is pushed with `git push
+  --force-with-lease=<head branch>:<headRefOid> origin <head branch>`,
+  to its own head branch only, never to the branch, and only if nobody
+  pushed to it since the fetch. Its plan's "Built" gets a line,
   `Refreshed <date> onto <base>: <the files whose conflicts were
   settled>`. A conflict that cannot be settled from the two plans is left
   as it is (`git rebase --abort`) and named in the final message; then

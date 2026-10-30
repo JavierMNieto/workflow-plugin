@@ -1367,6 +1367,26 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     );
   });
 
+  // plans/refresh-only-your-own.md: only this person's pull requests, with the checks alone.
+  it("has the executor refresh and retarget only its own person's pull requests, with the checks", () => {
+    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
+      .exec(read("agents/executor.md"))![0]
+      .replace(/\s+/g, " ");
+    const own =
+      "each open pull request of this queue (opened by this account, `gh pr list --author @me`, whose number or head branch a plan in this checkout's `plans/` names)";
+    const start = mode.slice(mode.indexOf("**At a batch's start**"));
+    const refresh = mode.slice(mode.indexOf("**Then a conflicting pull request is refreshed**"));
+    expect(start.slice(0, start.indexOf("**Then a conflicting"))).toContain(own);
+    expect(refresh).toContain(own);
+    expect(refresh).toContain(
+      "The project's checks run again (not the suites; the pull request's CI runs on the push)",
+    );
+    expect(mode).not.toContain("checks and suites run again");
+    expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
+      "The executor refreshes only its own person's pull requests, with the checks alone",
+    );
+  });
+
   it("has the docs, the planner and the assistant name a plan rested on only when it is used", () => {
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
       "rests on an open pull request (uses what it adds) is stacked on it; one that only changes the same file is not",
