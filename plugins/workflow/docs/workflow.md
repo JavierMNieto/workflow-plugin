@@ -131,7 +131,7 @@ agents and skills.
 name: Docs                # the project's name in session names
 branch: test              # the branch the executor pushes, fast-forward
 run: checks.yml           # the Actions workflow read after a push; omit for none
-land: pull-request        # the executor opens a pull request to the branch instead of pushing it; omit to push
+land: pull-request        # a pull request per topic and one a day for small fixes; omit to push everything
 ui:                       # paths a user sees, for the turn audit; omit for none
   - "src/components/**"
 catalogue: docs/patterns  # the design catalogue: a directory or one file; omit for none
@@ -162,36 +162,67 @@ and the maker says when a change has outgrown the compact form. `branch`
 may be omitted in a compact project: the maker then commits nothing, and
 a project file needs no repository around it.
 
-**`land: pull-request` lands by pull request.** The executor opens one
-pull request per plan to `branch` instead of pushing it, from a branch of
-its own, titled by the plan's title; its description leads with the
-plan's decisions, each a bold sentence with who decided it, when, the
-rule it replaces and the reason, from the plan's "Decided" and the
-catalogue entries the commit writes, with the screenshots attached under
-the item each shows (`gh pr create --attach`), then the small fixes a
-line each, then where to try it. The project's "Before the push" runs
-once per plan, since each pull request is checked on its own; the Stop
-hook reads the pull request's checks instead of the run ("The queue");
-the merge is the people's, and the executor never merges. A plan that
-rests on an open pull request (uses what it adds) is stacked on it; one
-that only changes the same file is not, and is rebased if it conflicts
-once the other merges. A stacked plan's branch starts at that pull
-request's head, its base is that branch, and GitHub retargets it when
-the first's head branch is deleted on merge (the executor retargets it
-at its next batch otherwise). At a batch's start the executor rebases
+**`land: pull-request` lands by pull request.** A plan says where it
+lands in a `Lands` line under its header paragraph, which its author
+writes: the planner on a plan, the assistant on a short plan, since the
+author is the one who heard the owner say whether he wanted the thing or
+only a start. There are three landings:
+
+- **A topic** (`Lands: topic <name>, ready.` or `Lands: topic <name>,
+  waiting.`): the plans on one topic are built on one branch, the
+  topic's name, one commit per plan, the branch pushed after each so it
+  survives the container and the people can look at it. Its pull request
+  opens with the first plan marked `ready`, when the topic holds its
+  central decision or two substantial ones, from every plan of the topic
+  so far, titled by the ready plan's title; until then the topic waits on
+  its branch, rebased onto `branch` when its next plan starts, since
+  nobody has read it yet. A later plan joins an open pull request: the
+  description is written again and one comment says what was added,
+  since GitHub tells the people of a comment and not of a push. A later
+  plan with a central decision of its own is a new topic. A plan with no
+  `Lands` line is a topic of its own, ready: nothing lands unread by
+  omission.
+- **A fix** (`Lands: fix.`): a short plan with no decision in it, that
+  changes no catalogue rule and no doc rule, goes into the day's fixes
+  pull request ("The day's fixes", below).
+- **A fix wanted now** (`Lands: fix, now.`, only on the owner's word):
+  pushed straight to `branch`, fast-forward, after the project's "Before
+  the push" list, its `run` read as the push mode reads it, and listed in
+  the day's fixes pull request under what is already on `branch`.
+
+A fix whose commit turns out to change a rule lands as a waiting topic
+instead, and the owner says through the assistant whether it is ready.
+The description leads with the decisions, each a bold sentence with who
+decided it, when, the rule it replaces, one sentence of reason and the
+catalogue entry's id; then the screenshots, each under one line saying
+what changed in it, attached with `gh pr create --attach`; then the
+other changes a line each; then where to try it; the whole, screenshots
+aside, on one screen. The project's "Before the push" runs once per
+plan, the reviews included, a fix's as well; the Stop hook reads the
+pull requests' checks, then the run a fix pushed straight set off ("The
+queue"); the merge is the people's, and the executor never merges. A
+plan that rests on an open pull request (uses what it adds) is stacked
+on it; one that only changes the same file is not, and is rebased if it
+conflicts once the other merges. A stacked plan's branch starts at that
+pull request's head, its base is that branch, and GitHub retargets it
+when the first's head branch is deleted on merge (the executor retargets
+it at its next batch otherwise). At a batch's start the executor rebases
 each open pull request GitHub reports as conflicting onto its own base,
 from its head as GitHub has it, runs its checks again and pushes it with
 `--force-with-lease` against that head to its own head branch, never to
 the branch (Javi, 29 October: each pull request is merged or held
 alone). The compact form has no pull request mode: the maker reads no
 `land`, and a compact project that wants pull requests is the full
-form's. Absent, the
-executor pushes to the branch, fast-forward. One pull request per plan,
-opened ready, not as a draft (Javi, 28 October): each is one topic the
-other person approves or turns down alone. `run` keeps its meaning; in
-this mode the queue reads no run, since the push to the branch is the
-merge, and the project file's **After the push** says what the merge
-sets off.
+form's. Absent, the executor pushes everything to the branch,
+fast-forward, and the `Lands` line means nothing. A pull request per
+topic, opened ready when the topic has its central decision or two
+substantial ones, never as a draft; the day's fixes, with no decision in
+them, one pull request a day, and one wanted on the site at once
+straight to the branch and listed there (Javi, 30 October, with the
+other person; from 28 to 30 October one per plan, which made nine in a
+day). `run` keeps its meaning: the push of a fix wanted now is read by
+it, and the project file's **After the push** says what a merge or that
+push sets off.
 
 **`mcp` names the MCP configs a chat here needs** (a PowerPoint bridge, a
 database), which `plans chat` and every chat the queue starts pass on the
@@ -361,9 +392,15 @@ check`. A talk's decisions file is read as it is.
 Plans reach the executor without the owner carrying them, with no agent
 and no daemon of their own. A plan's state is in its file: `## Built` is built
 (its commit the first eight-hex word there, and the pull request it
-opened when its first line is `Pull request #<n> (<url>) to <branch> from
-branch <name>, commit <sha>; open, checks green.`, which `plans` lists
-as `#<n>, <open|merged|closed>`); `## Building, <date>,
+opened, joined or was opened with when a line of it starts `Pull request
+#<n>`, as in `Pull request #<n> (<url>) to <branch> from branch <name>,
+commit <sha>; open, checks green.`, which `plans` lists as `#<n>,
+<open|merged|closed>`; a fix pushed straight, whose section opens
+`Pushed straight to <branch> as a fix`, as `<sha>, on <branch>, a fix`;
+a topic waiting, whose section opens `On topic <name>`, as `topic
+<name>, waiting`, with a line of the topics waiting for a pull request
+under the built plans); in pull request mode a ready plan's row says
+where its `Lands` line lands it; `## Building, <date>,
 session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
 over and resumed first; a `Plan only` or `Short plan` header dated 24
@@ -385,8 +422,8 @@ checkout has one executor; its Stop hook refuses a stop on a red or
 unfinished run of the session's push (the project's `run`), or, with
 `land: pull-request`, on a red or unfinished pull request of the
 checkout (an open one whose head branch is a local branch here at the
-same commit, its checks read with `gh pr list`; no checks is green),
-then names the
+same commit, its checks read with `gh pr list`; no checks is green), and
+then on the run of a fix pushed straight, then names the
 waiting plans to a session that may be reused (`mayReuse`: no
 compaction, or one and a waiting plan names a file the batch changed,
 counted from where the batch's first Building line was written; a
@@ -586,6 +623,23 @@ send it while the plan is built. The plan is not held for the group's
 answer and the queue has no state for it (Javi, 28 October: the speed,
 since nothing lands until a person merges); a group that has already
 agreed is written in "Decided", with no message.
+
+**The day's fixes.** With `land: pull-request`, the day's `Lands: fix.`
+plans are one pull request, `Small fixes, <d Month yyyy>` from the branch
+`fixes-<yyyy-mm-dd>` (the owner, 30 October: a daily pull request for
+the small fixes, rather than a message for the group, which would look
+odd there; Rust's rollups and Dependabot's grouped updates batch small
+changes the same way). The executor opens it with the day's first fix
+and rewrites its description with each next one, with no comment, since
+a fix has nothing to decide; the people merge it when they like, and
+nobody has to read it. Its description lists every fix, a line each, the
+commit's title and the plan's path; the screenshots the fixes sent, each
+with its line; under `Already on <branch>`, the day's fixes pushed
+straight, read off `git log`, the commits whose title does not end in
+GitHub's squash suffix ` (#<n>)`; and where to try it. The queue keeps no
+state for it: the day's pull request is found by its branch, a day
+whose pull request was merged starts a new one, and an earlier day's
+still open is left to the people.
 
 **What a context costs.** Every turn re-reads the session's whole
 context at the cache-read price: a plan of about 120 turns reads about

@@ -740,11 +740,14 @@ describe("plan-queue", () => {
       ).toMatchObject({ refuse: true, runId: "21@0badc0de" });
     });
 
-    it("names a pull request per plan to an executor taking more, in the pull request mode", () => {
+    it("names each plan's landing by its Lands line to an executor taking more, in the pull request mode", () => {
       const waiting = [plan("plans/a.md")];
       expect(decideStop({ waiting })!.reason).toContain("the suites once at the end");
       const reason = decideStop({ waiting, land: "pull-request" })!.reason;
-      expect(reason).toContain("one commit and one pull request per plan");
+      expect(reason).toContain("each by its Lands line");
+      expect(reason).toContain("the day's fixes pull request");
+      expect(reason).toContain("its pull request when the topic is ready");
+      expect(reason).not.toContain("one pull request per plan");
       expect(reason).not.toContain("the suites once at the end");
     });
 
@@ -1857,6 +1860,20 @@ describe("the planner queue", () => {
         "# X\n\nPlan only, 26 October 2026, for Javi.\n\n## Built, 28 October 2026\n\nPull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; open, checks green.\n",
       ),
     ).toBe("built, pull request #21");
+    // plans/pull-requests-by-topic.md: a fix pushed straight, and a topic waiting.
+    const head = "# X\n\nPlan only, 30 October 2026, for Javi.\n\n## Built, 30 October 2026\n\n";
+    expect(
+      whoTook(`${head}Pushed straight to test as a fix, commit 61c4a812; checks.yml green.\n`),
+    ).toBe("built, straight to test");
+    // The branch the Built line names, not the project file's today.
+    expect(
+      whoTook(`${head}Pushed straight to main as a fix, commit 61c4a812; no run to read.\n`),
+    ).toBe("built, straight to main");
+    expect(
+      whoTook(
+        `${head}On topic pictures, commit 61c4a812, branch pushed; its pull request waits.\n`,
+      ),
+    ).toBe("built, on topic pictures");
   });
 
   it("tells a planner where each of its plans stands", () => {
@@ -2154,6 +2171,67 @@ describe("the queue's faults, closed", () => {
   });
 
   describe("stateOf", () => {
+    // plans/pull-requests-by-topic.md, part 1 and part 6.
+    it("reads the Lands line under the header, and none as null", () => {
+      const head = "# P\n\nPlan only, 30 October 2026, for Javi.\n\n";
+      const lands = (line: string) => stateOf(`${head}${line}\n\n## What was asked\n`)?.lands;
+      expect(lands("Lands: fix.")).toEqual({ kind: "fix", now: false });
+      expect(lands("Lands: fix, now.")).toEqual({ kind: "fix", now: true });
+      expect(lands("Lands: topic pictures, waiting.")).toEqual({
+        kind: "topic",
+        name: "pictures",
+        ready: false,
+      });
+      expect(lands("Lands: topic pictures, ready.")).toEqual({
+        kind: "topic",
+        name: "pictures",
+        ready: true,
+      });
+      expect(lands("")).toBeNull();
+      // Hand-wrapped, or with its full stop left off.
+      expect(lands("Lands: topic pull-requests-by-topic,\nwaiting.")).toEqual({
+        kind: "topic",
+        name: "pull-requests-by-topic",
+        ready: false,
+      });
+      expect(lands("Lands: fix")).toEqual({ kind: "fix", now: false });
+      // A Lands line inside a later section is not the plan's.
+      expect(stateOf(`${head}## What was asked\n\nLands: fix.\n`)?.lands).toBeNull();
+      // Past a status section written above the header.
+      expect(
+        stateOf(
+          `# P\n\n## Building, 30 October 2026, session abc\n\nPlan only, 30 October 2026.\n\nLands: fix.\n`,
+        )?.lands,
+      ).toEqual({ kind: "fix", now: false });
+    });
+
+    it("reads a fix pushed straight, a topic waiting, and a pull request opened or joined later", () => {
+      const head = "# P\n\nPlan only, 30 October 2026, for Javi.\n\n## Built, 30 October 2026\n\n";
+      expect(
+        stateOf(`${head}Pushed straight to test as a fix, commit 61c4a812; image.yml green.\n`),
+      ).toMatchObject({ state: "built", fix: true, topic: "", sha: "61c4a812", pr: 0 });
+      const waiting = `${head}On topic pictures, commit 61c4a812, branch pushed; its pull request waits.\n`;
+      expect(stateOf(waiting)).toMatchObject({ fix: false, topic: "pictures", pr: 0 });
+      expect(
+        stateOf(
+          waiting.replace(
+            "waits.\n",
+            "waits.\nPull request #22 (https://github.com/o/r/pull/22) opened 30 October 2026 with plans/x.md.\n",
+          ),
+        ),
+      ).toMatchObject({ topic: "pictures", pr: 22 });
+      expect(
+        stateOf(
+          `${head}Pull request #22 (https://github.com/o/r/pull/22) joined, commit 61c4a812; open, checks green.\n`,
+        ),
+      ).toMatchObject({ pr: 22, sha: "61c4a812" });
+      expect(
+        stateOf(
+          `${head}Pull request #23 (https://github.com/o/r/pull/23) of the day's fixes, commit 61c4a812; open, checks green.\n`,
+        ),
+      ).toMatchObject({ pr: 23, sha: "61c4a812" });
+    });
+
     it("reads the pull request a Built section names, and none as 0", () => {
       const head = "# P\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, 28 October 2026\n\n";
       expect(
@@ -2245,6 +2323,107 @@ describe("the queue's faults, closed", () => {
       ]);
     const bare = runIn(dir, ["list"], { PATH: empty });
     expect(bare).toMatch(/plans\/by-pull\.md\s+#21\n/);
+  });
+
+  it("lists a fix pushed straight, a waiting topic and the Ready plans' landings", () => {
+    const dir = fixture("Topics", "land: pull-request\n");
+    const day = today();
+    const built = (name: string, title: string, line: string) =>
+      writeFileSync(
+        join(dir, "plans", name),
+        `# ${title}\n\nPlan only, 30 October 2026, for Javi.\n\n## Built, ${day}\n\n${line}\n`,
+      );
+    built("fix.md", "F", "Pushed straight to test as a fix, commit 61c4a812; checks.yml green.");
+    built(
+      "x.md",
+      "X",
+      "On topic pictures, commit 1234abcd, branch pushed; its pull request waits.",
+    );
+    built(
+      "y.md",
+      "Y",
+      "On topic opened, commit 2234abcd, branch pushed; its pull request waits.\nPull request #22 (https://github.com/o/r/pull/22) opened 30 October 2026 with plans/z.md.",
+    );
+    const ready = (name: string, line: string) =>
+      writeFileSync(
+        join(dir, "plans", name),
+        `# R\n\nPlan only, 30 October 2026, for Javi.\n\n${line}\n\n## What was asked\n`,
+      );
+    ready("ready-topic.md", "Lands: topic pictures, ready.");
+    ready("ready-fix.md", "Lands: fix, now.");
+    ready("no-line.md", "");
+    // A topic opened by its ready plan alone: its Lands line names it.
+    writeFileSync(
+      join(dir, "plans", "w.md"),
+      `# W\n\nPlan only, 30 October 2026, for Javi.\n\n## Built, ${day}\n\nOn topic shown, commit 3234abcd, branch pushed; its pull request waits.\n`,
+    );
+    writeFileSync(
+      join(dir, "plans", "v.md"),
+      `# V\n\nPlan only, 30 October 2026, for Javi.\n\nLands: topic shown, ready.\n\n## Built, ${day}\n\nPull request #24 (https://github.com/o/r/pull/24) to test from branch shown, commit 4234abcd; open, checks green.\n`,
+    );
+    const empty = temp("queue-no-gh-topics-");
+    for (const tool of ["git", "node"])
+      execFileSync("ln", [
+        "-s",
+        execFileSync("which", [tool], { encoding: "utf8" }).trim(),
+        join(empty, tool),
+      ]);
+    const listed = runIn(dir, ["list"], { PATH: empty });
+    expect(listed).toMatch(/plans\/fix\.md\s+61c4a812, on test, a fix\n/);
+    expect(listed).toMatch(/plans\/x\.md\s+topic pictures, waiting\n/);
+    expect(listed).toMatch(/plans\/y\.md\s+#22\n/);
+    expect(listed).toContain("Topics waiting for a pull request\n  pictures: plans/x.md");
+    expect(listed).not.toContain("opened: plans/y.md");
+    expect(listed).not.toContain("shown: plans/w.md");
+    expect(listed).toMatch(/plans\/no-line\.md\s+Plan only, 30 October, topic no-line, ready\n/);
+    expect(listed).toMatch(
+      /plans\/ready-topic\.md\s+Plan only, 30 October, topic pictures, ready\n/,
+    );
+    expect(listed).toMatch(/plans\/ready-fix\.md\s+Plan only, 30 October, a fix, now\n/);
+  });
+
+  it("reads the run a fix pushed straight sets off after the pull requests' checks, in the pull request mode", () => {
+    const dir = fixture("Straight", "land: pull-request\nrun: checks.yml\n");
+    writeFileSync(join(dir, "README"), "one\n");
+    g(dir, "add", ".");
+    g(dir, "commit", "-q", "-m", "one");
+    const sha = g(dir, "rev-parse", "HEAD");
+    const bin = temp("queue-gh-straight-");
+    const run = `echo '[{"databaseId":7,"status":"completed","conclusion":"failure","headSha":"${sha}"}]'`;
+    // No pull request of this checkout: the run on the push is read.
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\nif [ "$1 $2" = "pr list" ]; then echo '[]'; else ${run}; fi\n`,
+    );
+    chmodSync(join(bin, "gh"), 0o755);
+    const env = { PATH: `${bin}:${process.env.PATH}` };
+    const stop = (active: boolean, id = "straight") =>
+      runIn(dir, ["stop"], env, {
+        session_id: `${id}-${process.pid}`,
+        agent_type: "executor",
+        stop_hook_active: active,
+      });
+    // HEAD is no fix this queue pushed straight (another person's merge, say): no run read.
+    expect(stop(false, "straight-none")).toBe("");
+    writeFileSync(
+      join(dir, "plans", "fix.md"),
+      `# F\n\nPlan only, 30 October 2026, for Javi.\n\nLands: fix, now.\n\n## Built, ${today()}\n\nPushed straight to test as a fix, commit ${sha.slice(0, 8)}; checks.yml green.\n`,
+    );
+    const first = stop(false);
+    expect(first).toContain('"decision":"block"');
+    expect(first).toContain("(7) is failed");
+    expect(stop(true)).toBe("");
+    // Both red: the pull request is named first.
+    g(dir, "branch", "land-x");
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\nif [ "$1 $2" = "pr list" ]; then echo '[{"number":21,"url":"https://github.com/o/r/pull/21","headRefName":"land-x","headRefOid":"${sha}","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}]'; else ${run}; fi\n`,
+    );
+    // Both red: the pull request is named first, and the run with it.
+    const both = stop(false, "straight-both");
+    expect(both).toContain("pull request #21");
+    expect(both.indexOf("pull request #21")).toBeLessThan(both.indexOf("(7) is failed"));
+    expect(stop(true, "straight-both")).toBe("");
   });
 
   it("refuses the first stop on a red pull request of this checkout, in the pull request mode", () => {

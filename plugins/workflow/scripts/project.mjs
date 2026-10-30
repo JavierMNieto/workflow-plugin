@@ -410,7 +410,7 @@ export function starter(root) {
 name: ${basename(root)}
 branch: ${defaultBranch(root, { checkedOut: true })}
 # run: checks.yml        the Actions workflow read after a push; omit for none
-# land: pull-request    the executor opens a pull request to the branch instead of pushing it; omit to push
+# land: pull-request    a pull request per topic and one a day for small fixes; omit to push everything
 # ui:                    paths a user sees, for the turn audit; omit for none
 #   - "src/components/**"
 # catalogue: docs/patterns   the design catalogue the audit asks for; omit for none

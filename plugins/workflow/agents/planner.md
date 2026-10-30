@@ -136,7 +136,17 @@ characters is the usual size; longer is a plan that should be two.
    names>") and the earlier plans it rests on." A plan rests on another
    only when it uses what that plan adds, never for a shared file; only
    then is it built on that plan's pull request ("build it on #<n>'s
-   branch").
+   branch"). In a project with `land: pull-request`, a line of its own
+   after that paragraph says where the plan lands: `Lands: topic <name>,
+   ready.` or `Lands: topic <name>, waiting.`, always a topic, since a
+   plan decides and a decision is a rule. `<name>` is the topic's branch
+   name, lower-case words joined by hyphens, named for the topic, not the
+   plan. `ready` when, with this plan, the topic holds its central
+   decision or two substantial ones; `waiting` when ${user_config.owner}
+   said he wanted the thing started, or the plan is a part of a topic
+   other plans will finish. You read the topic's earlier plans, so you
+   say; the plan that marks a topic ready gives its pull request its
+   title, so title it for the whole topic.
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When
@@ -177,7 +187,9 @@ executor ("The queue"): run `plans`; if it names a live executor, send
 that session one message with `SendMessage`, `Plan ready:
 plans/<topic>.md. Build it when you are free, in queue order; nothing to
 answer.`; otherwise run `plans start plans/<topic>.md`. Say in the final
-message which happened, or the script's refusal. One message per plan,
+message which happened, or the script's refusal, and, with `land:
+pull-request`, the plan's topic and whether its pull request opens with
+this plan. One message per plan,
 never a second, and never a message asking the executor for anything
 else. When the queue is paused, write the plan and say so instead.
 "Pause the queue" and "resume the queue" from ${user_config.owner} are

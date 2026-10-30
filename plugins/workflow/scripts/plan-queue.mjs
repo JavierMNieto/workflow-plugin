@@ -228,6 +228,27 @@ export function withoutStatus(text) {
 }
 
 /**
+ * **Where a plan lands**, from its `Lands` line (plans/pull-requests-by-
+ * topic.md, part 1): `{ kind: "fix", now }` or `{ kind: "topic", name, ready
+ * }`, read from the text before the plan's first `## ` heading, past its
+ * status sections; null with none, as a plan in the push mode or an older
+ * plan has.
+ */
+export function landsOf(text = "") {
+  const lines = withoutStatus(text).split("\n");
+  const end = lines.findIndex((line) => /^## /.test(line));
+  const head = (end < 0 ? lines : lines.slice(0, end)).join("\n");
+  // Hand-wrapped prose: the line may wrap anywhere a space is (/code-review).
+  const m =
+    /^Lands:\s+(?:fix(,\s+now)?|topic\s+([a-z0-9]+(?:-[a-z0-9]+)*),\s+(waiting|ready))\.?[ \t]*$/m.exec(
+      head,
+    );
+  if (!m) return null;
+  if (m[2]) return { kind: "topic", name: m[2], ready: m[3] === "ready" };
+  return { kind: "fix", now: Boolean(m[1]) };
+}
+
+/**
  * A plan's place in the queue, read from its text. `live` is the live
  * sessions' ids, or null when they could not be listed, which counts every
  * Building line as live: the safe side.
@@ -255,16 +276,32 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     return { ...base, state: "brief", stale: Boolean(planning) };
   }
   if (!header) return null;
-  const plan = { kind: header[1], day: header[2], date: parseDay(header[2]), mtime };
+  const plan = {
+    kind: header[1],
+    day: header[2],
+    date: parseDay(header[2]),
+    mtime,
+    lands: landsOf(text),
+  };
   const built = /^## Built(?:, ([^\n]+))?/m.exec(text);
   if (built) {
     // The commit is the hash written after "commit", else the section's first eight-hex word.
     const section = sectionAfter(text, /^## Built/m);
     const named = /\bcommit `?([0-9a-f]{8})[0-9a-f]*`?/.exec(section);
     const sha = named ? named[1] : (/\b[0-9a-f]{8}\b/.exec(section)?.[0] ?? "");
-    // **A plan landed by pull request** (`land: pull-request`) names it first.
+    // **A plan landed by pull request** (`land: pull-request`) names it, on
+    // the first line or on the line a topic's later opening adds.
     const pr = Number(/^Pull request #(\d+)/m.exec(section)?.[1] || 0);
-    return { ...plan, state: "built", builtDay: (built[1] || "").trim(), sha, pr };
+    // The section's first line says how the plan landed when it was not by
+    // a pull request: a fix pushed straight, or a topic waiting for one.
+    const opening =
+      section
+        .split("\n")
+        .slice(1)
+        .find((line) => line.trim()) || "";
+    const fix = /^Pushed straight to /.test(opening);
+    const topic = /^On topic ([^\s,]+)/.exec(opening)?.[1] || "";
+    return { ...plan, state: "built", builtDay: (built[1] || "").trim(), sha, pr, fix, topic };
   }
   const resumed = [
     ...text.matchAll(/^## Resumed, [^,\n]+, session [^,\s]+, at step ([^\s,.]+)/gm),
@@ -1141,7 +1178,7 @@ export function decideStop({
       return {
         refuse: true,
         runId: run.id,
-        reason: `The checks on pull request #${n} (${run.pull.url}) are ${run.status === "completed" ? "failing" : "still running"}. Read them before you stop: \`gh pr checks ${n} --watch --fail-fast\`, then on a failure the job's log (\`gh run view <run id> --log-failed\`, the id from \`gh pr checks ${n} --json link\`), fix it, push the branch, and read the new checks.${run.pull.also?.length ? ` ${run.pull.also.length === 1 ? "Pull request" : "Pull requests"} ${andList(run.pull.also.map((m) => `#${m}`))} ${run.pull.also.length === 1 ? "is" : "are"} not green either.` : ""} An open pull request is not done until its checks are green.`,
+        reason: `The checks on pull request #${n} (${run.pull.url}) are ${run.status === "completed" ? "failing" : "still running"}. Read them before you stop: \`gh pr checks ${n} --watch --fail-fast\`, then on a failure the job's log (\`gh run view <run id> --log-failed\`, the id from \`gh pr checks ${n} --json link\`), fix it, push the branch, and read the new checks.${run.pull.also?.length ? ` ${run.pull.also.length === 1 ? "Pull request" : "Pull requests"} ${andList(run.pull.also.map((m) => `#${m}`))} ${run.pull.also.length === 1 ? "is" : "are"} not green either.` : ""}${run.pull.run ? ` The ${run.pull.run.workflow || "Actions"} run on your push (${run.pull.run.id}) is ${run.pull.run.status === "completed" ? "failed" : "in progress"} too: \`gh run watch ${run.pull.run.id} --exit-status\`.` : ""} An open pull request is not done until its checks are green.`,
       };
     }
     return {
@@ -1180,7 +1217,7 @@ export function decideStop({
   if (!keep) return { retire: true, paths, why: verdict.why };
   const how =
     land === "pull-request"
-      ? `a branch per plan off origin/${branch()} (or stacked on the open pull request it rests on), Building lines, the suites before each plan's pull request, one commit and one pull request per plan, its checks watched`
+      ? `each by its Lands line: a fix into the day's fixes pull request, or pushed straight to origin/${branch()} and its run read, a topic's plans on the topic's branch and its pull request when the topic is ready (stacked only on the open pull request it rests on), Building lines, the suites before each plan's push or pull request, one commit per plan`
       : `a new branch off origin/${branch()}, Building lines, the suites once at the end, one commit per plan, the push`;
   return {
     refuse: true,
@@ -2358,12 +2395,18 @@ export function list({ all = false, live } = {}) {
     (p) =>
       `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}, in ${p.askingIn.row.name || "a planner"} [${String(p.askingIn.row.sessionId).slice(0, 8)}], ${statusOf(p.askingIn.row)}, the executor decides at ${hhmm(p.askingIn.until)}`,
   );
+  // **Where each lands**, in the pull request mode, before the build.
+  const byPull = proj().land === "pull-request";
   group(
     "Ready, oldest first",
     plans.filter((p) => (p.state === "ready" || p.state === "handed") && !p.askingIn),
     (p) =>
       [
         `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}`,
+        // A plan with no Lands line is a topic of its own, ready.
+        byPull
+          ? landsWords(p.lands || { kind: "topic", name: basename(p.path, ".md"), ready: true })
+          : "",
         p.state === "handed" ? "handed over, resume" : "",
         p.asks ? "unanswered, the executor decides" : "",
         p.stuck ? `stuck, asks ${owner()}` : "",
@@ -2380,8 +2423,27 @@ export function list({ all = false, live } = {}) {
   group(all ? "Built" : "Built today", shown, (p) =>
     p.pr
       ? [`#${p.pr}`, states?.get(p.pr)].filter(Boolean).join(", ")
-      : [p.sha, onWhere(p.sha)].filter(Boolean).join(", "),
+      : p.topic
+        ? `topic ${p.topic}, waiting`
+        : [p.sha, onWhere(p.sha), p.fix ? "a fix" : ""].filter(Boolean).join(", "),
   );
+  // **The topics built and waiting for their pull request**, oldest first:
+  // a topic none of whose built plans names one yet.
+  // The ready plan's Built names the pull request, not the topic: its
+  // `Lands` line does (/code-review).
+  const opened = new Set(
+    built.filter((p) => p.pr).flatMap((p) => [p.topic, p.lands?.name].filter(Boolean)),
+  );
+  const topics = new Map();
+  for (const p of built)
+    if (p.topic && !p.pr && !opened.has(p.topic))
+      topics.set(p.topic, [...(topics.get(p.topic) || []), p.path]);
+  if (topics.size)
+    out.push(
+      "",
+      "Topics waiting for a pull request",
+      ...[...topics].map(([name, paths]) => `  ${name}: ${paths.join(", ")}`),
+    );
   const old = plans.filter((p) => p.state === "old").length;
   if (old)
     out.push(
@@ -2443,12 +2505,18 @@ function branchTip() {
   }
 }
 
-/** The project's run on its branch (`run` in the project file); null with none, or unread. */
-function imageRun() {
+/**
+ * The project's run on its branch (`run` in the project file); null with
+ * none, or unread. With `only`, the commits a fix pushed straight landed
+ * (their Built lines' eight-hex shas): null unless HEAD is one of them, so
+ * the pull request mode never answers for a run another person's merge set off.
+ */
+function imageRun({ only = null } = {}) {
   const workflow = proj().run;
   if (!workflow) return null;
   try {
     const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    if (only && !only.some((sha) => head.startsWith(sha))) return null;
     const out = execFileSync(
       "gh",
       [
@@ -2478,6 +2546,19 @@ function imageRun() {
     process.stderr.write(`plan-queue: the ${workflow} run could not be read (gh)\n`);
     return null;
   }
+}
+
+/**
+ * **The pull requests' checks, then the run of a fix pushed straight**, as
+ * one answer for `decideStop`: the pull request is named first, and a run
+ * not green on HEAD rides along in its words and its id, so the loop guard
+ * does not let a continued stop pass a run never named (/code-review).
+ */
+export function pullThenRun(pull, run) {
+  const green = (r) => r.status === "completed" && r.conclusion === "success";
+  if (!pull) return run;
+  if (!run || !run.onHead || green(run)) return pull;
+  return { ...pull, id: `${pull.id},run ${run.id}`, pull: { ...pull.pull, run } };
 }
 
 /** A check run's conclusions that make a pull request's checks red. */
@@ -2711,16 +2792,27 @@ export function planTaken(text = "") {
   return /^## (?:Building, |Resumed, |Handing over\b|Built(?:,|\s*$))/m.test(text);
 }
 
+/** A plan's `Lands` line in words, for a Ready row; "" with none. */
+export function landsWords(lands) {
+  if (!lands) return "";
+  if (lands.kind === "fix") return lands.now ? "a fix, now" : "a fix";
+  return `topic ${lands.name}, ${lands.ready ? "ready" : "waiting"}`;
+}
+
 /**
  * Who took a plan, for the planner's messages: "Executor 5 [b92bfc2b] on
  * 26 October 2026" (the live row's name, else "session b92bfc2b"), or
  * "built, commit <sha>" once it is built ("built, pull request #<n>" when it
- * landed by one); "" when nothing took it.
+ * landed by one, "built, straight to <branch>" for a fix pushed straight,
+ * "built, on topic <name>" for a topic waiting); "" when nothing took it.
  */
 export function whoTook(text = "", live = null) {
   if (/^## Built(?:,|\s*$)/m.test(text)) {
     const built = stateOf(text);
     if (built?.pr) return `built, pull request #${built.pr}`;
+    if (built?.fix)
+      return `built, straight to ${/^Pushed straight to (\S+) as a fix/m.exec(text)?.[1] || branch()}`;
+    if (built?.topic) return `built, on topic ${built.topic}`;
     const sha = built?.sha || "";
     return sha ? `built, commit ${sha}` : "built";
   }
@@ -3396,8 +3488,17 @@ function hook(mode, input) {
       compactions: state.compactions,
       waiting,
       handed,
-      // The pull request mode reads its pull requests' checks, the push mode its run.
-      run: proj().land === "pull-request" ? pullChecks() : imageRun(),
+      // The pull request mode reads its pull requests' checks, then the run a
+      // fix pushed straight sets off; the push mode its run.
+      run:
+        proj().land === "pull-request"
+          ? pullThenRun(
+              pullChecks(),
+              imageRun({
+                only: plans.filter((p) => p.state === "built" && p.fix && p.sha).map((p) => p.sha),
+              }),
+            )
+          : imageRun(),
       told: state.told,
       paused: Boolean(pausedSince()),
       retired: state.retired,

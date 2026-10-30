@@ -78,7 +78,8 @@ request mode, so a compact project is not asked and gets no `land`): header `Lan
 change reaches the shared branch. Today the queue pushes it there as soon
 as its checks pass. When more than one person builds here, each can
 instead get a pull request to read first, with the design decisions and
-screenshots on top, and merge it himself.`, options `A pull request to
+screenshots on top, and merge it himself. Small fixes with no decision
+in them come as one pull request a day.`, options `A pull request to
 merge`, description `Nothing lands until one of you merges it; each
 change waits on a person`, and `Pushed straight`, description `Lands the
 moment the checks pass; nobody reads it first`. The pull request is first

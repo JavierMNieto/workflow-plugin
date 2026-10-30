@@ -1339,6 +1339,53 @@ describe("a pull request stacked only on one it cannot be built without", () => 
   });
 });
 
+describe("a pull request per topic", () => {
+  const read = (path: string) =>
+    readFileSync(new URL(`../plugins/workflow/${path}`, import.meta.url), "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+
+  it("has the executor land a fix in the day's pull request or straight, and a topic when it is ready", () => {
+    const text = read("agents/executor.md");
+    const mode = /### In pull request mode[\s\S]*?## After /.exec(text)![0];
+    // A fix: the day's branch and title.
+    expect(mode).toContain("**A fix**, `Lands: fix.`");
+    expect(mode).toContain("`fixes-<yyyy-mm-dd>`");
+    expect(mode).toContain('--title "Small fixes, <d Month yyyy>"');
+    expect(mode).toContain("--head fixes-<yyyy-mm-dd>");
+    // A fix wanted now: the fast-forward push to the branch, then the Already on list.
+    expect(mode).toContain("**A fix wanted now**, `Lands: fix, now.`");
+    expect(mode).toContain("`git push origin HEAD:<branch>` as a fast-forward");
+    expect(mode).toContain("under `Already on <branch>`");
+    // A topic: its name is the branch, its pull request opens with the first ready plan.
+    expect(mode).toContain("**A topic's branch** is the topic's name");
+    expect(mode).toContain("written from every plan of the topic so far, oldest first");
+    expect(mode).toContain("`gh pr edit <n> --body-file`; then one comment");
+    expect(mode).toContain("`gh pr comment <n> --body 'Added");
+    // The shorter description.
+    expect(mode).toContain("## Screenshots");
+    expect(mode).not.toContain("None: no rule changed");
+  });
+
+  it("has the docs, the assistant and the planner say where a plan lands", () => {
+    expect(read("docs/workflow.md")).toContain(
+      "A pull request per topic, opened ready when the topic has its central decision or two substantial ones, never as a draft; the day's fixes, with no decision in them, one pull request a day, and one wanted on the site at once straight to the branch and listed there (Javi, 30 October",
+    );
+    expect(read("docs/workflow.md")).not.toContain("in this mode the queue reads no run");
+    expect(read("agents/assistant.md")).toContain(
+      "Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.",
+    );
+    expect(read("agents/assistant.md")).toContain("`fix, now` only when");
+    expect(read("agents/planner.md")).toContain(
+      "`Lands: topic <name>, ready.` or `Lands: topic <name>, waiting.`",
+    );
+    expect(read("skills/setup/SKILL.md")).toContain(
+      "Small fixes with no decision in them come as one pull request a day.",
+    );
+  });
+});
+
 describe("the reuse ceiling and the reviewer", () => {
   it("has the executor stop at one retry of a push refused for credentials", () => {
     const text = readFileSync(
@@ -1362,7 +1409,7 @@ describe("the reuse ceiling and the reviewer", () => {
     const fresh = dir("land-init-");
     init(fresh);
     expect(readFileSync(join(fresh, ".claude", "workflow.md"), "utf8")).toContain(
-      "# land: pull-request    the executor opens a pull request to the branch instead of pushing it; omit to push",
+      "# land: pull-request    a pull request per topic and one a day for small fixes; omit to push everything",
     );
   });
 

@@ -118,6 +118,20 @@ Say it at the end of every topic, as one of four, with the reason:
    not settle it, is exit 4. You do not ask ${user_config.owner} about a
    string: a question is what the research avoids, and where it leaves a
    choice the topic is the planner's, who asks once ("Asked once").
+   In a project with `land: pull-request`, the plan says where it lands,
+   in its `Lands` line: `fix` when it changes no catalogue rule and no doc
+   rule and its "Decided" records nothing a rule did not already settle,
+   a change minor and plainly an improvement; `fix, now` only when
+   ${user_config.owner} said he wants it on the site at once, never on
+   your own, since a fix pushed straight skips the people's merge. A short
+   plan with a decision in it, however small, is a topic's: a waiting
+   topic it belongs to (`plans` lists them under "Topics waiting for a
+   pull request"), else a new one, `waiting`, unless
+   ${user_config.owner} said this is the whole of it. "That topic is
+   ready" is a short plan with nothing to build, `Lands: topic <name>,
+   ready.`, whose "The change" says the pull request alone; "hold that
+   topic" before its pull request opens is a word to the live executor's
+   chat. The final message says which you wrote and why.
    Write `plans/<topic>.md` in the short form below, in the same turn,
    and hand it to the executor yourself
    ("The queue"): run `plans`; if it names a live executor, send that
@@ -193,6 +207,8 @@ does not need:
 Short plan, <date>, by the assistant with ${user_config.owner}; the
 executor builds it. Read with <the project's docs> ("<rule names>").
 
+Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.
+
 ## What was asked
 ## Decided, <date>
 ## The change
@@ -220,7 +236,9 @@ for a shared file; only then is it built on that plan's pull request
 order, each leaving the project working. "Tests" names the test files and
 the cases. "Not in this plan" is the edge. "Decisions" is "None", or the
 plan is not short. Under about six thousand characters; longer is a brief
-for the planner.
+for the planner. The `Lands` line, in a project with `land:
+pull-request` only, is by exit 3: `<name>` is the topic's branch name,
+lower-case words joined by hyphens, named for the topic, not the plan.
 
 ## The final message
 
