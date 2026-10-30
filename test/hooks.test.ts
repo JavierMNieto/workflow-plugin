@@ -2771,7 +2771,16 @@ describe("the queue's faults, closed", () => {
     const day = today();
     writeFileSync(
       join(dir, "plans", "by-pull.md"),
-      `# A\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nPull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; open, checks green.\n`,
+      `# A\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nPull request #21 (https://github.com/o/r/pull/21) to test from branch x, commit 61c4a812; draft, checks green.\n`,
+    );
+    // plans/owner-reviews-before-anyone-else.md: a draft waits on its owner, read off `isDraft`.
+    writeFileSync(
+      join(dir, "plans", "ready-pull.md"),
+      `# C\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nPull request #22 (https://github.com/o/r/pull/22) to test from branch z, commit 71c4a812; draft, checks green.\n`,
+    );
+    writeFileSync(
+      join(dir, "plans", "merged-pull.md"),
+      `# D\n\nPlan only, 28 October 2026, for Javi.\n\n## Built, ${day}\n\nPull request #23 (https://github.com/o/r/pull/23) to test from branch w, commit 81c4a812; draft, checks green.\n`,
     );
     writeFileSync(
       join(dir, "plans", "pushed.md"),
@@ -2780,11 +2789,13 @@ describe("the queue's faults, closed", () => {
     const bin = temp("queue-gh-list-");
     writeFileSync(
       join(bin, "gh"),
-      `#!/bin/sh\nif [ "$1 $2 $3 $4" = "pr list --state all" ]; then echo '[{"number":21,"state":"OPEN"}]'; else exit 1; fi\n`,
+      `#!/bin/sh\nif [ "$1 $2 $3 $4" = "pr list --state all" ]; then echo '[{"number":21,"state":"OPEN","isDraft":true},{"number":22,"state":"OPEN","isDraft":false},{"number":23,"state":"MERGED","isDraft":false}]'; else exit 1; fi\n`,
     );
     chmodSync(join(bin, "gh"), 0o755);
     const listed = runIn(dir, ["list"], { PATH: `${bin}:${process.env.PATH}` });
-    expect(listed).toMatch(/plans\/by-pull\.md\s+#21, open\n/);
+    expect(listed).toMatch(/plans\/by-pull\.md\s+#21, draft\n/);
+    expect(listed).toMatch(/plans\/ready-pull\.md\s+#22, open\n/);
+    expect(listed).toMatch(/plans\/merged-pull\.md\s+#23, merged\n/);
     expect(listed).toMatch(/plans\/pushed\.md\s+1234abcd, on test/);
     // No `gh` on the PATH: the number alone.
     const empty = temp("queue-no-gh-");

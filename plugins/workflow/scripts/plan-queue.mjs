@@ -2272,17 +2272,24 @@ function onWhere(sha) {
 }
 
 /**
- * The pull requests' states, by number, in lower case (`open`, `merged`,
- * `closed`), from one `gh pr list --state all`; null when `gh` cannot be read.
+ * The pull requests' states, by number, in lower case (`draft`, `open`,
+ * `merged`, `closed`), from one `gh pr list --state all`; null when `gh`
+ * cannot be read. An open draft is `draft`: it waits on its owner's review
+ * (plans/owner-reviews-before-anyone-else.md).
  */
 function pullStates() {
   try {
     const out = execFileSync(
       "gh",
-      ["pr", "list", "--state", "all", "--limit", "100", "--json", "number,state"],
+      ["pr", "list", "--state", "all", "--limit", "100", "--json", "number,state,isDraft"],
       { cwd: root, encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
     );
-    return new Map(JSON.parse(out).map((pull) => [pull.number, String(pull.state).toLowerCase()]));
+    return new Map(
+      JSON.parse(out).map((pull) => [
+        pull.number,
+        pull.state === "OPEN" && pull.isDraft === true ? "draft" : String(pull.state).toLowerCase(),
+      ]),
+    );
   } catch {
     return null;
   }

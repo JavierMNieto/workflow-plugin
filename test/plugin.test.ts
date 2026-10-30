@@ -1470,7 +1470,14 @@ describe("a pull request per topic", () => {
     // A topic: its name is the branch, its pull request opens with the first ready plan.
     expect(mode).toContain("**A topic's branch** is the topic's name");
     expect(mode).toContain("written from every plan of the topic so far, oldest first");
-    expect(mode).toContain("`gh pr edit <n> --body-file`; then one comment");
+    expect(mode).toContain(
+      "converts it back with `gh pr ready --undo <n>` before its commit is pushed",
+    );
+    expect(mode).toContain("then one comment");
+    // plans/owner-reviews-before-anyone-else.md: a topic's pull request opens as a draft.
+    expect(mode).toContain("gh pr create --draft --base");
+    expect(mode).toContain("never `gh pr ready` without `--undo`");
+    expect(mode).toContain("Opened as a draft, which it stays until <owner> has reviewed it");
     expect(mode).toContain("`gh pr comment <n> --body 'Added");
     // The shorter description.
     expect(mode).toContain("## Screenshots");
@@ -1479,7 +1486,10 @@ describe("a pull request per topic", () => {
 
   it("has the docs, the assistant and the planner say where a plan lands", () => {
     expect(read("docs/workflow.md")).toContain(
-      "A pull request per topic, opened ready when the topic has its central decision or two substantial ones, never as a draft; the day's fixes, with no decision in them, one pull request a day, and one wanted on the site at once straight to the branch and listed there (Javi, 30 October",
+      "A pull request per topic, opened when the topic has its central decision or two substantial ones; the day's fixes, with no decision in them, one pull request a day; and one wanted on the site at once straight to the branch and listed there (Javi, 30 October",
+    );
+    expect(read("docs/workflow.md")).toContain(
+      "A topic's pull request opens as a draft and stays one until its owner has reviewed it himself",
     );
     expect(read("docs/workflow.md")).not.toContain("in this mode the queue reads no run");
     expect(read("agents/assistant.md")).toContain(

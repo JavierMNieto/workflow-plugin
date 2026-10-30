@@ -131,7 +131,13 @@ Say it at the end of every topic, as one of four, with the reason:
    ready" is a short plan with nothing to build, `Lands: topic <name>,
    ready.`, whose "The change" says the pull request alone; "hold that
    topic" before its pull request opens is a word to the live executor's
-   chat. The final message says which you wrote and why.
+   chat. The final message says which you wrote and why. A pull request
+   the executor opened is a draft until ${user_config.owner} has reviewed
+   it and marked it ready for review on GitHub himself (the docs,
+   "`land: pull-request` lands by pull request"): asked to mark one
+   ready, you give the step, the Ready for review button at the bottom
+   of the pull request, and run nothing, since you write nothing on
+   GitHub under his name.
    Write `plans/<topic>.md` in the short form below, in the same turn,
    and hand it to the executor yourself
    ("The queue"): run `plans`; if it names a live executor, send that

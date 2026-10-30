@@ -226,14 +226,29 @@ push (Javi, 30 October). The compact form has no pull request mode: the maker re
 `land`, and a compact project that wants pull requests is the full
 form's. Absent, the executor pushes everything to the branch,
 fast-forward, and the `Lands` line means nothing. A pull request per
-topic, opened ready when the topic has its central decision or two
-substantial ones, never as a draft; the day's fixes, with no decision in
-them, one pull request a day, and one wanted on the site at once
-straight to the branch and listed there (Javi, 30 October, with the
-other person; from 28 to 30 October one per plan, which made nine in a
-day). `run` keeps its meaning: the push of a fix wanted now is read by
-it, and the project file's **After the push** says what a merge or that
-push sets off.
+topic, opened when the topic has its central decision or two substantial
+ones; the day's fixes, with no decision in them, one pull request a day;
+and one wanted on the site at once straight to the branch and listed
+there (Javi, 30 October, with the other person; from 28 to 30 October
+one per plan, which made nine in a day). **A topic's pull request opens
+as a draft and stays one until its owner has reviewed it himself**: he
+reads its description, the decisions and the screenshots, and marks it
+ready for review on GitHub, the one act that lets anyone merge it and
+asks for anyone else's reading; no agent marks it ready, and a later
+plan's work he has not reviewed makes it a draft again, while a merge of
+the base changes nothing he must read and leaves it as it is. The draft's first line says
+so, in words that stay true once it is ready. The day's fixes pull
+request opens ready, since a fix has nothing to decide, and a fix wanted
+now opens no pull request; neither asks for a reading. (GitHub's draft
+pull requests, which nobody can merge until the author marks them ready;
+Gerrit's work in progress, visible to anyone and asking nothing of a
+reviewer. Javi, 30 October: no pull request asks anyone else's time
+until he has reviewed it himself; replaces "opened ready, never as a
+draft", Javi, 28 October, whose reason, that a draft hides a pull
+request whose checks never finish, the Stop hook answers, since it reads
+a draft's checks as any open pull request's.) `run` keeps its meaning:
+the push of a fix wanted now is read by it, and the project file's
+**After the push** says what a merge or that push sets off.
 
 **`mcp` names the MCP configs a chat here needs** (a PowerPoint bridge, a
 database), which `plans chat` and every chat the queue starts pass on the
@@ -436,8 +451,8 @@ and no daemon of their own. A plan's state is in its file: `## Built` is built
 (its commit the first eight-hex word there, and the pull request it
 opened, joined or was opened with when a line of it starts `Pull request
 #<n>`, as in `Pull request #<n> (<url>) to <branch> from branch <name>,
-commit <sha>; open, checks green.`, which `plans` lists as `#<n>,
-<open|merged|closed>`; a fix pushed straight, whose section opens
+commit <sha>; draft, checks green.`, which `plans` lists as `#<n>,
+<draft|open|merged|closed>`; a fix pushed straight, whose section opens
 `Pushed straight to <branch> as a fix`, as `<sha>, on <branch>, a fix`;
 a topic waiting, whose section opens `On topic <name>`, as `topic
 <name>, waiting`, with a line of the topics waiting for a pull request

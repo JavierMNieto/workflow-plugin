@@ -263,8 +263,8 @@ topic's plans on the topic's branch, whose pull request opens when the
 topic is ready; a fix in the day's fixes pull request; a fix wanted on
 the site at once pushed straight to the branch. Where this file says
 "push", it means that landing. The merge is the people's: never `gh pr
-merge`, never a draft, and the branch itself is pushed only for a
-`Lands: fix, now.` plan, as a fast-forward.
+merge`, never `gh pr ready` without `--undo`, and the branch itself is
+pushed only for a `Lands: fix, now.` plan, as a fast-forward.
 
 - **The `Lands` line**, under the plan's header paragraph, is one of
   `Lands: fix.`, `Lands: fix, now.`, `Lands: topic <name>, waiting.` and
@@ -273,6 +273,20 @@ merge`, never a draft, and the branch itself is pushed only for a
   ready`: a pull request of its own, so nothing lands unread by omission.
   The plan's author judges whether a topic is ready and whether a change
   is a fix; you follow the line.
+- **A topic's pull request is a draft until ${user_config.owner} has
+  reviewed it** (the docs, "`land: pull-request` lands by pull
+  request"): a topic's `gh pr create` takes `--draft`, and a plan that
+  joins a pull request he has marked ready (`gh pr view <n> --json
+  isDraft` says false) converts it back with `gh pr ready --undo <n>`
+  before its commit is pushed, so its work is never mergeable unread,
+  and its comment says so; a conversion that fails stops the push.
+  The refresh and the retarget, which add no work of yours, leave the
+  state as it is; the day's fixes pull request opens ready and is never
+  converted, since a fix has nothing to decide. You never run `gh pr
+  ready <n>` without `--undo`: marking it ready is his act, on GitHub,
+  and a word from him in this chat to do it is answered with the step
+  (the Ready for review button at the bottom of the pull request), not
+  the command.
 - **A branch is brought up to date by a merge**, never a rebase and a
   forced push: `git merge --no-edit -m "Merge origin/<base> into <name>"
   -m "<the attribution lines the session gives>" origin/<base>`, a
@@ -294,7 +308,8 @@ merge`, never a draft, and the branch itself is pushed only for a
     names an earlier plan it rests on, one whose additions it uses, and
     that plan's pull request is open: then `git switch -c <name> <that
     head branch>`, the pull request's `--base` is that branch, and the
-    first line of its body is `Builds on #<n>; merge that first.` GitHub
+    first line of its body after the draft's line is `Builds on #<n>;
+    merge that first.` GitHub
     retargets it to the branch when the first's head branch is deleted on
     merge (the repository's "Automatically delete head branches"). A plan
     that only changes a file an open pull request changes is not stacked,
@@ -357,7 +372,9 @@ merge`, never a draft, and the branch itself is pushed only for a
   theirs (the docs, "A change one person started is anyone's to go on
   with"); the merge that brings a waiting branch or a conflicting pull
   request up to date starts from the fetched head, so such a commit stays
-  as it is. Then `git push -u origin <name>`, a plain push to the topic's
+  as it is. Then, when the topic's pull request is open and no draft,
+  `gh pr ready --undo <n>` first (above); then `git push -u origin
+  <name>`, a plain push to the topic's
   branch only, retried as "A branch is brought up to date by a merge"
   says. The squash runs before the plan's commit is first pushed, so
   nothing pushed is rewritten; where it would rewrite a commit already
@@ -372,7 +389,7 @@ merge`, never a draft, and the branch itself is pushed only for a
     plan>/pull-request.md`, read back as the reviewer will, then:
 
     ```
-    gh pr create --base <branch, or the head branch it is stacked on> \
+    gh pr create --draft --base <branch, or the head branch it is stacked on> \
       --title "<the ready plan's title>" \
       --body-file plans/<the ready plan>/pull-request.md \
       --attach plans/<topic>/<file>.png#<the line> ...
@@ -381,21 +398,26 @@ merge`, never a draft, and the branch itself is pushed only for a
     one `--attach` per screenshot of each plan of the topic, sent with
     SendUserFile, the files under each plan's folder. "Built" opens with
     `Pull request #<n> (<url>) to <branch> from branch <name>, commit
-    <sha>; open, checks green.`, and each earlier plan of the topic gets a
+    <sha>; draft, checks green.`, and each earlier plan of the topic gets a
     line after its "Built" section's first line: `Pull request #<n>
     (<url>) opened <date> with plans/<the ready plan>.md.`
   - **A pull request already open**, the plan marked ready or waiting:
     the description is written again from every plan of the topic, this
     one included, keeping the uploaded image addresses of its current body
     (`gh pr view <n> --json body`), and set with `gh pr edit <n>
-    --body-file`; then one comment, since GitHub tells the people of a comment and not of a push
-    or an edit: `gh pr comment <n> --body 'Added "<the plan's title>":
-    <its decisions' bold sentences, a semicolon between; or "no decision in
-    it">. The description above now includes it.'`, with `--attach
+    --body-file`, the pull request made a draft again before the push
+    when it was not one (`gh pr view <n> --json isDraft`, `gh pr ready
+    --undo <n>`), since the plan's work is his to review; then one comment, since GitHub tells the people of a comment
+    and not of a push or an edit: `gh pr comment <n> --body 'Added "<the
+    plan's title>": <its decisions' bold sentences, a semicolon between;
+    or "no decision in it">. The description above now includes it.'`,
+    and, when it was converted back, `Added "<the plan's title>": <its
+    decisions, as above>; a draft again until ${user_config.owner} has
+    reviewed it. The description above now includes it.`, with `--attach
     <file>#<the line>` for each of the plan's screenshots, since `gh pr
     edit` attaches nothing, and the description lists those by their line
     with `(in the comment below)` in place of the image. "Built" opens with
-    `Pull request #<n> (<url>) joined, commit <sha>; open, checks green.`;
+    `Pull request #<n> (<url>) joined, commit <sha>; draft, checks green.`;
     for a plan marked waiting, a line says the pull request was open
     already.
 - **A fix**, `Lands: fix.`: built on the day's branch,
@@ -484,9 +506,16 @@ merge`, never a draft, and the branch itself is pushed only for a
 - **"Built" opens with** the line above for its landing (`plans` lists
   the plan by it), and **the final message leads with** each pull request
   opened or joined, its link, what it was marked related to in the same
-  sentence, and what the people now decide: merge it, or object on it;
-  then the topics left waiting, the day's fixes pull
-  request and the fixes pushed straight.
+  sentence, and what waits on ${user_config.owner}: to read its
+  description and screenshots and mark it ready for review on GitHub, the
+  Ready for review button at the bottom of the pull request, after which
+  the people merge it or object on it; then the topics left waiting, the
+  day's fixes pull request, led with as before, and the fixes pushed
+  straight. A topic's pull request opened or joined is led with: `Pull
+  request #<n> (<link>) is a draft and waits on you: read its description
+  and screenshots, then mark it ready for review on GitHub (the Ready for
+  review button at the bottom of the pull request). Until then it asks
+  nothing of anyone else.`
 
 **The description** is the catalogue's words in the catalogue's order,
 not a story: a reader who approves a bullet approves a rule, and one he
@@ -495,6 +524,9 @@ project's spelling; every string from the plans or the catalogue; the
 whole of it, screenshots aside, fits one screen:
 
 ```
+Opened as a draft, which it stays until <owner> has reviewed it
+himself and marked it ready for review; before that it asks for
+nobody's time.
 Builds on #<n>; merge that first.             <- stacked plans only
 Related: #<n>.                                <- plans with a Related line only
 
@@ -523,9 +555,16 @@ tracked). Checks: <the checks workflow's name>.
 <the attribution lines the session gives for a pull request>
 ```
 
+- **The draft's line** is first, so GitHub's notification of the new
+  pull request, which shows the body's start, says it before anything
+  else; `<owner>` is ${user_config.owner}'s name as the project writes
+  it; every rewrite of the description keeps it word for word, and
+  nobody edits the body when he marks it ready, which is why it is worded
+  to hold after he does. The day's fixes description has
+  no such line: it opens ready.
 - **Related**: the plans' `Related` lines as written (`Related: #31.`,
   `Related: #31 and branch <name>.`), each item kept, one line, right
-  after `Builds on`, or first; GitHub links it and writes a backlink on
+  after `Builds on`, or after the draft's line; GitHub links it and writes a backlink on
   the other pull request's timeline, so its people see it where they
   read. With no line, nothing. You never look for related work yourself,
   since the plan's author did, and never comment on another person's pull
