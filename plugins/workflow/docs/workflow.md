@@ -234,7 +234,8 @@ one per plan, which made nine in a day). **A topic's pull request opens
 as a draft and stays one until its owner has reviewed it himself**: he
 reads its description, the decisions and the screenshots, and marks it
 ready for review on GitHub, the one act that lets anyone merge it and
-asks for anyone else's reading; no agent marks it ready, and a later
+asks for anyone else's reading; no agent marks it ready, and the
+plugin refuses an agent's `gh pr ready` (`--undo` allowed); a later
 plan's work he has not reviewed makes it a draft again, while a merge of
 the base changes nothing he must read and leaves it as it is. The draft's first line says
 so, in words that stay true once it is ready. The day's fixes pull

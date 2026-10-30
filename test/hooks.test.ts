@@ -27,6 +27,7 @@ import {
 } from "../plugins/workflow/scripts/turn-audit.mjs";
 import {
   allowedWhileLocked,
+  marksReady,
   agentEffort,
   canStart,
   changedFiles,
@@ -1840,6 +1841,49 @@ describe("the planner queue", () => {
     expect(may("Edit", "docs/editor.md")).toBe(false);
     expect(may("Edit", "plans/x.md", "")).toBe(false);
     expect(may("Bash", "plans/x.md")).toBe(false);
+  });
+
+  // plans/no-agent-marks-ready.md: only the owner marks a pull request ready, on GitHub.
+  it("refuses every session's `gh pr ready` without `--undo`, and no quoted mention of it", () => {
+    for (const command of [
+      "gh pr ready 12",
+      "cd x && gh pr ready 12",
+      // Compound commands, wrappers, a continued line and a comment (Codex, /code-review).
+      "(gh pr ready 12)",
+      "if true; then gh pr ready 12; fi",
+      "for n in 12 13; do gh pr ready $n; done",
+      "echo $(gh pr ready 12)",
+      "env gh pr ready 12",
+      "/usr/bin/gh pr ready 12",
+      "gh pr \\\nready 12",
+      "gh pr ready 12 # --undo is only for reverting",
+      "cat > body.md <<EOF\nit's done\nEOF\ngh pr ready 12",
+      "gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{}){clientMutationId}}'",
+    ])
+      expect(marksReady(command), command).toBe(true);
+    for (const command of [
+      "gh pr ready 12 --undo",
+      "gh pr ready 12 --undo=true",
+      'git commit -m "never gh pr ready"',
+      "gh pr view 12",
+      "cat <<'EOF'\ngh pr ready 12\nEOF",
+    ])
+      expect(marksReady(command), command).toBe(false);
+    const tool = (agent_type: string, command: string) =>
+      run(join(here, "plan-queue.mjs"), ["tool"], {
+        session_id: `ready-${agent_type}-${process.pid}`,
+        agent_type,
+        tool_name: "Bash",
+        tool_input: { command },
+      });
+    for (const agent of ["executor", "assistant", "planner"]) {
+      const refused = tool(agent, "cd x && gh pr ready 12");
+      expect(refused).toContain('"permissionDecision":"deny"');
+      expect(refused).toContain(
+        "Marking a pull request ready for review is its owner's step on GitHub (the Ready for review button), never an agent's. `gh pr ready --undo` is allowed.",
+      );
+      expect(tool(agent, "gh pr ready 12 --undo")).not.toContain('"permissionDecision":"deny"');
+    }
   });
 
   it("refuses a retired planner every write but an Edit of its own plan", () => {

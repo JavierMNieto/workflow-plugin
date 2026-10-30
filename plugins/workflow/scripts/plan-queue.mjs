@@ -934,6 +934,92 @@ export function allowedWhileLocked(command) {
   return !shellWrites(command);
 }
 
+/**
+ * **No agent marks a pull request ready for review** (plans/no-agent-marks-
+ * ready.md): whether a shell command calls `gh pr ready` without `--undo`.
+ * The command is split into simple commands on `&&`, `||`, `;`, `|`, `&`,
+ * new lines, parentheses and backquotes outside quotes, and each one's
+ * words are read with their quotes taken off, so a quoted string naming it
+ * (a commit message) is no call. A comment, a heredoc's body and a
+ * backslash before a new line are passed over (Codex); leading `NAME=value`
+ * words, the shell's keywords (`if`, `then`, `do`, ...) and the wrappers
+ * that run a command (`env`, `command`, `xargs`, ...) are skipped, and `gh`
+ * is known by its file name. `gh api` with GitHub's mutation for it,
+ * `markPullRequestReadyForReview`, is the same act (`/code-review`).
+ */
+export function marksReady(command) {
+  const parts = [[]];
+  const heredocs = [];
+  let word = null;
+  let quote = "";
+  const end = () => {
+    if (word !== null) parts.at(-1).push(word);
+    word = null;
+  };
+  const split = () => {
+    end();
+    parts.push([]);
+  };
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (quote) {
+      if (c === quote) quote = "";
+      else if (c === "\\" && quote === '"' && i + 1 < command.length) word += command[++i];
+      else word += c;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      word ??= "";
+    } else if (c === "\\" && command[i + 1] === "\n") i++;
+    else if (c === "\\" && i + 1 < command.length) word = (word ?? "") + command[++i];
+    else if (c === "#" && word === null) {
+      while (i + 1 < command.length && command[i + 1] !== "\n") i++;
+    } else if (c === "<" && command[i + 1] === "<" && command[i + 2] !== "<") {
+      // A heredoc: its delimiter read now, its body passed over at the new line.
+      end();
+      let j = i + 2;
+      const strip = command[j] === "-";
+      if (strip) j++;
+      while (command[j] === " " || command[j] === "\t") j++;
+      const at = command.slice(j).match(/^(['"]?)([^\s'";&|<>()]+)\1/);
+      if (at) {
+        heredocs.push({ delimiter: at[2], strip });
+        j += at[0].length;
+      }
+      i = j - 1;
+    } else if (c === "\n") {
+      split();
+      // Each heredoc started on the line ends at its delimiter's own line.
+      for (const { delimiter, strip } of heredocs.splice(0)) {
+        let next = command.indexOf("\n", i + 1);
+        while (true) {
+          const line = command.slice(i + 1, next === -1 ? undefined : next);
+          i = next === -1 ? command.length : next;
+          if ((strip ? line.replace(/^\t+/, "") : line) === delimiter || next === -1) break;
+          next = command.indexOf("\n", i + 1);
+        }
+      }
+    } else if (/\s/.test(c)) end();
+    else if (";&|()`".includes(c)) split();
+    else word = (word ?? "") + c;
+  }
+  end();
+  const skipped = new Set([
+    ...["if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"],
+    ...["env", "command", "exec", "nohup", "sudo", "xargs"],
+  ]);
+  return parts.some((words) => {
+    const call = words.slice(words.findIndex((w) => !skipped.has(w) && !/^[A-Za-z_]\w*=/.test(w)));
+    if (call.length < 3 || call[0].split("/").pop() !== "gh") return false;
+    if (call[1] === "api") return call.some((w) => w.includes("markPullRequestReadyForReview"));
+    return call[1] === "pr" && call[2] === "ready" && !call.some((w) => /^--undo(=|$)/.test(w));
+  });
+}
+
+const READY_REFUSED =
+  "Marking a pull request ready for review is its owner's step on GitHub (the Ready for review button), never an agent's. `gh pr ready --undo` is allowed.";
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -3753,6 +3839,24 @@ function planTimes(dir = join(root, "plans")) {
 }
 
 function hook(mode, input) {
+  // **No agent marks a pull request ready**, in every session with the
+  // plugin, whatever its project or agent (plans/no-agent-marks-ready.md).
+  if (
+    mode === "tool" &&
+    input.tool_name === "Bash" &&
+    marksReady(input.tool_input?.command || "")
+  ) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: READY_REFUSED,
+        },
+      }),
+    );
+    return;
+  }
   // **A project with no project file is not the workflow's**: its own hooks,
   // if it has any, run alone (a project moving onto the plugin keeps its old
   // queue until its file lands).
