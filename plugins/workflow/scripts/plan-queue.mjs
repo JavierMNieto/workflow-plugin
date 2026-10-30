@@ -3485,10 +3485,14 @@ export function plannerContext(state, live = null, textOf = planText, options = 
     const asking = askingIn(plan, live, options);
     return asking
       ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`
-      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up through the assistant's chat.`;
+      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up plan you write yourself.`;
   });
+  // **The chat he said it in writes it**: a retired chat writes nothing new,
+  // so its change goes to the assistant's chat by message, as a new topic does.
   lines.push(
-    `A change to a taken or built plan goes to the assistant's chat, which writes a follow-up plan or a brief: give ${owner()} the text to paste there, in a fenced block headed For the assistant's chat in Remote Control, under about 600 characters, naming the plan's path and the change in a line each. A new topic is the assistant's chat's: say so, and give nothing to run.`,
+    state?.retired
+      ? `A change to a plan of this chat, or a new topic, is the assistant's chat's: send it there by one message (an Assistant on this machine, by ListAgents), headed Change from ${owner()} or New topic from ${owner()}, and say so; never text for him to paste.`
+      : `A change to a taken or built plan of this chat is a follow-up plan you write yourself, plans/<x>-follow-up.md, handed over as any plan; a new topic is the assistant's chat's: send it there by message (an Assistant on this machine, by ListAgents) and say so. A message from an Assistant headed Change from ${owner()} is put to him with the question tool before it goes in Decided.`,
   );
   lines.push(
     state?.retired
@@ -3622,7 +3626,7 @@ function plannerHook(mode, input, sessionId, statePath) {
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
               permissionDecision: "deny",
-              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session. Say so, and give ${owner()} the change as text for the assistant's chat, in a fenced block headed For the assistant's chat in Remote Control.`,
+              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session. Say so, and ${state.retired ? `send the change to the assistant's chat by one message (an Assistant on this machine, by ListAgents), its first line Change from ${owner()}: ${target}; a retired session writes nothing new` : `write the change as a follow-up plan, ${target.replace(/\.md$/, "")}-follow-up.md, handed over as any plan`}.`,
             },
           }),
         );
@@ -3658,7 +3662,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       lines.push(
         state.plans.length
           ? plannerContext(state, live)
-          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. Answer from what you know; a new topic or a change goes to the assistant's chat, as text for ${owner()} to paste there, in a fenced block headed For the assistant's chat in Remote Control.`,
+          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. Answer from what you know; a new topic or a change goes to the assistant's chat by one message (an Assistant on this machine, by ListAgents), headed New topic from ${owner()} or Change from ${owner()}, never as text for him to paste.`,
       );
       hookOutput("UserPromptSubmit", lines.join("\n"));
       return;

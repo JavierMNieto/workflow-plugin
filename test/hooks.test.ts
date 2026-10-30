@@ -1938,13 +1938,17 @@ describe("the planner queue", () => {
       expect(taken).toContain('"permissionDecision":"deny"');
       expect(taken).toContain("the plan is the executor's now");
       expect(taken).toContain("plans/late.md was taken by session abcdef12 on 26 October 2026");
+      // Retired, it writes nothing new: the change goes to the assistant's chat by message.
+      expect(taken).toContain("its first line Change from Javi: plans/late.md;");
+      expect(taken).not.toContain("For the assistant's chat");
       writeFileSync(
         stateFile,
         JSON.stringify({ agent: "planner", brief: "plans/late.md", retired: false }),
       );
-      expect(tool("Edit", { file_path: join(repo, "plans", "late.md") })).toContain(
-        "the plan is the executor's now",
-      );
+      const live = tool("Edit", { file_path: join(repo, "plans", "late.md") });
+      expect(live).toContain("the plan is the executor's now");
+      expect(live).toContain("write the change as a follow-up plan, plans/late-follow-up.md");
+      expect(live).not.toContain("For the assistant's chat");
     } finally {
       rmSync(stateFile, { force: true });
     }
@@ -2089,9 +2093,13 @@ describe("the planner queue", () => {
     );
     expect(said).toContain("plans/gone.md is no longer in plans/");
     expect(said).toContain("This session may take the next brief");
-    expect(plannerContext({ plans: ["plans/own.md"], retired: true }, null, () => head)).toContain(
-      "This session is retired: it plans nothing more",
-    );
+    // plans/agents-pass-messages-directly.md: the chat he said it in writes it.
+    expect(said).toContain("a follow-up plan you write yourself");
+    expect(said).not.toContain("text to paste");
+    const retired = plannerContext({ plans: ["plans/own.md"], retired: true }, null, () => head);
+    expect(retired).toContain("This session is retired: it plans nothing more");
+    expect(retired).toContain("send it there by one message");
+    expect(retired).not.toContain("a follow-up plan you write yourself");
   });
 
   it("stops the queue's retired planner of a taken plan, and no other chat", () => {
@@ -4159,7 +4167,7 @@ describe("asked once", () => {
       options(40),
     );
     expect(past).toContain(
-      "Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up through the assistant's chat.",
+      "Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up plan you write yourself.",
     );
   });
 

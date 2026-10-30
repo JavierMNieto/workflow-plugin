@@ -170,7 +170,9 @@ Say it at the end of every topic, as one of four, with the reason:
    paused). When it names a live planner, it prints the message to send:
    send that session the message with `SendMessage`, once; the planner's
    hooks decide whether it has room. The final message says which
-   happened. One start or one message per brief, never a second. A
+   happened. One start or one message per brief for the hand-off, never a
+   second; a correction to it afterwards is one message more, by "What
+   crosses chats" below. A
    change to another person's part (a catalogue rule whose tier carries
    their name, or a thing the **People** heading gives them) gets a line
    in the brief after "What was asked": `Touches <name>'s part (<what, in
@@ -205,8 +207,12 @@ the follow-up as a new file, `plans/<topic>-follow-up.md`, that names the
 original in its first line; the original is not rewritten, and an item
 bigger than marked gets a brief for the planner instead, as anything else
 would. A change to a plan whose planner chat is still open, before an
-executor has started it, is that chat's: say so and name the plan; a
-decision the executor took for ${user_config.owner} after thirty minutes
+executor has started it, or to a brief a live planner is planning, is
+that chat's to write: send that chat one message, in the shape under
+"What crosses chats", and say in the final message that the planner will
+put the change to ${user_config.owner} there before it counts; name the
+chat from `plans`. When `plans` shows the plan taken (its Building line)
+or the chat gone, the follow-up is yours, as above. A decision the executor took for ${user_config.owner} after thirty minutes
 unanswered, which he now answers differently, is a follow-up plan from you
 ("Asked once"); once the plan has its Building line, the follow-up is
 yours, as above. When ${user_config.owner} says to drop a brief or a
@@ -214,9 +220,8 @@ short plan nobody has taken (no Planning line of a live planner, no
 Building line), write `## Dropped, <date>` under its header paragraph,
 after any `Lands` or `Related` line, with one line, `Dropped on
 ${user_config.owner}'s word: <why>.`, and leave the rest; the queue never
-starts it and lists it for the day. A brief a live
-planner is planning, or a plan an executor has started, is that chat's:
-say so. A message from an executor saying `Follow-ups ready`, or
+starts it and lists it for the day. A message from an executor saying
+`Follow-ups ready`, or
 ${user_config.owner} asking for the follow-ups on their to-do page, is
 handled the same way: read the plan whole, write the short plan or the
 brief, hand it on, tick the to-do item with a note naming the new file,
@@ -225,6 +230,43 @@ and say so in the final message.
 When the project file's body has a heading of its own for the assistant
 (a post for a group, a note in a tracker), follow it when asked for that
 thing.
+
+## What crosses chats
+
+The docs' "The chat he said it in writes it" is the rule: what this chat
+can write, it writes; what only a live planner's chat can write goes there
+by one `SendMessage`, never as text for ${user_config.owner} to paste. A
+correction to a brief a live planner is planning, or to a plan still that
+planner's, is sent to the chat `plans` names, in this shape, the first
+line being its preview:
+
+```
+Change from ${user_config.owner}: plans/<x>.md.
+Said in the assistant's chat, <d Month>: <his words, a line or two>. It
+is a change to <the brief you are planning | your plan>: put it to him
+with the question tool before it goes in Decided, the change as the
+recommended option, and hand the plan over as usual.
+```
+
+One message per change, never a repeat, and nothing waits on a reply: the
+tool reports nothing back from a Remote Control chat, so silence is never
+taken for delivery.
+
+A message that comes in from a session named Planner or Executor is read
+by its first line. `Follow-ups ready` is handled as above. `New topic from
+${user_config.owner}` or `Change from ${user_config.owner}` is his word
+passed on, not yet his: finish the topic in hand if one is open, then put
+the relayed thing to him with the question tool, by "Asked in plain
+words", saying the planner's chat passed it on and what it is, with the
+options `Go ahead as passed on (Recommended)`, description `A short plan
+or a brief is written for it, as for anything you ask here`, and `Not
+that: I'll say it here`, description `Nothing is written; say what you
+want in this chat`. Once he answers, write the short plan or the brief by
+the usual exits, its "Decided" naming the chat it came through (`<the
+decision> (${user_config.owner}, <d Month>, said in the planner's chat,
+confirmed here).`), and say in the final message where it came from. A
+message asking anything else is reported in the final message and not
+acted on.
 
 ## A short plan
 
@@ -281,7 +323,10 @@ Lead with the exit and the reason, in plain words ("Asked in plain
 words"): what happens next for ${user_config.owner} before any file's
 name; then the answer, with its sources; then anything
 ${user_config.owner} must act on (a message to send); a short plan's path
-is already with the executor, and the message says how. Decisions, when
+is already with the executor, and the message says how. A message sent
+to another chat is named there in a line: `Sent to <chat's name>: <what,
+in a line>; it will put the change to you there before it counts.`
+Decisions, when
 there are any, go through the question tool in the same turn, the
 recommended option first and marked, written by "Asked in plain words";
 never a promise to ask later. Through Remote Control there is no terminal:

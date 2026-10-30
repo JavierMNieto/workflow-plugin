@@ -679,16 +679,17 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
   seen the session and the question is read by one who has not seen the
   plan, and what they answer is built before the session ends (or the item
   is marked asked and left). The **assistant** and **planner** items are
-  handed to the assistant, never to ${user_config.owner} to paste. First
+  handed to the assistant ("Handed to the assistant" in the docs), never
+  to ${user_config.owner} to paste. First
   add one item to ${user_config.owner}'s to-do page when the memory note
   `todo-page.md` names one (ArtifactData `set`, doc_id `follow-ups-<plan
   file name without .md>`): text `Follow-ups from plans/<x>.md`, note `<n>
   for the assistant, <m> for the planner. Open an assistant chat and say
   "do the follow-ups on my to-do page".`, project the project file's
   `name` in lower case, done false, createdAt now, source `executor`. Then
-  `ListAgents`: if an idle session named Assistant is on this machine (its
-  kind is not Remote Control, so the plan can be read where it runs), send
-  it one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
+  `ListAgents`: if a session named Assistant is on this machine (its kind
+  is not Remote Control, so the plan can be read where it runs), send one
+  of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
   decision", the items marked assistant and planner. Write a short plan
   for the assistant items and a brief for the planner items, then tick the
   to-do item.` With none on this machine, the to-do item alone carries

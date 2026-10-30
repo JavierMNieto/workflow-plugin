@@ -341,6 +341,30 @@ describe("the plugin's queue in any project", () => {
     );
   });
 
+  // plans/agents-pass-messages-directly.md, parts 1 to 4.
+  it("passes the agents' messages to each other, never through the owner", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const text = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
+    const planner = text("agents/planner.md");
+    expect(planner).toContain("follow-up plan you write yourself");
+    expect(planner).toContain("A message that comes in");
+    expect(planner).not.toContain("For the assistant's chat in Remote Control");
+    const assistant = text("agents/assistant.md");
+    expect(assistant).toContain("What crosses chats");
+    expect(assistant).toContain("Change from ${user_config.owner}: plans/<x>.md.");
+    expect(assistant).not.toContain("Change from Javi");
+    expect(text("agents/executor.md")).toContain("idle first, else busy");
+    const doc = text("docs/workflow.md");
+    expect(doc).toContain("The chat he said it in writes it");
+    expect(doc).toContain("Handed to the assistant");
+    const files = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
+      );
+    for (const file of files(plugin))
+      expect(readFileSync(file, "utf8").replace(/\s+/g, " "), file).not.toContain("to paste there");
+  });
+
   it("reads the agent from a plugin's scoped name or a bare one", () => {
     expect(kindOf({ agent_type: "workflow:executor" })).toBe("executor");
     expect(kindOf({ agent_type: "executor" })).toBe("executor");
