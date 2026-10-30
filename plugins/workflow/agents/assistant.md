@@ -199,7 +199,14 @@ executor has started it, is that chat's: say so and name the plan; a
 decision the executor took for ${user_config.owner} after thirty minutes
 unanswered, which he now answers differently, is a follow-up plan from you
 ("Asked once"); once the plan has its Building line, the follow-up is
-yours, as above. A message from an executor saying `Follow-ups ready`, or
+yours, as above. When ${user_config.owner} says to drop a brief or a
+short plan nobody has taken (no Planning line of a live planner, no
+Building line), write `## Dropped, <date>` under its header paragraph,
+after any `Lands` or `Related` line, with one line, `Dropped on
+${user_config.owner}'s word: <why>.`, and leave the rest; the queue never
+starts it and lists it for the day. A brief a live
+planner is planning, or a plan an executor has started, is that chat's:
+say so. A message from an executor saying `Follow-ups ready`, or
 ${user_config.owner} asking for the follow-ups on their to-do page, is
 handled the same way: read the plan whole, write the short plan or the
 brief, hand it on, tick the to-do item with a note naming the new file,

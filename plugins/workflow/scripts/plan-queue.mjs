@@ -288,6 +288,57 @@ export function relatedWords(related) {
 }
 
 /**
+ * A text without its fenced blocks, backticks or tildes, three or more, the
+ * closing fence of the same character and at least as long (CommonMark), so
+ * a plan that shows a section in an example does not read as having it
+ * (Codex, 30 October).
+ */
+export function withoutFences(text = "") {
+  const kept = [];
+  let fence = null;
+  for (const line of text.split("\n")) {
+    const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (
+        mark &&
+        mark[0] === fence[0] &&
+        mark.length >= fence.length &&
+        !line.trim().slice(mark.length).trim()
+      )
+        fence = null;
+      continue;
+    }
+    if (mark) {
+      fence = mark;
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+/**
+ * **A plan or a brief dropped on the owner's word** (plans/dropped-plan-
+ * state.md): its `## Dropped, <date>` section, outside a fenced block, as
+ * `{ droppedDay, why }`, the why its first paragraph with the `Dropped on
+ * <owner>'s word: ` lead-in and the full stop taken off; null with none.
+ */
+export function droppedOf(text = "") {
+  if (!/^## Dropped/m.test(text)) return null;
+  const prose = withoutFences(text);
+  const heading = /^## Dropped(?:, ([^\n]+?))?[ \t]*$/m.exec(prose);
+  if (!heading) return null;
+  const body = prose.slice(heading.index + heading[0].length);
+  const end = body.search(/^## /m);
+  const paragraph = (end < 0 ? body : body.slice(0, end)).trim().split(/\n\s*\n/)[0] || "";
+  const why = paragraph
+    .replace(/\s+/g, " ")
+    .replace(/^Dropped on [^:]*'s word:\s*/, "")
+    .replace(/\.$/, "");
+  return { droppedDay: (heading[1] || "").trim(), why };
+}
+
+/**
  * A plan's place in the queue, read from its text. `live` is the live
  * sessions' ids, or null when they could not be listed, which counts every
  * Building line as live: the safe side.
@@ -303,6 +354,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     lines.slice(0, 12).join("\n"),
   );
   const head = lines.slice(0, 6).join("\n");
+  const dropped = droppedOf(text);
   // **A brief is queued like a plan** (plans/planner-queue.md): one a
   // planner is working on carries its Planning line, live while its session is.
   const brief = header ? null : new RegExp(`^Brief for the planner(?:, (${DAY}))?`, "m").exec(head);
@@ -315,6 +367,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
       mtime,
       relatedTo: relatedOf(text),
     };
+    if (dropped) return { ...base, state: "dropped", ...dropped };
     const planning = /^## Planning, ([^,\n]+), session ([^\s,]+)/m.exec(text);
     if (planning && (live === null || live.includes(planning[2])))
       return { ...base, state: "planning", session: planning[2], since: planning[1] };
@@ -329,6 +382,8 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     lands: landsOf(text),
     relatedTo: relatedOf(text),
   };
+  // Dropped before built: nobody writes both, and the drop is the last word.
+  if (dropped) return { ...plan, state: "dropped", ...dropped };
   const built = /^## Built(?:, ([^\n]+))?/m.exec(text);
   if (built) {
     // The commit is the hash written after "commit", else the section's first eight-hex word.
@@ -1996,11 +2051,24 @@ export function agentEffort(agent, dir = join(here, "..", "agents")) {
   }
 }
 
+/** `plans start`'s refusal of a dropped plan's path. */
+export function droppedWords(plan) {
+  return `${plan.path} is dropped${plan.droppedDay ? ` (${plan.droppedDay})` : ""}: nothing to build.`;
+}
+
 function startHere(
   paths,
   { replace = "", dry = false, agent = "executor", at = 0, timer = false, deferral = "" } = {},
 ) {
   if (!proj().found) return NO_PROJECT;
+  // A path as the queue writes it, so `./plans/x.md` or an absolute one is
+  // judged as `plans/x.md` (Codex, 30 October).
+  paths = paths.map((path) => {
+    const inside = relative(root, resolve(root, path));
+    return inside && !inside.startsWith("..") && !isAbsolute(inside)
+      ? inside.split(sep).join("/")
+      : path;
+  });
   const live = liveSessions();
   // **Asked once**: a plan whose planner is asking the owner is that chat's
   // for thirty minutes, neither taken by default nor accepted by path.
@@ -2020,6 +2088,10 @@ function startHere(
             .map((p) => p.path);
   if (!paths.length) return "Nothing is waiting in the queue.";
   if (kind === "executor") {
+    // **A dropped plan is nobody's to build** (plans/dropped-plan-state.md):
+    // named by path it is refused whole, with nothing started; a timer drops it below.
+    const dropped = plans.filter((p) => p.state === "dropped" && paths.includes(p.path));
+    if (dropped.length && !timer) return dropped.map(droppedWords).join("\n");
     const held = plans.filter((p) => p.askingIn && paths.includes(p.path));
     // Refused whole, so nothing is half started; a deferred start, which
     // nobody is watching, starts the rest and leaves the held ones to the queue.
@@ -2508,6 +2580,16 @@ export function list({ all = false, live, related = true, readers = null } = {})
       : p.topic
         ? `topic ${p.topic}, waiting`
         : [p.sha, onWhere(p.sha), p.fix ? "a fix" : ""].filter(Boolean).join(", "),
+  );
+  // **A dropped plan is on screen only on its day** (plans/dropped-plan-
+  // state.md), with its date and its why; every one with `--all`.
+  const dropped = plans.filter((p) => p.state === "dropped");
+  group(
+    all ? "Dropped" : "Dropped today",
+    // By the calendar day, so a drop dated 2026-10-30 is today's too (Codex).
+    all ? dropped : dropped.filter((p) => parseDay(p.droppedDay) === parseDay(today(now))),
+    (p) =>
+      `dropped${p.droppedDay ? `, ${p.droppedDay.replace(/ \d{4}$/, "")}` : ""}${p.why ? `: ${p.why}` : ""}`,
   );
   // **The topics built and waiting for their pull request**, oldest first:
   // a topic none of whose built plans names one yet.
@@ -3126,6 +3208,14 @@ export function planTaken(text = "") {
   return /^## (?:Building, |Resumed, |Handing over\b|Built(?:,|\s*$))/m.test(text);
 }
 
+/**
+ * Whether a retired planner is done with a plan: taken by an executor, or
+ * dropped on the owner's word (plans/dropped-plan-state.md), which nobody takes.
+ */
+function doneWith(text = "") {
+  return planTaken(text) || Boolean(droppedOf(text));
+}
+
 /** A plan's `Lands` line in words, for a Ready row; "" with none. */
 export function landsWords(lands) {
   if (!lands) return "";
@@ -3196,7 +3286,7 @@ export function stopPlannersOn(
     // the warm context the next brief goes to.
     const plans = state?.plans || [];
     if (!state?.retired || !plans.includes(path)) continue;
-    if (!plans.every((one) => one === path || planTaken(textOf(one)))) continue;
+    if (!plans.every((one) => one === path || doneWith(textOf(one)))) continue;
     if (state.stopAsked && now - state.stopAsked < 30 * MINUTE) continue;
     write(files.state(row.sessionId), { ...state, stopAsked: now });
     stop(row.sessionId, live);
@@ -3229,7 +3319,7 @@ export function stopTakenPlanners(
     const state = withPlans(stateFor(row.sessionId));
     if (!isSession("planner", row, state, null) || !state?.retired) continue;
     const plans = state.plans || [];
-    if (plans.length && plans.every((one) => planTaken(textOf(one)))) paths.add(plans[0]);
+    if (plans.length && plans.every((one) => doneWith(textOf(one)))) paths.add(plans[0]);
   }
   for (const path of paths) stopPlannersOn(path, live, { stateFor, textOf, ...options });
 }
@@ -3289,6 +3379,9 @@ export function plannerContext(state, live = null, textOf = planText, options = 
   const lines = (state?.plans || []).map((path) => {
     const text = textOf(path);
     if (!text) return `${path} is no longer in plans/.`;
+    const dropped = droppedOf(text);
+    if (dropped)
+      return `${path} is dropped${dropped.droppedDay ? ` (${dropped.droppedDay})` : ""}: it stands as the record of why; nothing more is done with it.`;
     if (/^## Built(?:,|\s*$)/m.test(text)) return `${path} is ${whoTook(text, live)}.`;
     if (planTaken(text))
       return `${path} was taken by ${whoTook(text, live)}: it is the executor's, and no edit to it passes.`;
@@ -3357,23 +3450,35 @@ function noteFinished(state, plans) {
   return { ...state, plans: [...state.plans, inHand.path], planned: true };
 }
 
+/**
+ * **A decided or dropped plan stops asking**: a planner's write that gives it a
+ * "Decided" covering every decision, or a planner's or the assistant's write
+ * of its `## Dropped` section (plans/dropped-plan-state.md), takes it out of
+ * the asking deferral, so `plans` no longer prints it as waiting on the
+ * owner. A shell command names no file, so every plan the deferral holds is read.
+ */
+function leaveAsking(input) {
+  const written = planPath(input.tool_input?.file_path);
+  const held = written
+    ? [written]
+    : input.tool_name === "Bash"
+      ? readJson(files.deferred("asking"))?.paths || []
+      : [];
+  const decided = held.filter((path) => {
+    const text = planText(path);
+    const plan = stateOf(text, { mtime: mtimeOf(path) });
+    return plan?.state === "dropped" || (/^## Decided/m.test(text) && plan?.asks === false);
+  });
+  if (decided.length) dropDeferred("asking", decided);
+}
+
 function plannerHook(mode, input, sessionId, statePath) {
   // **A decided plan stops asking**: the write that gives it a "Decided"
   // covering every decision takes it out of the asking deferral, so `plans`
   // no longer prints it as waiting on the owner.
   // A shell command names no file, so every plan the deferral holds is read.
   if (mode === "wrote") {
-    const written = planPath(input.tool_input?.file_path);
-    const held = written
-      ? [written]
-      : input.tool_name === "Bash"
-        ? readJson(files.deferred("asking"))?.paths || []
-        : [];
-    const decided = held.filter((path) => {
-      const text = planText(path);
-      return /^## Decided/m.test(text) && stateOf(text, { mtime: mtimeOf(path) })?.asks === false;
-    });
-    if (decided.length) dropDeferred("asking", decided);
+    leaveAsking(input);
     return;
   }
   let state = readState(sessionId);
@@ -3577,7 +3682,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     armEnd(sessionId, live);
     // An executor can take a plan before this Stop: its Building line found
     // this planner unretired then, so the chat is stopped here.
-    if (state.plans.length && state.plans.every((path) => planTaken(planText(path))))
+    if (state.plans.length && state.plans.every((path) => doneWith(planText(path))))
       stopPlannersOn(state.plans[0], live);
     const n = state.compactions;
     const why = decision.declined
@@ -3611,6 +3716,9 @@ function buildingRefusal(input, statePath) {
   const before = planText(path);
   const after = editedText(input.tool_name, input.tool_input, before);
   if (!buildingAdded(before, after).length) return "";
+  // **A dropped plan is nobody's to build** (plans/dropped-plan-state.md), whoever named it.
+  const dropped = droppedOf(before);
+  if (dropped) return droppedWords({ path, ...dropped });
   const live = liveSessions({ timeout: 4000 });
   const asking = heldFromBuilding(path, after, live, { mtime: mtimeOf(path) });
   if (asking) return stillAskingWords(path, asking);
@@ -3662,6 +3770,10 @@ function hook(mode, input) {
   }
   // Only an executor's Building line takes a plan, and only a planner's
   // "Decided" lets one go; any other session's edit returns at once.
+  if (mode === "wrote" && kindOf(input) === "assistant") {
+    leaveAsking(input);
+    return;
+  }
   if (mode === "wrote" && !executor && kindOf(input) !== "planner") return;
   if (kindOf(input) === "planner") {
     plannerHook(mode, input, sessionId, statePath);

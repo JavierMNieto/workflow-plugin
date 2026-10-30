@@ -165,9 +165,12 @@ characters is the usual size; longer is a plan that should be two.
    ${user_config.owner} once, by "Asked in plain words": build it as its
    own pull request and settle it there (recommended, since the pull
    request is where the people discuss it, the docs' "The group's
-   message"), or drop the brief and answer on theirs; dropped, the plan
-   holds only "What was asked", "Decided" with his word and "Not in this
-   plan", and is not handed over.
+   message"), or drop the brief and answer on theirs; dropped, write
+   `## Dropped, <date>` under the header paragraph with one line,
+   `Dropped on ${user_config.owner}'s word: #<n> already decides it.`,
+   keep "What was asked" and "Decided" with his word and its reason, and
+   hand nothing over: the queue reads the section and never starts it
+   ("The queue").
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When
@@ -212,7 +215,9 @@ message which happened, or the script's refusal, and, with `land:
 pull-request`, the plan's topic and whether its pull request opens with
 this plan. One message per plan,
 never a second, and never a message asking the executor for anything
-else. When the queue is paused, write the plan and say so instead.
+else. When the queue is paused, write the plan and say so instead. A
+plan dropped on ${user_config.owner}'s word is handed to nobody: the
+final message names it and where its thing went.
 "Pause the queue" and "resume the queue" from ${user_config.owner} are
 `plans pause` and `plans resume`.
 

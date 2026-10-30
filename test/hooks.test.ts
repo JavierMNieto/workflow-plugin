@@ -546,6 +546,47 @@ describe("plan-queue", () => {
       expect(stateOf(text, { live: ["xyz"] })).toMatchObject({ state: "ready", stale: true });
     });
 
+    // plans/dropped-plan-state.md: a plan or a brief dropped on Javi's word.
+    it("reads a Dropped section as dropped, before Built, and not in a fenced example", () => {
+      const dropped =
+        "\n## Dropped, 30 October 2026\n\nDropped on Javi's word: #31 already decides\nit.\n";
+      expect(stateOf(`${header("30 October 2026")}${dropped}`)).toMatchObject({
+        state: "dropped",
+        kind: "Plan only",
+        droppedDay: "30 October 2026",
+        why: "#31 already decides it",
+      });
+      expect(stateOf(`# B\n\nBrief for the planner, 30 October 2026.\n${dropped}`)).toMatchObject({
+        state: "dropped",
+        kind: "Brief",
+        why: "#31 already decides it",
+      });
+      // Nobody writes both; the drop is the last word.
+      expect(
+        stateOf(
+          `${header("30 October 2026")}${dropped}\n## Built, 30 October 2026\n\nCommit 1234abcd.\n`,
+        ),
+      ).toMatchObject({ state: "dropped" });
+      // A plan that shows the section in a fenced example, or a heading that only starts with the word, is not.
+      expect(
+        stateOf(
+          `${header("30 October 2026")}## The section\n\n\`\`\`\n## Dropped, 30 October 2026\n\`\`\`\n`,
+        ),
+      ).toMatchObject({ state: "ready" });
+      // A tilde fence, and a four-backtick one holding three (Codex, 30 October).
+      for (const fence of [
+        "~~~markdown\n## Dropped, 30 October 2026\n~~~\n",
+        "````\n```\n## Dropped, 30 October 2026\n```\n````\n",
+      ])
+        expect(
+          stateOf(`${header("30 October 2026")}## The section\n\n${fence}`),
+          fence,
+        ).toMatchObject({ state: "ready" });
+      expect(stateOf(`${header("30 October 2026")}## Dropped ideas\n\nNone.\n`)).toMatchObject({
+        state: "ready",
+      });
+    });
+
     it("reads Built with its commit, an old plan, and nothing for a note", () => {
       const built = `${header("24 October 2026")}## Built, 24 October 2026\n\nOn branch x, commit 61c4a812.\n`;
       expect(stateOf(built)).toMatchObject({
@@ -1031,6 +1072,48 @@ describe("plan-queue", () => {
     expect(out).toContain("plans/ready.md");
     expect(out).toContain("0123abcd");
     expect(out).toContain("Older, by path only: 1 plan dated");
+    // plans/dropped-plan-state.md: on screen only on its day, every one with --all.
+    expect(out).not.toContain("Dropped");
+    writeFileSync(
+      join(repo, "plans", "dropped.md"),
+      `${header("24 October 2026")}## Dropped, ${today()}\n\nDropped on Javi's word: #31 already decides it.\n`,
+    );
+    writeFileSync(
+      join(repo, "plans", "dropped-old.md"),
+      `${header("24 October 2026")}## Dropped, 25 October 2026\n\nDropped on Javi's word: he no longer wants it.\n`,
+    );
+    try {
+      const listed = (args: string[]) =>
+        execFileSync("node", [join(here, "plan-queue.mjs"), ...args], {
+          encoding: "utf8",
+          env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+        });
+      const day = today().replace(/ \d{4}$/, "");
+      const shown = listed(["list"]);
+      expect(shown.indexOf("Built today")).toBeLessThan(shown.indexOf("Dropped today"));
+      expect(shown).toMatch(
+        new RegExp(`plans/dropped\\.md +dropped, ${day}: #31 already decides it\\n`),
+      );
+      expect(shown).not.toContain("plans/dropped-old.md");
+      // A drop dated in ISO is today's by the calendar day (Codex, 30 October).
+      const now = new Date();
+      const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      writeFileSync(
+        join(repo, "plans", "dropped-iso.md"),
+        `${header("24 October 2026")}## Dropped, ${iso}\n\nDropped on Javi's word: folded into plans/ready.md.\n`,
+      );
+      expect(listed(["list"])).toMatch(
+        /plans\/dropped-iso\.md +dropped, .*: folded into plans\/ready\.md/,
+      );
+      expect(shown.slice(0, shown.indexOf("Dropped today"))).not.toContain("plans/dropped.md");
+      const every = listed(["--all"]);
+      expect(every).toMatch(/\nDropped\n/);
+      expect(every).toMatch(/plans\/dropped-old\.md +dropped, 25 October: he no longer wants it/);
+    } finally {
+      rmSync(join(repo, "plans", "dropped.md"));
+      rmSync(join(repo, "plans", "dropped-old.md"));
+      rmSync(join(repo, "plans", "dropped-iso.md"), { force: true });
+    }
     // plans/handed-plan-stays-in-queue.md: a file with no header and no brief line is said.
     expect(out).not.toContain("Not read by the queue");
     writeFileSync(join(repo, "plans", "x.md"), "# Notes\n\nSome notes, no header.\n");
@@ -1053,7 +1136,7 @@ describe("plan-queue", () => {
       rmSync(join(repo, "plans", "x.md"));
       rmSync(join(repo, "plans", "y.md"), { recursive: true });
     }
-  });
+  }, 30_000);
 
   /**
    * **An executor in a worktree is alive** (plans/queue-sees-worktree-
@@ -1941,6 +2024,7 @@ describe("the planner queue", () => {
       "plans/own.md": head,
       "plans/taken.md": `# X\n\n## Building, 26 October 2026, session abcdef12\n${head}`,
       "plans/built.md": `${head}\n## Built, 26 October 2026\n\nCommit 1234abcd.\n`,
+      "plans/dropped.md": `${head}\n## Dropped, 30 October 2026\n\nDropped on Javi's word: #31 already decides it.\n`,
       "plans/gone.md": "",
     };
     const said = plannerContext(
@@ -1951,6 +2035,9 @@ describe("the planner queue", () => {
     expect(said).toContain("plans/own.md is in the queue and still yours");
     expect(said).toContain("plans/taken.md was taken by session abcdef12 on 26 October 2026");
     expect(said).toContain("plans/built.md is built, commit 1234abcd");
+    expect(said).toContain(
+      "plans/dropped.md is dropped (30 October 2026): it stands as the record of why; nothing more is done with it.",
+    );
     expect(said).toContain("plans/gone.md is no longer in plans/");
     expect(said).toContain("This session may take the next brief");
     expect(plannerContext({ plans: ["plans/own.md"], retired: true }, null, () => head)).toContain(
@@ -2004,6 +2091,18 @@ describe("the planner queue", () => {
     const two = { agent: "planner", plans: ["plans/a.md", "plans/b.md"] };
     expect(run({ ...two, retired: true }, own)).toEqual([]);
     expect(run({ ...two, retired: true }, taken)).toEqual(["p7"]);
+    // plans/dropped-plan-state.md: a plan dropped on Javi's word is done with, as a taken one is.
+    const dropped = `${own}\n## Dropped, 30 October 2026\n\nDropped on Javi's word: #31 already decides it.\n`;
+    expect(run({ ...two, retired: true }, dropped)).toEqual(["p7"]);
+    const sweep: string[] = [];
+    stopTakenPlanners(live, {
+      stateFor: () => ({ ...two, retired: true }) as never,
+      textOf: (path: string) => (path === "plans/a.md" ? dropped : taken),
+      stop: (id: string) => sweep.push(id),
+      write: () => {},
+      now: 1,
+    });
+    expect(sweep).toEqual(["p7"]);
     // An unretired planner is the warm context the next brief goes to.
     expect(run({ ...two, retired: false }, taken)).toEqual([]);
   });
@@ -2533,6 +2632,18 @@ describe("the queue's faults, closed", () => {
   });
 
   describe("stateOf", () => {
+    // plans/dropped-plan-state.md: the Lands line is read on a dropped plan too.
+    it("reads a dropped plan with its Lands line", () => {
+      const text =
+        "# P\n\nPlan only, 30 October 2026, for Javi.\n\nLands: fix.\n\n## Dropped, 30 October 2026\n\nDropped on Javi's word: folded into plans/x.md.\n";
+      expect(stateOf(text)).toMatchObject({
+        state: "dropped",
+        lands: { kind: "fix", now: false },
+        droppedDay: "30 October 2026",
+        why: "folded into plans/x.md",
+      });
+    });
+
     // plans/pull-requests-by-topic.md, part 1 and part 6.
     it("reads the Lands line under the header, and none as null", () => {
       const head = "# P\n\nPlan only, 30 October 2026, for Javi.\n\n";
@@ -4270,6 +4381,105 @@ describe("asked once", () => {
       rmSync(join(dir, "plans", "decided.md"));
       rmSync(join(dir, "plans", "taken.md"));
       rmSync(stateFile(ids.exec), { force: true });
+    });
+
+    /**
+     * **A dropped plan is never started** (plans/dropped-plan-state.md): left
+     * out with no path, refused by path, dropped by a timer, and out of the
+     * asking deferral the moment the planner writes the section.
+     */
+    it("a dropped plan is never started, and its drop takes it out of the asking deferral", () => {
+      const file = join(dir, "plans", "dropped.md");
+      writeFileSync(
+        file,
+        `${asks.replace("# X", "# Dropped")}\n## Dropped, 30 October 2026\n\nDropped on Javi's word: #31 already decides it.\n`,
+      );
+      try {
+        expect(start()).not.toContain("plans/dropped.md");
+        expect(start("plans/dropped.md").trim()).toBe(
+          "plans/dropped.md is dropped (30 October 2026): nothing to build.",
+        );
+        // Refused whole, with another plan beside it.
+        expect(start("plans/plain.md", "plans/dropped.md")).not.toContain("Would run");
+        // The same path in another spelling (Codex, 30 October).
+        for (const spelled of ["./plans/dropped.md", file])
+          expect(start(spelled).trim(), spelled).toBe(
+            "plans/dropped.md is dropped (30 October 2026): nothing to build.",
+          );
+        const timer = execFileSync(
+          "node",
+          [
+            "--input-type=module",
+            "-e",
+            `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+             console.log(start(["plans/dropped.md"], { dry: true, timer: true }));`,
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              CLAUDE_PROJECT_DIR: dir,
+              WORKFLOW_ROOT: dir,
+              WORKFLOW_PROJECTS: projects,
+              WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+              WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+              WORKFLOW_LIVE: JSON.stringify([{ ...live[0], cwd: dir }]),
+            },
+          },
+        );
+        expect(timer.trim()).toBe("Nothing is waiting in the queue.");
+        writeFileSync(
+          deferredFile(),
+          JSON.stringify({
+            until: Date.now() + 30 * MIN,
+            why: "Javi has thirty minutes to answer",
+            paths: ["plans/dropped.md", "plans/asks.md"],
+            pid: null,
+          }),
+        );
+        queue(["wrote"], {
+          session_id: ids.planner,
+          agent_type: "workflow:planner",
+          tool_name: "Edit",
+          tool_input: { file_path: file },
+        });
+        expect(JSON.parse(readFileSync(deferredFile(), "utf8")).paths).toEqual(["plans/asks.md"]);
+        // The assistant drops a plan too: its write takes it out the same way (/code-review).
+        writeFileSync(
+          deferredFile(),
+          JSON.stringify({
+            until: Date.now() + 30 * MIN,
+            why: "w",
+            paths: ["plans/dropped.md", "plans/asks.md"],
+            pid: null,
+          }),
+        );
+        queue(["wrote"], {
+          session_id: ids.planner,
+          agent_type: "workflow:assistant",
+          tool_name: "Edit",
+          tool_input: { file_path: "plans/dropped.md" },
+        });
+        expect(JSON.parse(readFileSync(deferredFile(), "utf8")).paths).toEqual(["plans/asks.md"]);
+        // An executor's Building line on it is refused, with the start's words (/code-review).
+        const building = queue(["tool"], {
+          session_id: ids.exec,
+          agent_type: "workflow:executor",
+          tool_name: "Edit",
+          tool_input: {
+            file_path: file,
+            old_string: "# Dropped\n",
+            new_string: `# Dropped\n\n## Building, 30 October 2026, session ${ids.exec}\n`,
+          },
+        });
+        expect(JSON.parse(building).hookSpecificOutput.permissionDecisionReason).toBe(
+          "plans/dropped.md is dropped (30 October 2026): nothing to build.",
+        );
+      } finally {
+        rmSync(deferredFile(), { force: true });
+        rmSync(file, { force: true });
+        rmSync(stateFile(ids.exec), { force: true });
+      }
     });
 
     it("a timer whose plans were cleared leaves a newer deferral standing", () => {

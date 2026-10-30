@@ -318,6 +318,24 @@ describe("the plugin's queue in any project", () => {
     expect(doc).toContain("**A change one person started is anyone's to go on with.**");
   });
 
+  // plans/dropped-plan-state.md, part 3.
+  it("names the Dropped section in the agents and the state in the doc's queue", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const text = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
+    for (const agent of ["planner", "assistant"])
+      expect(text(`agents/${agent}.md`), agent).toContain(
+        "`Dropped on ${user_config.owner}'s word:",
+      );
+    expect(text("agents/executor.md")).toContain(
+      "A plan whose file has a `## Dropped` section is nobody's to build, whoever names it",
+    );
+    const doc = text("docs/workflow.md");
+    const queue = doc.slice(doc.indexOf("## The queue"));
+    expect(queue).toContain(
+      "`## Dropped, <date>`, written by the plan's author on the owner's word with one line of why, is dropped: never ready, never started, refused by path, out of the asking deferral",
+    );
+  });
+
   it("reads the agent from a plugin's scoped name or a bare one", () => {
     expect(kindOf({ agent_type: "workflow:executor" })).toBe("executor");
     expect(kindOf({ agent_type: "executor" })).toBe("executor");

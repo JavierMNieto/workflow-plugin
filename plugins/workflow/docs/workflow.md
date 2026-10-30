@@ -430,7 +430,12 @@ commit <sha>; open, checks green.`, which `plans` lists as `#<n>,
 `Pushed straight to <branch> as a fix`, as `<sha>, on <branch>, a fix`;
 a topic waiting, whose section opens `On topic <name>`, as `topic
 <name>, waiting`, with a line of the topics waiting for a pull request
-under the built plans); in pull request mode a ready plan's row says
+under the built plans); `## Dropped, <date>`, written by the plan's
+author on the owner's word with one line of why, is dropped: never
+ready, never started, refused by path, out of the asking deferral,
+listed under "Dropped today" and kept as the record of why (GitHub
+closes an issue as not planned or as a duplicate with the reason on it;
+MADR keeps a rejected record); in pull request mode a ready plan's row says
 where its `Lands` line lands it; `## Building, <date>,
 session <id>`, written by the executor when it starts the plan, is being
 built while that session lives; `## Handing over` with no Built is handed
