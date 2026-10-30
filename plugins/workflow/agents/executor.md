@@ -226,7 +226,8 @@ paste.
    failures with their output.
 4. **Commit and push.** One commit per plan, with the attribution the
    session gives (`git reset --soft` to the previous plan's commit, or to
-   `origin/<branch>` for the first, then one commit); then `git push
+   `origin/<branch>` for the first, then one commit; on a topic's branch,
+   to the tip it had when the plan started, "A topic's plan"); then `git push
    origin HEAD:<branch>` as a fast-forward, and if it is refused, `git
    fetch origin && git rebase origin/<branch>` and push again. When the
    push is refused for credentials ("could not read Username",
@@ -292,10 +293,15 @@ merge`, never a draft, and the branch itself is pushed only for a
     stacked on): nobody has read a waiting topic, so its history may move.
     A conflict is settled from the plans, as the refresh settles one; one
     that cannot be is left (`git rebase --abort`), named in the final
-    message, and the plan is built on the branch as it is.  - **An open pull request's branch**: `git switch -C <name>
+    message, and the plan is built on the branch as it is.
+  - **An open pull request's branch**: `git switch -C <name>
     origin/<name>`, no rebase, unless the local branch holds commits the
     remote lacks (then the local one, pushed first); the refresh below
     handles a conflicting one.
+  - **The tip it starts from** is recorded before the first edit, `git
+    rev-parse HEAD` once the branch is taken and rebased (for a new branch,
+    `origin/<branch>` or the head it is stacked on): the plan's squash goes
+    back to it and no further.
 - **At a batch's start**, `git fetch --prune`; then each open pull
   request of this queue whose base is a branch whose pull request has
   merged is retargeted, `gh pr edit <n> --base <branch>`; then a local
@@ -326,7 +332,14 @@ merge`, never a draft, and the branch itself is pushed only for a
   screenshots, the reviews and the suites included: each plan is checked
   on its own, a fix as well, since what a fix skips is the people's
   reading, not the reviews.
-- **A topic's plan**: one commit per plan on the topic's branch, then
+- **A topic's plan**: one commit per plan on the topic's branch, the
+  squash going back to the tip the branch had when this plan started
+  ("The tip it starts from"), never to the previous plan's commit: a
+  commit another person pushed to the branch between the plans stays as
+  theirs (the docs, "A change one person started is anyone's to go on
+  with"); the rebase of a waiting branch and the refresh of a conflicting
+  pull request start from the fetched head, so such a commit is rebased,
+  not dropped, and the leased push protects it. Then
   `git push -u origin <name>` (after a rebase, `git push
   --force-with-lease=<name>:<the fetched tip> origin <name>`, to the
   topic's branch only). A waiting topic's branch is pushed too: it
@@ -446,8 +459,9 @@ merge`, never a draft, and the branch itself is pushed only for a
   requests to them.
 - **"Built" opens with** the line above for its landing (`plans` lists
   the plan by it), and **the final message leads with** each pull request
-  opened or joined, its link and what the people now decide: merge it,
-  or object on it; then the topics left waiting, the day's fixes pull
+  opened or joined, its link, what it was marked related to in the same
+  sentence, and what the people now decide: merge it, or object on it;
+  then the topics left waiting, the day's fixes pull
   request and the fixes pushed straight.
 
 **The description** is the catalogue's words in the catalogue's order,
@@ -458,6 +472,7 @@ whole of it, screenshots aside, fits one screen:
 
 ```
 Builds on #<n>; merge that first.             <- stacked plans only
+Related: #<n>.                                <- plans with a Related line only
 
 ## Decisions
 
@@ -474,6 +489,7 @@ Builds on #<n>; merge that first.             <- stacked plans only
 ## Also
 
 - <A change with no decision in it, in a line.>
+- <The commit's title.> (<author>)
 
 ## To try it
 
@@ -483,6 +499,13 @@ tracked). Checks: <the checks workflow's name>.
 <the attribution lines the session gives for a pull request>
 ```
 
+- **Related**: the plans' `Related` lines as written (`Related: #31.`,
+  `Related: #31 and branch <name>.`), each item kept, one line, right
+  after `Builds on`, or first; GitHub links it and writes a backlink on
+  the other pull request's timeline, so its people see it where they
+  read. With no line, nothing. You never look for related work yourself,
+  since the plan's author did, and never comment on another person's pull
+  request (${user_config.owner}, 30 October).
 - **Decisions**: every "Decided" item of the topic's plans and every
   catalogue entry the topic's commits add or replace, in the catalogue's
   order, a bullet each: the rule in bold, who and when, what it replaces,
@@ -499,8 +522,11 @@ tracked). Checks: <the checks workflow's name>.
   alt text, so the fallback without `--attach` loses nothing. With none,
   the heading is left out.
 - **Also**: a line per change with no decision in it, from the plans'
-  "Building it", the mechanism left out; with none, the heading is left
-  out.
+  "Building it", the mechanism left out; then a line per commit on the
+  topic's branch that no plan of the topic names in its Built section,
+  from `git log origin/<base>..origin/<name> --format='%h%x09%an%x09%s'`:
+  `- <the commit's title> (<author>)`, since another person's commit is
+  theirs. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), then
   the plan line; for a topic of several plans, their paths in one line,

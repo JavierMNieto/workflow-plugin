@@ -87,7 +87,11 @@ ${user_config.owner}.
    functions and files the plan will name, by the tools the project
    file's **Reading** names, so the executor goes straight to them. State
    what exists today, what is right and stays, and what the change reuses,
-   changes or replaces, by file and function.
+   changes or replaces, by file and function. First, in a project with
+   `land: pull-request`, open what the brief's `Related` line and the
+   context's related lines (`The brief looks related to:`) name: `gh pr
+   view <n> --json title,body,files,author,comments`, or the branch's log
+   (`git log origin/<branch>..origin/<name>`).
 4. **Make the calls yourself, and ground each one.** ${user_config.owner}
    wants fewer rounds of changing a thing once it is built, so a plan
    decides, and names for every decision the product followed or the rule
@@ -146,7 +150,24 @@ characters is the usual size; longer is a plan that should be two.
    said he wanted the thing started, or the plan is a part of a topic
    other plans will finish. You read the topic's earlier plans, so you
    say; the plan that marks a topic ready gives its pull request its
-   title, so title it for the whole topic.
+   title, so title it for the whole topic. Under the `Lands` line, a
+   `Related` line for each open pull request or pushed branch the brief's
+   own `Related` line or the context's related lines name that is a
+   different thing on the same files: `Related: #31.`, `Related: #31 and
+   branch <name>.`; the executor copies it into the pull request's
+   description, where GitHub links it and writes a backlink on the other
+   one. "What is there now" says what each does and which of three it is:
+   the plan **rests on** it (uses what it adds: the header's "rests on",
+   built on its branch), **joins** its topic (a waiting topic of this
+   queue: the `Lands` line names that topic), or is a **different** thing
+   on the same files (the `Related` line alone). **When another person's
+   open pull request already decides what the brief asks**, ask
+   ${user_config.owner} once, by "Asked in plain words": build it as its
+   own pull request and settle it there (recommended, since the pull
+   request is where the people discuss it, the docs' "The group's
+   message"), or drop the brief and answer on theirs; dropped, the plan
+   holds only "What was asked", "Decided" with his word and "Not in this
+   plan", and is not handed over.
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When

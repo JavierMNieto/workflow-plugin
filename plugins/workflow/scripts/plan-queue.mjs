@@ -249,6 +249,45 @@ export function landsOf(text = "") {
 }
 
 /**
+ * One item of a `Related` line: `#<n>`, or `branch <name>`: a topic's name, or
+ * another person's branch in Git's shape (`fix/pictures`, `v1.2`), a dot only
+ * inside it, so the line's full stop is not the name's (Codex, 30 October).
+ */
+const RELATED_ITEM = "(?:#\\d+|branch\\s+[\\w-]+(?:[/.][\\w-]+)*)";
+
+/**
+ * **What the author marked a plan or a brief related to**, from its `Related`
+ * line (plans/collaborating-when-claude-writes-the-code.md, part 3): `Related:
+ * #31.`, `Related: #31 and branch outside-pictures-kept.`, read as `landsOf`
+ * reads `Lands`, from the text before the first `## `, past the status
+ * sections and outside a fenced block; a list of `{ kind: "pull", number }`
+ * and `{ kind: "branch", name }`, or null with none.
+ */
+export function relatedOf(text = "") {
+  const lines = withoutStatus(text).split("\n");
+  const end = lines.findIndex((line) => /^## /.test(line));
+  const head = (end < 0 ? lines : lines.slice(0, end)).join("\n").replace(/^```[\s\S]*?^```/gm, "");
+  const m = new RegExp(
+    `^Related:[ \\t]+(${RELATED_ITEM}(?:(?:,\\s+and\\s+|,\\s+|\\s+and\\s+)${RELATED_ITEM})*)\\.?[ \\t]*$`,
+    "m",
+  ).exec(head);
+  if (!m) return null;
+  return [...m[1].matchAll(new RegExp(RELATED_ITEM, "g"))].map(([item]) =>
+    item.startsWith("#")
+      ? { kind: "pull", number: Number(item.slice(1)) }
+      : { kind: "branch", name: item.replace(/^branch\s+/, "") },
+  );
+}
+
+/** A `Related` line's items in words, for a Ready row: "#31 and branch a-b"; "" with none. */
+export function relatedWords(related) {
+  if (!related?.length) return "";
+  return andList(
+    related.map((one) => (one.kind === "pull" ? `#${one.number}` : `branch ${one.name}`)),
+  );
+}
+
+/**
  * A plan's place in the queue, read from its text. `live` is the live
  * sessions' ids, or null when they could not be listed, which counts every
  * Building line as live: the safe side.
@@ -269,7 +308,13 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
   const brief = header ? null : new RegExp(`^Brief for the planner(?:, (${DAY}))?`, "m").exec(head);
   if (brief) {
     const day = brief[1] || "";
-    const base = { kind: "Brief", day, date: day ? parseDay(day) : 0, mtime };
+    const base = {
+      kind: "Brief",
+      day,
+      date: day ? parseDay(day) : 0,
+      mtime,
+      relatedTo: relatedOf(text),
+    };
     const planning = /^## Planning, ([^,\n]+), session ([^\s,]+)/m.exec(text);
     if (planning && (live === null || live.includes(planning[2])))
       return { ...base, state: "planning", session: planning[2], since: planning[1] };
@@ -282,6 +327,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     date: parseDay(header[2]),
     mtime,
     lands: landsOf(text),
+    relatedTo: relatedOf(text),
   };
   const built = /^## Built(?:, ([^\n]+))?/m.exec(text);
   if (built) {
@@ -2299,8 +2345,12 @@ export function versionLine(
   return `Claude Code ${installed} is installed; ${parts.join("; ")}: a chat picks the new version up when it is restarted (claude --resume <id>).`;
 }
 
-/** The table `plans` prints. */
-export function list({ all = false, live } = {}) {
+/**
+ * The table `plans` prints. `related: false` from the hooks, so a prompt
+ * reads nothing from the network; `readers`, what `relatedReaders` returns,
+ * for the tests.
+ */
+export function list({ all = false, live, related = true, readers = null } = {}) {
   // **The compact form has no queue**: one line, and no session is read.
   if (proj().found && proj().form === "compact") return COMPACT;
   live = live === undefined ? liveSessions() : live;
@@ -2364,10 +2414,39 @@ export function list({ all = false, live } = {}) {
   }
   const width = Math.max(40, ...plans.map((p) => p.path.length + 2));
   const row = (path, rest) => `  ${path.padEnd(width)} ${rest}`;
-  const group = (title, items, rest) => {
+  // **What each brief and ready plan looks related to**, in the pull request
+  // mode (plans/collaborating-when-claude-writes-the-code.md, part 2): read
+  // once, and only when such a row exists, as `pullStates` is.
+  const byPull = proj().land === "pull-request";
+  const briefRows = plans.filter((p) => p.state === "brief" || p.state === "planning");
+  const readyRows = plans.filter(
+    (p) => (p.state === "ready" || p.state === "handed") && !p.askingIn,
+  );
+  const readRelated = byPull && related && (briefRows.length || readyRows.length);
+  const work = readRelated ? readers || relatedReaders() : null;
+  let unreadSaid = false;
+  // Two spaces past the path's column; the line that `gh` was not read, once.
+  const own = work ? ownOf(plans) : null;
+  const relatedUnder = (plan) => {
+    if (!work) return [];
+    // A ready plan's own topic: its Lands line's, or its file name's.
+    const topic =
+      plan.state === "brief" || plan.state === "planning"
+        ? ""
+        : plan.lands?.kind === "fix"
+          ? ""
+          : plan.lands?.name || basename(plan.path, ".md");
+    const lines = relatedLines(plan.text, plans, work, { topic, own });
+    if (!work.pulls && !unreadSaid) {
+      unreadSaid = true;
+      lines.unshift("related work not read (gh)");
+    }
+    return lines.map((line) => `    ${line}`);
+  };
+  const group = (title, items, rest, under = () => []) => {
     if (!items.length) return;
     out.push("", title);
-    for (const plan of items) out.push(row(plan.path, rest(plan)));
+    for (const plan of items) out.push(row(plan.path, rest(plan)), ...under(plan));
   };
   group(
     "Building",
@@ -2376,7 +2455,7 @@ export function list({ all = false, live } = {}) {
   );
   group(
     "Briefs, oldest first",
-    plans.filter((p) => p.state === "brief" || p.state === "planning"),
+    briefRows,
     (p) =>
       p.state === "planning"
         ? `${nameOf(p.session)}, since ${p.since}`
@@ -2386,6 +2465,7 @@ export function list({ all = false, live } = {}) {
           ]
             .filter(Boolean)
             .join(" "),
+    relatedUnder,
   );
   // **Asked once**: a plan its planner is asking about, with the chat to
   // answer in and the time the executor takes over.
@@ -2395,11 +2475,11 @@ export function list({ all = false, live } = {}) {
     (p) =>
       `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}, in ${p.askingIn.row.name || "a planner"} [${String(p.askingIn.row.sessionId).slice(0, 8)}], ${statusOf(p.askingIn.row)}, the executor decides at ${hhmm(p.askingIn.until)}`,
   );
-  // **Where each lands**, in the pull request mode, before the build.
-  const byPull = proj().land === "pull-request";
+  // **Where each lands**, in the pull request mode, before the build, and
+  // what its author marked it related to.
   group(
     "Ready, oldest first",
-    plans.filter((p) => (p.state === "ready" || p.state === "handed") && !p.askingIn),
+    readyRows,
     (p) =>
       [
         `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}`,
@@ -2407,6 +2487,7 @@ export function list({ all = false, live } = {}) {
         byPull
           ? landsWords(p.lands || { kind: "topic", name: basename(p.path, ".md"), ready: true })
           : "",
+        byPull && p.relatedTo ? `related: ${relatedWords(p.relatedTo)}` : "",
         p.state === "handed" ? "handed over, resume" : "",
         p.asks ? "unanswered, the executor decides" : "",
         p.stuck ? `stuck, asks ${owner()}` : "",
@@ -2414,6 +2495,7 @@ export function list({ all = false, live } = {}) {
       ]
         .filter(Boolean)
         .join(", "),
+    relatedUnder,
   );
   const built = plans.filter((p) => p.state === "built");
   const shown = all ? built : built.filter((p) => p.builtDay.startsWith(today(now)));
@@ -2651,6 +2733,258 @@ function pullChecks() {
     process.stderr.write("plan-queue: the pull requests' checks could not be read (gh)\n");
     return null;
   }
+}
+
+/** Related work names three at most, as GitHub's duplicate detection suggests three. */
+const RELATED_MAX = 3;
+/** A pushed branch is read when its tip is under thirty days old, twenty at most. */
+const BRANCH_DAYS = 30;
+const BRANCHES_MAX = 20;
+
+/**
+ * **What a brief or a plan looks related to** (plans/collaborating-when-
+ * claude-writes-the-code.md, part 2): the open pull requests (`pulls`,
+ * `{number, title, author, headRefName, files}`) and the pushed branches with
+ * none (`branches`, `{name, author, title, files}`) whose changed files
+ * include a path in `paths`, the test Gerrit's `conflicts:` makes. A path
+ * named matches a changed file equal to it or ending with `/<path>`, since a
+ * brief names `scripts/x.mjs` where the repository has
+ * `plugins/workflow/scripts/x.mjs`. The most files in common first, a pull
+ * request before a branch at the same count, three at most; `own` maps a pull
+ * request's number, or a branch or topic name, to the plan of this queue that
+ * holds it. Pure, so a project's own hook can copy it.
+ */
+export function relatedWork(paths = [], { pulls = [], branches = [], own = new Map() } = {}) {
+  const common = (files = []) =>
+    files.filter((file) => paths.some((path) => file === path || file.endsWith(`/${path}`)));
+  const found = [
+    ...(pulls || []).map((pull) => ({
+      kind: "pull",
+      number: pull.number,
+      title: pull.title || "",
+      author: pull.author || "",
+      files: common(pull.files),
+      own: own.get(pull.number) || own.get(pull.headRefName) || "",
+    })),
+    ...(branches || []).map((one) => ({
+      kind: "branch",
+      name: one.name,
+      title: one.title || "",
+      author: one.author || "",
+      files: common(one.files),
+      own: own.get(one.name) || "",
+    })),
+  ].filter((one) => one.files.length);
+  // A stable sort: input order within a count and a kind.
+  return found
+    .sort(
+      (a, b) =>
+        b.files.length - a.files.length || Number(a.kind !== "pull") - Number(b.kind !== "pull"),
+    )
+    .slice(0, RELATED_MAX);
+}
+
+/**
+ * **This queue's pull requests and topics**, from the plans read already: a
+ * built plan's pull request and its topic, and a ready, handed or building
+ * plan's topic, each to the plan's path.
+ */
+export function ownOf(plans = []) {
+  const own = new Map();
+  for (const plan of plans) {
+    if (plan.state === "built") {
+      if (plan.pr) own.set(plan.pr, plan.path);
+      for (const name of [plan.topic, plan.lands?.name]) if (name) own.set(name, plan.path);
+    } else if (["ready", "handed", "building"].includes(plan.state) && plan.lands?.name) {
+      own.set(plan.lands.name, plan.path);
+    }
+  }
+  return own;
+}
+
+/** The time left before `deadline`, as a child's timeout: at most `most`, at least 1 ms. */
+const left = (deadline, most) => Math.max(1, Math.min(most, deadline - Date.now()));
+
+/**
+ * **The open pull requests with their files**, from one `gh pr list`; null
+ * when `gh` cannot be read. GitHub lists up to a hundred files per pull
+ * request, enough for a file in common.
+ */
+export function openPulls({ run = execFileSync, timeout = 10_000 } = {}) {
+  try {
+    const out = run(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "200",
+        "--json",
+        "number,title,author,headRefName,files",
+      ],
+      { cwd: root, encoding: "utf8", timeout, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return JSON.parse(out).map((pull) => ({
+      number: pull.number,
+      title: pull.title || "",
+      author: pull.author?.login || "",
+      headRefName: pull.headRefName || "",
+      files: (pull.files || []).map((file) => file.path).filter(Boolean),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * **The merged pull requests' heads**, each branch name to the commit it was
+ * merged at, from one `gh pr list --state merged`: a branch squash-merged and
+ * not deleted still has files past the branch (/code-review, 30 October), so
+ * one whose tip is still that commit is no open work. Empty when unread.
+ */
+export function mergedHeads({ run = execFileSync, timeout = 10_000 } = {}) {
+  try {
+    const out = run(
+      "gh",
+      ["pr", "list", "--state", "merged", "--limit", "100", "--json", "headRefName,headRefOid"],
+      { cwd: root, encoding: "utf8", timeout, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return new Map(JSON.parse(out).map((pull) => [pull.headRefName, pull.headRefOid]));
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * **The pushed branches with no open pull request**, with the files each
+ * changes past the project's branch: a fetch first (remote-tracking refs
+ * only; on a failure, what was fetched already), left out with `fetch:
+ * false`, then the remote branches but `HEAD`, the project's branch, `main`,
+ * the open pull requests' heads (`heads`) and a merged pull request's head
+ * still at the commit it was merged at (`merged`), whose tip is under thirty
+ * days old, twenty at most, newest first. A branch with no file past the
+ * branch (merged and not deleted) is dropped. Nothing is read past
+ * `deadline`, and what was read by then is the answer. `run` is `git(args,
+ * options)`, a seam for the tests.
+ */
+export function pushedBranches({
+  run = git,
+  base = branch(),
+  heads = [],
+  merged = new Map(),
+  now = Date.now(),
+  fetch = true,
+  fetchTimeout = 8000,
+  deadline = Infinity,
+} = {}) {
+  if (fetch) {
+    try {
+      run(["fetch", "--prune", "--quiet", "origin"], { timeout: left(deadline, fetchTimeout) });
+    } catch {
+      // Offline, or no origin: what was fetched already.
+    }
+  }
+  let refs = "";
+  try {
+    if (Date.now() >= deadline) return [];
+    refs = run(
+      [
+        "for-each-ref",
+        "--sort=-committerdate",
+        "--format=%(refname:short)%09%(objectname)%09%(committerdate:unix)%09%(authorname)%09%(subject)",
+        "refs/remotes/origin",
+      ],
+      { timeout: left(deadline, 4000) },
+    );
+  } catch {
+    return [];
+  }
+  const skip = new Set(["HEAD", base, "main", ...heads]);
+  const since = now / 1000 - BRANCH_DAYS * 24 * 60 * 60;
+  const candidates = String(refs)
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [ref = "", sha = "", at = "0", author = "", ...subject] = line.split("\t");
+      return { ref, sha, at: Number(at), author, title: subject.join("\t") };
+    })
+    // `origin/HEAD` reads as `origin` in its short form.
+    .filter((one) => one.ref.startsWith("origin/"))
+    .map((one) => ({ ...one, name: one.ref.slice("origin/".length) }))
+    .filter(
+      (one) =>
+        !skip.has(one.name) && one.at > since && !(one.sha && merged.get(one.name) === one.sha),
+    )
+    .slice(0, BRANCHES_MAX);
+  const out = [];
+  for (const one of candidates) {
+    if (Date.now() >= deadline) break;
+    let files = [];
+    try {
+      files = String(
+        run(["diff", "--name-only", `origin/${base}...origin/${one.name}`], {
+          timeout: left(deadline, 4000),
+        }),
+      )
+        .split("\n")
+        .filter(Boolean);
+    } catch {
+      continue;
+    }
+    if (files.length) out.push({ name: one.name, author: one.author, title: one.title, files });
+  }
+  return out;
+}
+
+/**
+ * What `relatedLines` reads: the open pull requests (null when unread) and the
+ * pushed branches, inside one `budget` of milliseconds. No fetch while an
+ * executor holds the lock, which fetches and pushes in this checkout itself
+ * (/code-review, 30 October): the branches are then as last fetched.
+ */
+export function relatedReaders({ budget = 25_000 } = {}) {
+  const deadline = Date.now() + budget;
+  const pulls = openPulls({ timeout: left(deadline, 10_000) });
+  const merged = pulls ? mergedHeads({ timeout: left(deadline, 5000) }) : new Map();
+  const heads = (pulls || []).map((pull) => pull.headRefName).filter(Boolean);
+  const lock = readJson(files.lock());
+  return {
+    pulls,
+    branches: pushedBranches({ heads, merged, deadline, fetch: !(lock && !lock.released) }),
+  };
+}
+
+/**
+ * **The related lines for a text**, in "The words" of
+ * plans/collaborating-when-claude-writes-the-code.md: one per match of
+ * `relatedWork`, the pull request by its number and title, a branch by its
+ * name and its last commit's title, then whose it is and two files at most.
+ * A plan's own topic (`topic`, its branch and its pull request's head) is
+ * never related to it (/code-review, 30 October); `own` is `ownOf(plans)`,
+ * built once by a caller with many rows.
+ */
+export function relatedLines(
+  text,
+  plans = [],
+  { pulls = [], branches = [] } = {},
+  { topic = "", own = ownOf(plans) } = {},
+) {
+  const others = {
+    pulls: (pulls || []).filter((pull) => !topic || pull.headRefName !== topic),
+    branches: (branches || []).filter((one) => !topic || one.name !== topic),
+  };
+  return relatedWork(pathsIn(text), { ...others, own }).map((one) => {
+    const files =
+      one.files.length > 2
+        ? `${one.files.slice(0, 2).join(", ")} and ${one.files.length - 2} more`
+        : one.files.join(", ");
+    const whose = one.own ? `this queue's, ${one.own}` : one.author;
+    const what =
+      one.kind === "pull" ? `#${one.number} "${one.title}"` : `branch ${one.name}, "${one.title}"`;
+    return `looks related to ${what} (${whose ? `${whose}; ` : ""}both name ${files})`;
+  });
 }
 
 function hookOutput(event, context) {
@@ -2995,6 +3329,26 @@ function ownWords(plans, brief) {
     : `Only its own plans, ${andList(all)}, and their sketch folders may still be edited, until an executor starts each.`;
 }
 
+/**
+ * **What a brief handed to a planner looks related to** (plans/collaborating-
+ * when-claude-writes-the-code.md, part 2), in the pull request mode: `text`,
+ * the heading and the related lines, or "" with none; `read`, whether the
+ * pull requests were read, so a brief is said once only when they were. One
+ * budget of eight seconds, inside the prompt hook's twenty with the sessions
+ * read before it (Codex and /code-review, 30 October).
+ */
+function briefRelated(path, plans) {
+  if (proj().land !== "pull-request") return { text: "", read: true };
+  const brief = planText(path);
+  if (!brief) return { text: "", read: true };
+  const readers = relatedReaders({ budget: 8000 });
+  const lines = relatedLines(brief, plans, readers);
+  return {
+    text: lines.length ? `The brief looks related to:\n${lines.join("\n")}` : "",
+    read: readers.pulls !== null,
+  };
+}
+
 /** A plan the brief in hand became, added to the session's list once its file no longer reads as a brief. */
 function noteFinished(state, plans) {
   const inHand = state.brief ? plans.find((p) => p.path === state.brief) : null;
@@ -3115,24 +3469,30 @@ function plannerHook(mode, input, sessionId, statePath) {
     // named while it is tired is not taken, and its Stop hook retires it for
     // a fresh planner.
     const tired = named ? tiredFor({ ...state, agent: "planner" }, named) : false;
+    const queued = named ? readPlans(join(root, "plans"), liveIds(live)) : [];
     // A brief named mid-plan does not replace the one in hand (/code-review, 27 October).
-    const inHand = named
-      ? readPlans(join(root, "plans"), liveIds(live)).some(
-          (p) => p.state === "planning" && p.session === sessionId && p.path !== named,
-        )
-      : false;
+    const inHand = queued.some(
+      (p) => p.state === "planning" && p.session === sessionId && p.path !== named,
+    );
+    const taking = Boolean(named && !tired && !inHand);
+    // **What the brief looks related to**, once per brief.
+    const said = state.relatedSaid || [];
+    const found = taking && !said.includes(named) ? briefRelated(named, queued) : null;
+    const relatedText = found?.text || "";
     writeJson(statePath, {
       ...state,
       agent: "planner",
-      ...(named && !tired && !inHand ? { brief: named } : {}),
+      ...(taking ? { brief: named } : {}),
+      ...(found?.read ? { relatedSaid: [...said, named] } : {}),
     });
     const lines = [
-      `Plans in the queue (plans):\n${list({ live })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times.`,
+      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times.`,
     ];
     if (tired)
       lines.push(
         `This session is tired for ${named}: do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.`,
       );
+    if (relatedText) lines.push(relatedText);
     if (state.plans.length) lines.push(plannerContext(state, live));
     hookOutput("UserPromptSubmit", lines.join("\n\n"));
     return;
@@ -3201,8 +3561,13 @@ function plannerHook(mode, input, sessionId, statePath) {
       // over it joins the list even when its Planning line is gone by the
       // next Stop (Codex, 27 October).
       state.brief = decision.told[0];
+      const said = state.relatedSaid || [];
+      const found = said.includes(state.brief) ? null : briefRelated(state.brief, plans);
+      const relatedText = found?.text || "";
+      if (found?.read) state.relatedSaid = [...said, state.brief];
       writeJson(statePath, state);
-      process.stdout.write(JSON.stringify({ decision: "block", reason: decision.reason }));
+      const reason = relatedText ? `${decision.reason}\n\n${relatedText}` : decision.reason;
+      process.stdout.write(JSON.stringify({ decision: "block", reason }));
       return;
     }
     state.retired = true;
@@ -3429,7 +3794,7 @@ function hook(mode, input) {
       });
     hookOutput(
       "UserPromptSubmit",
-      `Plans in the queue (plans):\n${list({ live })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times; the rule is in your agent file under "Going on".`,
+      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times; the rule is in your agent file under "Going on".`,
     );
     return;
   }

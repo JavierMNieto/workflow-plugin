@@ -50,7 +50,13 @@ import {
   takeLock,
   parseDay,
   pathsIn,
+  openPulls,
+  ownOf,
   plannerMayEdit,
+  pushedBranches,
+  relatedLines,
+  relatedOf,
+  relatedWork,
   planTaken,
   readPlans,
   plannerContext,
@@ -1627,6 +1633,59 @@ describe("the planner queue", () => {
     });
   });
 
+  // plans/collaborating-when-claude-writes-the-code.md, part 2.
+  it("tells a planner what the brief it is handed looks related to, once", () => {
+    const dir = mkdtempSync(join(tmpdir(), "planner-related-"));
+    const id = `planner-related-${process.pid}`;
+    const stateFile = join(tmpdir(), `workflow-queue-${id}.json`);
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      mkdirSync(join(dir, "plans"), { recursive: true });
+      writeFileSync(
+        join(dir, ".claude", "workflow.md"),
+        "---\nname: Rel\nbranch: test\nland: pull-request\n---\n",
+      );
+      writeFileSync(
+        join(dir, "plans", "b.md"),
+        brief("30 October 2026", "\nWhere to look: scripts/plan-queue.mjs.\n"),
+      );
+      const bin = join(dir, ".bin");
+      mkdirSync(bin);
+      writeFileSync(
+        join(bin, "gh"),
+        `#!/bin/sh\n[ -e "$(dirname "$0")/gh.off" ] && exit 1\necho '[{"number":31,"title":"Pictures kept","author":{"login":"anton"},"headRefName":"pictures","files":[{"path":"plugins/workflow/scripts/plan-queue.mjs"}]}]'\n`,
+      );
+      chmodSync(join(bin, "gh"), 0o755);
+      const prompt = (text: string) =>
+        execFileSync("node", [join(here, "plan-queue.mjs"), "prompt"], {
+          input: JSON.stringify({ session_id: id, agent_type: "planner", prompt: text }),
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: dir,
+            WORKFLOW_LIVE: "[]",
+            PATH: `${bin}:${process.env.PATH}`,
+          },
+        });
+      // `gh` unread: nothing said, and the brief is looked up again on its next prompt.
+      writeFileSync(join(bin, "gh.off"), "");
+      expect(prompt(plannerPrompt("plans/b.md"))).not.toContain("The brief looks related to:");
+      rmSync(join(bin, "gh.off"));
+      const first = prompt(plannerPrompt("plans/b.md"));
+      expect(first).toContain(
+        'The brief looks related to:\\nlooks related to #31 \\"Pictures kept\\" (anton; both name plugins/workflow/scripts/plan-queue.mjs)',
+      );
+      // The table in the context reads nothing: the line is the brief's only.
+      expect(first.match(/looks related to #31/g)).toHaveLength(1);
+      expect(prompt(plannerPrompt("plans/b.md"))).not.toContain("The brief looks related to:");
+      expect(prompt("How is it going?")).not.toContain("The brief looks related to:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(stateFile, { force: true });
+    }
+  });
+
   it("a brief is related when it names a file or a plan the planner's plans name", () => {
     const own = "Read `scripts/hooks/plan-queue.mjs` and `.claude/agents/planner.md`.";
     expect(briefPaths(own)).toEqual(["scripts/hooks/plan-queue.mjs", ".claude/agents/planner.md"]);
@@ -2148,6 +2207,309 @@ describe("the queue's faults, closed", () => {
         "git branch",
       ])
         expect(shellWrites(command), command).toBe(false);
+    });
+
+    // plans/collaborating-when-claude-writes-the-code.md, part 2 and its tests.
+    it("ranks related work by files in common, a pull request first, three at most, by suffix", () => {
+      const pull = (number: number, files: string[], headRefName = `h${number}`) => ({
+        number,
+        title: `P${number}`,
+        author: "anton",
+        headRefName,
+        files,
+      });
+      const qs = "plugins/workflow/scripts/plan-queue.mjs";
+      const doc = "plugins/workflow/docs/workflow.md";
+      const found = relatedWork(["scripts/plan-queue.mjs", "docs/workflow.md"], {
+        pulls: [pull(1, [doc]), pull(2, [qs, doc]), pull(3, ["README.md"]), pull(4, [qs])],
+        branches: [
+          { name: "b-two", author: "henry", title: "B", files: [qs, doc] },
+          { name: "b-one", author: "henry", title: "C", files: [doc] },
+        ],
+      });
+      expect(found.map((one) => one.number ?? one.name)).toEqual([2, "b-two", 1]);
+      expect(found[0]).toMatchObject({ kind: "pull", files: [qs, doc], own: "" });
+      expect(found[1]).toMatchObject({ kind: "branch", title: "B", author: "henry" });
+      // Nothing in common: nothing.
+      expect(relatedWork(["apps/x.tsx"], { pulls: [pull(1, [doc])] })).toEqual([]);
+      // A named path is no suffix of a file it only ends like.
+      expect(relatedWork(["workflow.md"], { pulls: [pull(1, ["docs/myworkflow.md"])] })).toEqual(
+        [],
+      );
+      // This queue's, by number or by its topic's branch.
+      const own = new Map<number | string, string>([
+        [1, "plans/one.md"],
+        ["h4", "plans/four.md"],
+      ]);
+      expect(
+        relatedWork(["docs/workflow.md", "scripts/plan-queue.mjs"], {
+          pulls: [pull(1, [doc]), pull(4, [qs])],
+          own,
+        }).map((one) => one.own),
+      ).toEqual(["plans/one.md", "plans/four.md"]);
+    });
+
+    it("reads the Related line under the header, past a status section, and nowhere else", () => {
+      const head = "# P\n\nPlan only, 30 October 2026, for Javi.\n\nLands: topic x, ready.\n";
+      const of = (line: string) => relatedOf(`${head}${line}\n\n## What was asked\n`);
+      expect(of("Related: #31.")).toEqual([{ kind: "pull", number: 31 }]);
+      expect(of("Related: #31 and branch a-b.")).toEqual([
+        { kind: "pull", number: 31 },
+        { kind: "branch", name: "a-b" },
+      ]);
+      expect(of("Related: branch a-b.")).toEqual([{ kind: "branch", name: "a-b" }]);
+      expect(of("Related: #3, #4 and\nbranch a-b")).toHaveLength(3);
+      // Another person's branch in Git's shape, the line's full stop not its name's.
+      expect(of("Related: #31 and branch fix/pictures-v1.2.")).toEqual([
+        { kind: "pull", number: 31 },
+        { kind: "branch", name: "fix/pictures-v1.2" },
+      ]);
+      // A bare `Related:` does not take the next line's issue reference.
+      expect(of("Related:\n#5 is another thing.")).toBeNull();
+      expect(of("")).toBeNull();
+      expect(
+        relatedOf(
+          `# P\n\n## Building, 30 October 2026, session abc\n\nPlan only, 30 October 2026.\n\nRelated: #31.\n`,
+        ),
+      ).toEqual([{ kind: "pull", number: 31 }]);
+      expect(relatedOf(`${head}\n## What was asked\n\nRelated: #31.\n`)).toBeNull();
+      expect(relatedOf(`${head}\n\`\`\`\nRelated: #31.\n\`\`\`\n\n## What was asked\n`)).toBeNull();
+      // A brief's, under its header line.
+      expect(
+        stateOf(
+          "# B\n\nBrief for the planner, 30 October 2026, by the assistant with Javi.\n\nRelated: #7.\n\n## What was asked\n",
+        ),
+      ).toMatchObject({ state: "brief", relatedTo: [{ kind: "pull", number: 7 }] });
+    });
+
+    it("words related lines with the queue's own, two files and the rest counted", () => {
+      const plans = [
+        { path: "plans/mine.md", state: "built", pr: 24, topic: "", lands: { name: "shown" } },
+        { path: "plans/next.md", state: "ready", lands: { kind: "topic", name: "next" } },
+      ];
+      expect(ownOf(plans as never)).toEqual(
+        new Map<number | string, string>([
+          [24, "plans/mine.md"],
+          ["shown", "plans/mine.md"],
+          ["next", "plans/next.md"],
+        ]),
+      );
+      const text = "Change a/x.mjs, a/y.mjs, a/z.mjs and b/w.md.";
+      const lines = relatedLines(text, plans as never, {
+        pulls: [
+          {
+            number: 31,
+            title: "Pictures kept",
+            author: "anton",
+            headRefName: "pictures",
+            files: ["a/x.mjs", "a/y.mjs", "a/z.mjs"],
+          },
+          { number: 24, title: "Shown", author: "javi", headRefName: "shown", files: ["b/w.md"] },
+        ],
+        branches: [{ name: "next", author: "javi", title: "Next step", files: ["b/w.md"] }],
+      });
+      // A plan's own topic is never related to it.
+      expect(
+        relatedLines(
+          text,
+          plans as never,
+          {
+            pulls: [],
+            branches: [{ name: "next", author: "javi", title: "Next step", files: ["b/w.md"] }],
+          },
+          { topic: "next" },
+        ),
+      ).toEqual([]);
+      expect(lines).toEqual([
+        'looks related to #31 "Pictures kept" (anton; both name a/x.mjs, a/y.mjs and 1 more)',
+        'looks related to #24 "Shown" (this queue\'s, plans/mine.md; both name b/w.md)',
+        'looks related to branch next, "Next step" (this queue\'s, plans/next.md; both name b/w.md)',
+      ]);
+    });
+
+    it("prints related lines under briefs and ready plans in the pull request mode only", () => {
+      const write = (dir: string) => {
+        writeFileSync(
+          join(dir, "plans", "brief.md"),
+          "# B\n\nBrief for the planner, 30 October 2026, by the assistant with Javi.\n\n## What was asked\n\nChange scripts/plan-queue.mjs.\n",
+        );
+        writeFileSync(
+          join(dir, "plans", "ready.md"),
+          "# R\n\nPlan only, 30 October 2026, for Javi.\n\nLands: topic shown, ready.\nRelated: #31.\n\n## What was asked\n\nChange docs/workflow.md.\n",
+        );
+        writeFileSync(
+          join(dir, "plans", "earlier.md"),
+          "# E\n\nPlan only, 29 October 2026, for Javi.\n\nLands: topic earlier, ready.\n\n## Built, 29 October 2026\n\nPull request #33 (https://github.com/o/r/pull/33) to test from branch earlier, commit 61c4a812; open, checks green.\n",
+        );
+      };
+      const pulls = [
+        {
+          number: 31,
+          title: "Pictures kept",
+          author: "anton",
+          headRefName: "pictures",
+          files: ["plugins/workflow/scripts/plan-queue.mjs"],
+        },
+        {
+          number: 32,
+          title: "Shown",
+          author: "javi",
+          headRefName: "shown",
+          files: ["plugins/workflow/docs/workflow.md"],
+        },
+        {
+          number: 33,
+          title: "Earlier",
+          author: "javi",
+          headRefName: "earlier",
+          files: ["plugins/workflow/docs/workflow.md"],
+        },
+      ];
+      const listed = (dir: string, readers: object | null, related = true) =>
+        execFileSync(
+          "node",
+          [
+            "--input-type=module",
+            "-e",
+            `import { list } from ${JSON.stringify(join(here, queue))};
+             console.log(list({ live: [], related: ${related}, readers: JSON.parse(process.env.READERS) }));`,
+          ],
+          {
+            encoding: "utf8",
+            env: { ...process.env, CLAUDE_PROJECT_DIR: dir, READERS: JSON.stringify(readers) },
+          },
+        );
+      const dir = fixture("Related", "land: pull-request\n");
+      write(dir);
+      const out = listed(dir, { pulls, branches: [] });
+      expect(out).toMatch(
+        /plans\/brief\.md +brief, 30 October\n    looks related to #31 "Pictures kept" \(anton; both name plugins\/workflow\/scripts\/plan-queue\.mjs\)\n/,
+      );
+      expect(out).toMatch(
+        /plans\/ready\.md +Plan only, 30 October, topic shown, ready, related: #31\n    looks related to #33 "Earlier" \(this queue's, plans\/earlier\.md; both name plugins\/workflow\/docs\/workflow\.md\)\n/,
+      );
+      // Its own topic's pull request is not related to it.
+      expect(out).not.toContain("#32");
+      // `gh` unread: said once, under the first row, and the branches still read.
+      const unread = listed(dir, {
+        pulls: null,
+        branches: [{ name: "x-y", author: "henry", title: "T", files: ["docs/workflow.md"] }],
+      });
+      expect(unread.match(/related work not read \(gh\)/g)).toHaveLength(1);
+      expect(unread).toMatch(/brief, 30 October\n    related work not read \(gh\)\n/);
+      expect(unread).toContain(
+        'looks related to branch x-y, "T" (henry; both name docs/workflow.md)',
+      );
+      // Off with related: false, and in the push mode.
+      expect(listed(dir, { pulls, branches: [] }, false)).not.toContain("looks related");
+      const pushMode = fixture("RelatedPush");
+      write(pushMode);
+      const pushed = listed(pushMode, { pulls, branches: [] });
+      expect(pushed).not.toContain("looks related");
+      expect(pushed).not.toContain("related: #31");
+    });
+
+    it("reads no related work in a hook's table", () => {
+      const dir = fixture("RelatedHook", "land: pull-request\n");
+      writeFileSync(
+        join(dir, "plans", "ready.md"),
+        "# R\n\nPlan only, 30 October 2026, for Javi.\n\n## What was asked\n\nChange docs/workflow.md.\n",
+      );
+      const bin = temp("queue-gh-related-");
+      const log = join(bin, "calls.log");
+      writeFileSync(join(bin, "gh"), `#!/bin/sh\necho "$*" >> ${log}\nexit 1\n`);
+      chmodSync(join(bin, "gh"), 0o755);
+      const env = { PATH: `${bin}:${process.env.PATH}` };
+      const said = runIn(dir, ["prompt"], env, {
+        session_id: `related-hook-${process.pid}`,
+        agent_type: "executor",
+        prompt: "Build the plans.",
+      });
+      expect(said).toContain("plans/ready.md");
+      expect(said).not.toContain("related work not read");
+      expect(existsSync(log) ? readFileSync(log, "utf8") : "").not.toContain("files");
+      // The command reads it.
+      const listed = runIn(dir, ["list"], env);
+      expect(listed).toContain("related work not read (gh)");
+      expect(readFileSync(log, "utf8")).toContain("number,title,author,headRefName,files");
+    });
+
+    it("reads the open pull requests' files, and the pushed branches past the branch", () => {
+      const calls: string[][] = [];
+      expect(
+        openPulls({
+          run: ((_: string, args: string[]) => {
+            calls.push(args);
+            return JSON.stringify([
+              {
+                number: 31,
+                title: "T",
+                author: { login: "anton" },
+                headRefName: "pictures",
+                files: [{ path: "a/b.md", additions: 1 }],
+              },
+            ]);
+          }) as never,
+        }),
+      ).toEqual([
+        { number: 31, title: "T", author: "anton", headRefName: "pictures", files: ["a/b.md"] },
+      ]);
+      expect(calls[0]).toContain("number,title,author,headRefName,files");
+      expect(
+        openPulls({
+          run: (() => {
+            throw new Error("no gh");
+          }) as never,
+        }),
+      ).toBeNull();
+      const now = Date.UTC(2026, 9, 30);
+      const day = 24 * 60 * 60;
+      const at = (days: number) => String(now / 1000 - days * day);
+      const refs = [
+        `origin\tsha\t${at(0)}\tjavi\tHEAD`,
+        `origin/test\tsha\t${at(0)}\tjavi\tthe branch`,
+        `origin/main\tsha\t${at(0)}\tjavi\tmain`,
+        `origin/pictures\tsha\t${at(1)}\tanton\ta pull request's head`,
+        `origin/kept\tsha\t${at(2)}\tanton\tKept`,
+        `origin/merged\tsha\t${at(3)}\tjavi\tMerged`,
+        `origin/squashed\tc0ffee\t${at(2)}\tjavi\tSquashed`,
+        `origin/old\tsha\t${at(31)}\thenry\tOld`,
+        ...Array.from(
+          { length: 25 },
+          (_, i) => `origin/many-${i}\tsha\t${at(4)}\thenry\tMany ${i}`,
+        ),
+      ].join("\n");
+      const seen: string[][] = [];
+      const run = (args: string[]) => {
+        seen.push(args);
+        if (args[0] === "fetch") throw new Error("offline");
+        if (args[0] === "for-each-ref") return refs;
+        if (args[0] === "diff") return args[2].endsWith("/merged") ? "" : "docs/x.md\n";
+        throw new Error(args.join(" "));
+      };
+      const merged = new Map([["squashed", "c0ffee"]]);
+      const branches = pushedBranches({ run, base: "test", heads: ["pictures"], merged, now });
+      expect(seen[0]).toEqual(["fetch", "--prune", "--quiet", "origin"]);
+      expect(branches[0]).toEqual({
+        name: "kept",
+        author: "anton",
+        title: "Kept",
+        files: ["docs/x.md"],
+      });
+      const names = branches.map((one) => one.name);
+      for (const gone of ["HEAD", "test", "main", "pictures", "merged", "squashed", "old"])
+        expect(names).not.toContain(gone);
+      // Twenty read, the merged one among them and dropped.
+      expect(names).toHaveLength(19);
+      expect(seen.filter((args) => args[0] === "diff")).toHaveLength(20);
+      expect(seen.find((args) => args[0] === "diff")?.[2]).toBe("origin/test...origin/kept");
+      // No fetch when asked, and nothing read past the deadline.
+      seen.length = 0;
+      pushedBranches({ run, base: "test", now, fetch: false });
+      expect(seen[0][0]).toBe("for-each-ref");
+      seen.length = 0;
+      expect(pushedBranches({ run, base: "test", now, deadline: Date.now() - 1 })).toEqual([]);
+      expect(seen.filter((args) => args[0] === "diff")).toHaveLength(0);
     });
   });
 

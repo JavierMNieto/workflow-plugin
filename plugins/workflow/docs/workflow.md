@@ -302,7 +302,9 @@ one, and a fenced example is no rule. The README's bulleted rules are
 entries like any file's, checked the same; its prose and its table are
 not rules. What is not there was not decided, as far as the next agent
 can tell. The long reasoning is in `plans/`; the entry names the plan
-when there is one. An entry may open with an id in backticks,
+when there is one, which is on the machine that planned it; the pull
+request is the record another machine reads ("A change one person
+started is anyone's to go on with"). An entry may open with an id in backticks,
 ``- `presenter-bold` **The presenter's name is bold.** (Javi, 2026-10-21)``,
 and is then cited as `file#id` in replies, plans and the project's own
 notes; a rule that replaces one keeps the old line struck through under
@@ -331,6 +333,35 @@ plan, which the entry names, else in the entry (the compact form). A
 replaced rule stays struck through under its replacement with its date; a
 retired one is struck through with "retired". (MADR's accepted,
 superseded and deprecated, in the catalogue's shape.)
+
+**A decision has a name; a part has none.** When anyone can have Claude
+build anything, who carries a change out no longer matters, and nobody
+owns a file, a screen or a feature: anyone changes anything, through a
+plan, the reviews and a pull request, which is where a disagreement is
+settled, and nothing lands but by a merge. A rule with a person's name is
+that person's call, not a fence around a part: a change to it brings its
+reason, the group's message goes out, and the pull request's description
+names who decided the rule it replaces, so the person overruled reads why
+and answers there. The project file's **People** heading names calls, not
+parts, for the same reason. (Collective code ownership, XP's shared code
+as Fowler names it, whose one condition is a discipline the team keeps,
+which here is the catalogue; MADR's `decision-makers`, which records who
+decided, not who maintains. GitHub's CODEOWNERS, ownership by path, is
+the model not followed.) Javi, 30 October.
+
+**A change one person started is anyone's to go on with.** A waiting
+topic's branch and an open pull request's are pushed, so another person,
+or their Claude, pushes to them or comments; a commit another person
+pushed to a topic's branch is kept as theirs when the executor builds the
+topic's next plan, which squashes only its own work, and the description
+lists it under `Also` with its author. A plan's reasoning is on the
+machine that planned it (`plans/` is not tracked); what reaches another
+machine is the pull request's description, which carries the decisions,
+the catalogue entry, and, once merged, the squash commit titled `<title>
+(#<n>)`, so `git log -S<id>` on an entry's id finds the pull request where
+the rule was discussed. What the other person's Claude is told before an
+edit is what the repository carries, the catalogue and the project's own
+copy of the edit-time hook, not this plugin.
 
 **A string rests on what produced it.** Every word a person sees, a
 label, a button, a message, a sentence they are told to paste, is
@@ -414,6 +445,12 @@ listed under "Not read by the queue", never dropped.
 planner and the assistant hand a finished plan over themselves: one
 `SendMessage` to the live executor, which an idle one acts on in seconds,
 or `plans start` when none is alive.
+
+In pull request mode, under each brief and each ready plan, `plans` says
+what it looks related to: the open pull requests and the pushed branches
+that change a file the text names, three at most ("A change one person
+started is anyone's to go on with"); the author answers with a `Related`
+line, which the pull request's description carries.
 
 `scripts/plan-queue.mjs` does the rest on the hooks: the executor's prompt
 hook takes the lock (`.claude/executor.lock`), and its tool hook refuses

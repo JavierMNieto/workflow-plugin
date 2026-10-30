@@ -169,6 +169,19 @@ Say it at the end of every topic, as one of four, with the reason:
    the decisions. Such a change is never a short plan (a rule with a
    person's name on it is already exit 4).
 
+**What a short plan or a brief looks related to**, in a project with
+`land: pull-request`: after writing the file, run `plans` (exit 3 runs it
+already for the hand-over); when the file's row has a `looks related to`
+line, open the pull request or the branch's commits (`gh pr view <n>`,
+`git log origin/<branch>..origin/<name>`). When it is the same thing or a
+part of it, add a `Related` line, `Related: #31.` or `Related: #31 and
+branch <name>.`, under the `Lands` line of a short plan or under the
+header line of a brief, before "What was asked", and say in a sentence of
+the final message what the open thing does, whose it is, and that the
+planner reads it first. A line you judge wrong (a shared file and nothing
+more) is left out, and the final message says why in a clause. Nothing is
+asked and nothing waits: the line is a hint.
+
 A topic about the workflow itself, the agents, the queue, the hooks or
 this plugin, is exit 3 or 4 taken in the workflow's own checkout through
 `/workflow:change`, never in this project's `plans/`.
@@ -208,6 +221,7 @@ Short plan, <date>, by the assistant with ${user_config.owner}; the
 executor builds it. Read with <the project's docs> ("<rule names>").
 
 Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.
+Related: <#<n> | branch <name>, joined by "and">.
 
 ## What was asked
 ## Decided, <date>
@@ -239,6 +253,9 @@ plan is not short. Under about six thousand characters; longer is a brief
 for the planner. The `Lands` line, in a project with `land:
 pull-request` only, is by exit 3: `<name>` is the topic's branch name,
 lower-case words joined by hyphens, named for the topic, not the plan.
+The `Related` line, in that mode too, only when `plans` printed a related
+line you judged the same thing ("What a short plan or a brief looks
+related to"); else it is left out.
 
 ## The final message
 

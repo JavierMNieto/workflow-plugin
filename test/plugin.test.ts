@@ -297,6 +297,27 @@ describe("the plugin's queue in any project", () => {
     });
   });
 
+  // plans/collaborating-when-claude-writes-the-code.md, parts 1, 3 and 4.
+  it("keeps another person's commit on a topic's branch, and says what a change is related to", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const text = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
+    const executor = text("agents/executor.md");
+    expect(executor).toContain(
+      "the squash going back to the tip the branch had when this plan started",
+    );
+    expect(executor).toContain(
+      "a commit another person pushed to the branch between the plans stays as theirs",
+    );
+    expect(executor).toContain("Related: #<n>. <- plans with a Related line only");
+    expect(executor).toContain("- <The commit's title.> (<author>)");
+    expect(executor).toContain("what it was marked related to in the same sentence");
+    for (const agent of ["planner", "assistant"])
+      expect(text(`agents/${agent}.md`), agent).toContain("`Related: #31.`");
+    const doc = text("docs/workflow.md");
+    expect(doc).toContain("**A decision has a name; a part has none.**");
+    expect(doc).toContain("**A change one person started is anyone's to go on with.**");
+  });
+
   it("reads the agent from a plugin's scoped name or a bare one", () => {
     expect(kindOf({ agent_type: "workflow:executor" })).toBe("executor");
     expect(kindOf({ agent_type: "executor" })).toBe("executor");
