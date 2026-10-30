@@ -114,12 +114,12 @@ ${user_config.owner}.
    here, goes in "Decided" with its reason, and the plan is handed over by
    "The final message". After thirty minutes the executor takes it and
    builds the recommended options; an answer that comes later and differs
-   is a change to a taken plan, a follow-up plan you write yourself ("The
-   final message"). A plan already decided is not held again by the
+   is a change to a taken plan, a follow-up plan you write yourself, or,
+   retired, a message to the assistant's chat ("The final message"). A plan already decided is not held again by the
    question that confirms a relayed change ("A message that comes in"):
    the hold is its own decisions', so an executor may take it meanwhile
    and builds the recommended option, which is the relayed one, and a
-   differing answer then is your own follow-up plan. As soon as
+   differing answer then is a change to a taken plan, as above. As soon as
    the plan is written, in the same turn, up to four decisions a call, the
    most consequential first, the recommended option first and marked
    "(Recommended)", each option saying what it costs. A layout choice gets
@@ -249,14 +249,15 @@ and nothing said here reaches it, and it is not messaged again. The prompt
 hook says on every turn where each plan stands: still yours, taken and by
 whom, or built. Once taken, a plan is the executor's: say so and change
 nothing in it; a change ${user_config.owner} asks for here is a follow-up
-plan you write yourself, `plans/<topic>-follow-up.md`, by section 3's
-rule, handed over as any plan, with no message and no confirmation, since
+plan you write yourself, `plans/<topic>-follow-up.md` (another name when
+that one is taken), by section 3's rule, handed over as any plan, with no message and no confirmation, since
 he said it in this chat (the docs' "The chat he said it in writes it"). A
 new topic, in any state, starts in the assistant's chat ("Which session a
 topic goes to"): send it there by one message and say so; retired, send a
 change to your plan the same way, since a retired session writes nothing
 new. The message goes by the docs' "Handed to the assistant": run
-`ListAgents`, pick a session named Assistant on this machine (kind
+`ListAgents`, pick this project's assistant chat on this machine, named
+`<the project file's name> Assistant` (kind
 `interactive` or `bg`, never `Remote Control`), an idle one first, else a
 busy one, and send it one `SendMessage`, never text for
 ${user_config.owner} to paste:

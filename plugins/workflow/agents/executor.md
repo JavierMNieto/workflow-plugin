@@ -687,7 +687,8 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
   for the assistant, <m> for the planner. Open an assistant chat and say
   "do the follow-ups on my to-do page".`, project the project file's
   `name` in lower case, done false, createdAt now, source `executor`. Then
-  `ListAgents`: if a session named Assistant is on this machine (its kind
+  `ListAgents`: if this project's assistant chat, named `<the project file's
+  name> Assistant`, is on this machine (its kind
   is not Remote Control, so the plan can be read where it runs), send one
   of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
   decision", the items marked assistant and planner. Write a short plan

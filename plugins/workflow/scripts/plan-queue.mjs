@@ -3485,14 +3485,14 @@ export function plannerContext(state, live = null, textOf = planText, options = 
     const asking = askingIn(plan, live, options);
     return asking
       ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`
-      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up plan you write yourself.`;
+      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is ${state?.retired ? "a change sent to the assistant's chat by message" : "a follow-up plan you write yourself"}.`;
   });
   // **The chat he said it in writes it**: a retired chat writes nothing new,
   // so its change goes to the assistant's chat by message, as a new topic does.
   lines.push(
     state?.retired
-      ? `A change to a plan of this chat, or a new topic, is the assistant's chat's: send it there by one message (an Assistant on this machine, by ListAgents), headed Change from ${owner()} or New topic from ${owner()}, and say so; never text for him to paste.`
-      : `A change to a taken or built plan of this chat is a follow-up plan you write yourself, plans/<x>-follow-up.md, handed over as any plan; a new topic is the assistant's chat's: send it there by message (an Assistant on this machine, by ListAgents) and say so. A message from an Assistant headed Change from ${owner()} is put to him with the question tool before it goes in Decided.`,
+      ? `A change to a taken or built plan of this chat, or a new topic, is the assistant's chat's: send it there ${byMessage()}, headed Change from ${owner()} or New topic from ${owner()}, and say so; never text for him to paste.`
+      : `A change to a taken or built plan of this chat is a follow-up plan you write yourself, plans/<x>-follow-up.md, handed over as any plan; a new topic is the assistant's chat's: send it there ${byMessage()} and say so. A message from an Assistant headed Change from ${owner()} is put to him with the question tool before it goes in Decided.`,
   );
   lines.push(
     state?.retired
@@ -3500,6 +3500,12 @@ export function plannerContext(state, live = null, textOf = planText, options = 
       : "This session may take the next brief: one reaches it as a message, Plan plans/<x>.md: it is a brief, or the Stop hook names one that is waiting.",
   );
   return lines.join("\n");
+}
+
+/** **Handed to the assistant**, as the planner's hook strings say it, one wording for every one; another project's assistant writes in another checkout. */
+function byMessage() {
+  const name = proj().name;
+  return `by one message (${name ? `the ${name} Assistant` : "this project's Assistant"} on this machine, by ListAgents)`;
 }
 
 /** Whether a planner is too tired for `brief`: two compactions, or one and the brief on other ground. */
@@ -3554,6 +3560,24 @@ function noteFinished(state, plans) {
  * the asking deferral, so `plans` no longer prints it as waiting on the
  * owner. A shell command names no file, so every plan the deferral holds is read.
  */
+/**
+ * **The chat he said it in writes it** (plans/agents-pass-messages-directly.md):
+ * a new plan a planner writes of its own, a follow-up to a taken plan, joins
+ * the session's list as it is written, so its question holds it ("Asked
+ * once") and an executor's Building line closes it to this chat, as for the
+ * plan of a brief. `content` is the new file's text: only a plan (a "Plan
+ * only" or "Short plan" header) joins, never a brief, and never by a retired
+ * chat, which writes nothing new.
+ */
+export function noteWritten(state, path, content) {
+  if (!path || state?.retired) return state;
+  const plans = state?.plans || [];
+  if (plans.includes(path) || path === state?.brief) return state;
+  const plan = stateOf(content);
+  if (!plan || plan.kind === "Brief") return state;
+  return { ...state, plans: [...plans, path], planned: true };
+}
+
 function leaveAsking(input) {
   const written = planPath(input.tool_input?.file_path);
   const held = written
@@ -3580,6 +3604,14 @@ function plannerHook(mode, input, sessionId, statePath) {
   }
   let state = readState(sessionId);
   state = { ...state, plans: state.plans || [] };
+  if (mode === "tool" && input.tool_name === "Write") {
+    const path = planPath(input.tool_input?.file_path);
+    const noted =
+      path && !existsSync(join(root, path))
+        ? noteWritten(state, path, String(input.tool_input?.content || ""))
+        : state;
+    if (noted !== state) writeJson(statePath, (state = noted));
+  }
   if (mode === "tool") {
     // **The window starts at the question** ("Asked once"): its time goes in
     // the state, which `askingIn` reads, and a start of each plan it asks
@@ -3626,7 +3658,7 @@ function plannerHook(mode, input, sessionId, statePath) {
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
               permissionDecision: "deny",
-              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session. Say so, and ${state.retired ? `send the change to the assistant's chat by one message (an Assistant on this machine, by ListAgents), its first line Change from ${owner()}: ${target}; a retired session writes nothing new` : `write the change as a follow-up plan, ${target.replace(/\.md$/, "")}-follow-up.md, handed over as any plan`}.`,
+              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session. ${state.retired ? `A retired session writes nothing new: say so, and send the change to the assistant's chat ${byMessage()}, its first line Change from ${owner()}: ${target}.` : `Say so, and write the change as a follow-up plan, ${target.replace(/\.md$/, "")}-follow-up.md (or another name not yet in plans/), handed over as any plan.`}`,
             },
           }),
         );
@@ -3662,7 +3694,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       lines.push(
         state.plans.length
           ? plannerContext(state, live)
-          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. Answer from what you know; a new topic or a change goes to the assistant's chat by one message (an Assistant on this machine, by ListAgents), headed New topic from ${owner()} or Change from ${owner()}, never as text for him to paste.`,
+          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. Answer from what you know; a new topic or a change goes to the assistant's chat ${byMessage()}, headed New topic from ${owner()} or Change from ${owner()}, never as text for him to paste.`,
       );
       hookOutput("UserPromptSubmit", lines.join("\n"));
       return;

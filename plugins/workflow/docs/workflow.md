@@ -90,7 +90,9 @@ chat may write it: the assistant writes a follow-up plan or a brief for a
 plan an executor has taken, and the planner writes the follow-up to a
 taken or built plan of its own, `plans/<topic>-follow-up.md`, by the same
 rule as for an executor's "Needs a decision" items, and hands it over as
-any plan. What a chat cannot write goes to the chat that can, by one
+any plan; the queue's tool hook adds the new plan to the chat's own as it
+is written, so its question holds it and a Building line closes it, as for
+the plan of a brief. What a chat cannot write goes to the chat that can, by one
 `SendMessage`, never by text for the owner to paste. There are two such
 crossings: the assistant sends a correction to a brief a live planner is
 planning, or to a plan still that planner's, to that chat, named by
@@ -122,7 +124,9 @@ was a copy (Javi, 30 October: what he wanted gone was the copying, and a
 pause until he has looked is fine).
 
 **Handed to the assistant** is one route, the executor's follow-ups' and
-the planner's alike: `ListAgents`; a session named Assistant on this
+the planner's alike: `ListAgents`; this project's assistant chat, named `<project> Assistant`
+after the project file's `name` (another project's assistant writes in
+another checkout), on this
 machine, its kind `interactive` or `bg`, not `Remote Control`, which is
 another machine's chat and cannot read this checkout; an idle one first,
 else a busy one, since a message to a busy chat waits for its next turn

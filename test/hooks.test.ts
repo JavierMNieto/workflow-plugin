@@ -60,6 +60,7 @@ import {
   relatedWork,
   planTaken,
   readPlans,
+  noteWritten,
   plannerContext,
   askingIn,
   buildingAdded,
@@ -1939,7 +1940,7 @@ describe("the planner queue", () => {
       expect(taken).toContain("the plan is the executor's now");
       expect(taken).toContain("plans/late.md was taken by session abcdef12 on 26 October 2026");
       // Retired, it writes nothing new: the change goes to the assistant's chat by message.
-      expect(taken).toContain("its first line Change from Javi: plans/late.md;");
+      expect(taken).toContain("its first line Change from Javi: plans/late.md.");
       expect(taken).not.toContain("For the assistant's chat");
       writeFileSync(
         stateFile,
@@ -1986,6 +1987,28 @@ describe("the planner queue", () => {
       }
       expect(tool("someone-else.md")).toContain(
         "Only its own plans, plans/mine.md and plans/gone-to-build.md, and their sketch folders",
+      );
+      // A follow-up the planner writes itself joins its own plans as it is written.
+      writeFileSync(
+        stateFile,
+        JSON.stringify({ agent: "planner", retired: false, plans: ["plans/gone-to-build.md"] }),
+      );
+      const write = run(join(here, "plan-queue.mjs"), ["tool"], {
+        session_id: id,
+        agent_type: "planner",
+        tool_name: "Write",
+        tool_input: {
+          file_path: join(repo, "plans", "gone-to-build-follow-up.md"),
+          content: "# More\n\nPlan only, 30 October 2026, for Javi.\n",
+        },
+      });
+      expect(write).toBe("");
+      expect(JSON.parse(readFileSync(stateFile, "utf8")).plans).toEqual([
+        "plans/gone-to-build.md",
+        "plans/gone-to-build-follow-up.md",
+      ]);
+      expect(tool("gone-to-build.md")).toContain(
+        "write the change as a follow-up plan, plans/gone-to-build-follow-up.md",
       );
     } finally {
       rmSync(stateFile, { force: true });
@@ -2100,6 +2123,22 @@ describe("the planner queue", () => {
     expect(retired).toContain("This session is retired: it plans nothing more");
     expect(retired).toContain("send it there by one message");
     expect(retired).not.toContain("a follow-up plan you write yourself");
+  });
+
+  // plans/agents-pass-messages-directly.md: the follow-up a planner writes itself is its own.
+  it("adds a new plan a planner writes to its own, never a brief and never when retired", () => {
+    const plan = "# Y\n\nPlan only, 30 October 2026, for Javi; the executor builds it.\n";
+    const brief = "# Z\n\nBrief for the planner, 30 October 2026, by the assistant with Javi.\n";
+    const state = { plans: ["plans/x.md"], brief: "", retired: false };
+    expect(noteWritten(state, "plans/x-follow-up.md", plan)).toMatchObject({
+      plans: ["plans/x.md", "plans/x-follow-up.md"],
+      planned: true,
+    });
+    expect(noteWritten(state, "plans/z.md", brief)).toBe(state);
+    expect(noteWritten(state, "plans/x.md", plan)).toBe(state);
+    expect(noteWritten(state, "", plan)).toBe(state);
+    const retired = { ...state, retired: true };
+    expect(noteWritten(retired, "plans/x-follow-up.md", plan)).toBe(retired);
   });
 
   it("stops the queue's retired planner of a taken plan, and no other chat", () => {
@@ -4169,6 +4208,15 @@ describe("asked once", () => {
     expect(past).toContain(
       "Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up plan you write yourself.",
     );
+    // A retired chat writes nothing new: the late answer goes by message.
+    expect(
+      plannerContext(
+        { plans: ["plans/asks.md"], retired: true },
+        [row],
+        (path) => texts[path],
+        options(40),
+      ),
+    ).toContain("an answer now that differs is a change sent to the assistant's chat by message.");
   });
 
   describe("in a fixture", () => {
