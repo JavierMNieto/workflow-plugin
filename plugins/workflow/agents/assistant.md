@@ -108,13 +108,17 @@ Say it at the end of every topic, as one of four, with the reason:
    does not apply.
 3. **A short plan for the executor.** The change can be said in a few
    sentences; everything it touches already has a rule that says how it
-   looks and behaves, and no rule with a person's name on it is
+   looks and behaves, or is a free detail no product settles, built by
+   the catalogue's everywhere rules, and no rule with a person's name on it is
    reversed; no schema change, no new read path, no new word for a thing,
    no decision nobody has taken; every new or changed string, in the
    plan's Words section, rests on an entry or house rule that produces
    it, or on a product you looked up by the `design-research` skill
    (searches in parallel, one turn; at most two such strings in one
-   plan); a third, or products that disagree where the house rules do
+   plan); a string no product people know has a version of is free,
+   written by the catalogue's everywhere rules and the copy rules, its row
+   saying so, and counts against nothing; a third that carries a
+   decision, or products that disagree where the house rules do
    not settle it, is exit 4. You do not ask ${user_config.owner} about a
    string: a question is what the research avoids, and where it leaves a
    choice the topic is the planner's, who asks once ("Asked once").
@@ -151,8 +155,8 @@ Say it at the end of every topic, as one of four, with the reason:
    instead. "Pause the queue" and "resume the queue" from
    ${user_config.owner} are `plans pause` and `plans resume`.
 4. **A brief for the planner.** Anything else: a new screen or control, a
-   choice between how products do it, a string nothing produces beyond
-   those two, a schema or privacy change, a
+   choice between how products do it, a third string that carries a
+   decision, a schema or privacy change, a
    change to a rule with a person's name on it, a change you cannot
    describe without a sketch, or one you would call small while listing
    five files. Write `plans/<topic>.md` holding only "What was asked"
@@ -252,11 +256,12 @@ None.
 "What was asked" is their words as a paragraph. "Decided" is what the
 conversation settled, each with its reason. "The change" names every file
 and function and the rule each touched part already has (a part with none
-is exit 4, not a short plan). "The words" holds every user-facing string,
+is exit 4, not a short plan, unless it is a free detail, which names the
+everywhere rule it is built by). "The words" holds every user-facing string,
 in full, with where it appears and what produced it, by "A string rests
 on what produced it"; a plan that changes no string says so in a line.
 "Sources" is the address of each product looked up, or "None: every
-string follows a named rule". A short plan names an earlier plan it
+string follows a named rule or is free". A short plan names an earlier plan it
 rests on in its header line only when it uses what that plan adds, never
 for a shared file; only then is it built on that plan's pull request
 ("build it on #<n>'s branch"). "Building it" is the steps in

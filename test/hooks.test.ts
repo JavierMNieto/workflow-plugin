@@ -21,8 +21,8 @@ import {
   listToJudge,
   recordTool,
   shellWrites,
+  agentsChoice,
   treeFiles,
-  unreasoned,
   untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
 import {
@@ -227,11 +227,12 @@ describe("turn-audit", () => {
   });
 
   /**
-   * **The agent's choice carries its reason** (plans/every-word-researched.md):
-   * today's entry that is the tag alone is asked for it once; one with a
-   * reason, or dated an earlier day, passes.
+   * **The agent's choice is retired** (plans/log-only-decisions-with-a-reason.md):
+   * today's entry at it, bare or reasoned, is asked once to be taken out or
+   * tiered by what it followed; one dated an earlier day is the check's, and
+   * a person's or a product's passes.
    */
-  it("asks once for the reason of an agent's choice dated today that is the tag alone", () => {
+  it("asks once to take out or re-tier an entry at the agent's choice dated today", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reasons-"));
     execFileSync("git", ["init", "-q"], { cwd: root });
     mkdirSync(join(root, ".claude"));
@@ -265,8 +266,10 @@ describe("turn-audit", () => {
     };
     const id = `reasons-${process.pid}`;
     const first = turn(id, `- **Save, not Submit.** (the agent's choice, ${day})`);
+    const refusal = (entry: string) =>
+      `docs/patterns/words.md has 1 entry at the agent's choice dated today: "${entry}". The catalogue holds only well-formed opinions, a person's call or a product or source followed; a detail nobody decided is free, changed on sight and not recorded. Take the entry out, or tier it by what it followed (as <product> does, per <source>, observed in <x>).`;
     expect(JSON.parse(first).reason).toContain(
-      `docs/patterns/words.md has 1 agent's choice dated today with no reason: "**Save, not Submit.** (the agent's choice, ${day})". An agent's choice says what was looked at`,
+      refusal(`**Save, not Submit.** (the agent's choice, ${day})`),
     );
     expect(
       run(
@@ -277,17 +280,16 @@ describe("turn-audit", () => {
       ),
     ).toBe("");
     expect(
-      turn(
-        `${id}-tag`,
-        `- **Save, not Submit.** (the agent's choice, ${day}, GitHub and Gmail differ and the house rules say nothing)`,
-      ),
-    ).toBe("");
+      JSON.parse(
+        turn(`${id}-tag`, `- **Save.** (the agent's choice, ${day}, GitHub and Gmail differ)`),
+      ).reason,
+    ).toContain(refusal(`**Save.** (the agent's choice, ${day}, GitHub and Gmail differ)`));
     expect(
-      turn(
-        `${id}-after`,
-        `- **Save, not Submit.** (the agent's choice, ${day}) GitHub and Gmail differ.`,
-      ),
-    ).toBe("");
+      JSON.parse(turn(`${id}-after`, `- **Save.** (the agent's choice, ${day}) Gmail differs.`))
+        .reason,
+    ).toContain(refusal(`**Save.** (the agent's choice, ${day}) Gmail differs.`));
+    expect(turn(`${id}-person`, `- **Save, not Submit.** (Javi, ${day})`)).toBe("");
+    expect(turn(`${id}-product`, `- **Save, not Submit.** (as GitHub does, ${day})`)).toBe("");
     // Forty days back is never today.
     const earlier = new Date(Date.now() - 40 * 86_400_000).toLocaleDateString("en-GB", {
       day: "numeric",
@@ -295,11 +297,11 @@ describe("turn-audit", () => {
     });
     expect(turn(`${id}-old`, `- **Save, not Submit.** (the agent's choice, ${earlier})`)).toBe("");
     rmSync(root, { recursive: true, force: true });
-    // Thirteen hook runs, each a node process.
-  }, 30_000);
+    // Nineteen hook runs, each a node process.
+  }, 40_000);
 });
 
-describe("unreasoned", () => {
+describe("agentsChoice", () => {
   const text = `# Words
 
 - **Bare today.** (the agent's choice, 29 October)
@@ -309,51 +311,66 @@ describe("unreasoned", () => {
 - **Bare in ISO.** (the agent's choice, 2026-10-29)
 - **A person's, bare.** (Javi, 29 October)
 - **A product's.** (as GitHub does, 29 October)
+- **A source's.** (per GOV.UK, 29 October)
 `;
 
-  it("lists each agent's choice that is the tag alone, never a person's or a product's", () => {
-    expect(unreasoned(text)).toEqual([
+  it("lists every entry at the retired tier, reasoned or not, never a person's or a product's", () => {
+    expect(agentsChoice(text)).toEqual([
       "**Bare today.** (the agent's choice, 29 October)",
+      "**With a clause.** (the agent's choice, 29 October, nothing found in GitHub or Gmail)",
+      "**With a sentence.** (the agent's choice, 29 October) GitHub and Gmail differ.",
       "**Bare and older.** (the agent's choice, 2 May)",
       "**Bare in ISO.** (the agent's choice, 2026-10-29)",
     ]);
   });
 
   it("with a day, only those dated that day, in either way of writing it", () => {
-    expect(unreasoned(text, "29 October")).toEqual([
+    expect(agentsChoice(text, "29 October")).toEqual([
       "**Bare today.** (the agent's choice, 29 October)",
+      "**With a clause.** (the agent's choice, 29 October, nothing found in GitHub or Gmail)",
+      "**With a sentence.** (the agent's choice, 29 October) GitHub and Gmail differ.",
     ]);
-    expect(unreasoned(text, ["29 October", "2026-10-29"])).toEqual([
-      "**Bare today.** (the agent's choice, 29 October)",
+    expect(agentsChoice(text, ["2 May", "2026-10-29"])).toEqual([
+      "**Bare and older.** (the agent's choice, 2 May)",
       "**Bare in ISO.** (the agent's choice, 2026-10-29)",
     ]);
     const withYears =
-      "- **This year.** (the agent's choice, 29 October 2026)\n- **Last year.** (the agent's choice, 29 October 2025)\n";
-    expect(unreasoned(withYears, ["29 October", "29 October 2026"])).toEqual([
+      "- **This year.** (the agent's choice, 29 October 2026)\n- **Last year.** (the agent's choice, 29 October 2025, a reason)\n";
+    expect(agentsChoice(withYears, ["29 October", "29 October 2026"])).toEqual([
       "**This year.** (the agent's choice, 29 October 2026)",
+    ]);
+    expect(agentsChoice(withYears, ["29 October 2025"])).toEqual([
+      "**Last year.** (the agent's choice, 29 October 2025, a reason)",
     ]);
   });
 
   it("reads a rule's tier from its own tag, never from the struck-through rule kept under it", () => {
     const history = `- **Save, not Submit.** (Javi, 29 October)
   ~~**Submit.**~~ (the agent's choice, 1 January)
-- **Bare over history.** (the agent's choice, 29 October)
+- **Over history.** (the agent's choice, 29 October)
   ~~**Older.**~~ (Javi, 1 January) He said so.
 `;
-    expect(unreasoned(history)).toEqual([
-      "**Bare over history.** (the agent's choice, 29 October) ~~**Older.**~~ (Javi, 1 January) He said so.",
+    expect(agentsChoice(history)).toEqual([
+      "**Over history.** (the agent's choice, 29 October) ~~**Older.**~~ (Javi, 1 January) He said so.",
     ]);
   });
 
   it("reads the tier only right after the bold statement or at the rule's end, never a parenthesis inside the statement or mid-body", () => {
     expect(
-      unreasoned("- **Per-step (per row) toggle.** (the agent's choice, 29 October)\n"),
+      agentsChoice("- **Per-step (per row) toggle.** (the agent's choice, 29 October)\n"),
     ).toEqual(["**Per-step (per row) toggle.** (the agent's choice, 29 October)"]);
+    // A product's tag inside the statement does not make the tier.
     expect(
-      unreasoned(
+      agentsChoice(
         "- **Sorted (as GitHub does, 1 May) by date.** (the agent's choice, 29 October)\n",
       ),
     ).toEqual(["**Sorted (as GitHub does, 1 May) by date.** (the agent's choice, 29 October)"]);
+    // Nor does the retired tag inside the statement or the body.
+    expect(
+      agentsChoice(
+        "- **Grid (the agent's choice, 2 May) keys.** (Javi, 29 October)\n- **Rows.** (Javi, 29 October) Once (the agent's choice, 2 May).\n",
+      ),
+    ).toEqual([]);
     expect(untiered("- **X.** (as GitHub does, 29 October)\n")).toEqual([]);
     // A tag-shaped parenthesis in the body, or in the statement, is no tier.
     expect(
@@ -364,36 +381,24 @@ describe("unreasoned", () => {
       "**Rows toggle.** Each row (Javi, 29 October) has one.",
       "**Per-step (per row, 2 May) toggle.**",
     ]);
-    // A reason in the body after the tag still counts.
-    expect(
-      unreasoned(
-        "- **Toggle.** (the agent's choice, 29 October) Gmail (per row) and GitHub differ.\n",
-      ),
-    ).toEqual([]);
-    // The tag that ends the rule is its tier, as the audit's hint writes it; an agent's choice there is bare.
+    // The tag that ends the rule is its tier.
     expect(untiered("- **Rows toggle.** Each row has one switch. (Javi, 21 October)\n")).toEqual(
       [],
     );
-    expect(unreasoned("- **Save.** Saves the draft. (the agent's choice, 29 October)\n")).toEqual([
-      "**Save.** Saves the draft. (the agent's choice, 29 October)",
-    ]);
+    expect(agentsChoice("- **Save.** Saves the draft. (the agent's choice, 29 October)\n")).toEqual(
+      ["**Save.** Saves the draft. (the agent's choice, 29 October)"],
+    );
     // A closed parenthesis inside a source's name is part of the tier.
     expect(
       untiered("- **Use sentence case.** (per Microsoft Writing Style Guide (2024), 29 October)\n"),
     ).toEqual([]);
   });
 
-  it("reads no rule inside a fenced example", () => {
+  it("reads no rule inside a fenced example, and reads the README's rules", () => {
     const readme =
       "# Decisions\n\nAn entry looks like this:\n\n```md\n- **Example.** (the agent's choice, 29 October)\n- **No tier.**\n```\n\n- **Real.** (the agent's choice, 29 October)\n";
-    expect(unreasoned(readme)).toEqual(["**Real.** (the agent's choice, 29 October)"]);
+    expect(agentsChoice(readme)).toEqual(["**Real.** (the agent's choice, 29 October)"]);
     expect(untiered(readme)).toEqual([]);
-  });
-
-  it("takes a placeholder copied from the hint for no reason", () => {
-    expect(
-      unreasoned("- **Save.** (the agent's choice, 29 October, <what was looked at>)\n"),
-    ).toEqual(["**Save.** (the agent's choice, 29 October, <what was looked at>)"]);
   });
 });
 

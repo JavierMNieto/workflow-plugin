@@ -6,28 +6,35 @@ description: How to decide the look and behavior of a control, screen or flow th
 # Deciding a control nothing covers
 
 Nothing a person sees is made up: no label, button, control, screen or
-flow. When nothing in the project's catalogue (the directory the project
+flow; and nothing is recorded that nobody decided: the catalogue is only
+for well-formed opinions, researched or given by a person, and anything
+not in it is free to change (the workflow's docs, "The catalogue is the
+record"). When nothing in the project's catalogue (the directory the project
 file's `catalogue` names) covers what you are about to build, in this
 order:
 
 1. **Did the person say how?** If the request already says how the
    control looks or behaves, that is their call: build it and record it
    under their name. If they said to research, skip to step 3.
-2. **A new screen or flow: ask, once, with three choices.** Say that no
+2. **A new screen or flow: ask, once, with two choices.** Say that no
    recorded decision covers it and ask (with the question tool where
    there is one, by "Asked in plain words" in the workflow's docs):
    - research how the product people already know does it, and follow it
      (the default to recommend);
-   - they decide now;
-   - you choose, recorded as the agent's choice.
-   **Any other control, large or small**, skips the question, never the
-   research (a date-range picker, a word, a label, an icon among standard
-   ones): go to step 3, follow what you find, and record it under the
-   product or source followed. Ask the person only when the research
-   leaves a choice the house rules do not settle, as one question with
-   the options found, by "Asked in plain words". The agent's choice is
-   what is left when step 3 found nothing to follow, and its entry says
-   what was looked at.
+   - they decide now.
+   **Any other control is researched when there is something to
+   research**: a control, flow or string people know from a product (a
+   date-range picker, a sign-in form, the label a known product uses for
+   this action) skips the question, never the research: go to step 3,
+   follow what you find, and record it under the product or source
+   followed. **A detail no product settles is free**: a tooltip's words,
+   an icon among a standard set, spacing, a line kept or cut; write it by
+   the catalogue's everywhere rules and the nearest pattern, record
+   nothing, ask nothing. Ask the person only when the research leaves a
+   choice the house rules do not settle, as one question with the options
+   found, by "Asked in plain words". Nothing is the agent's choice: what
+   research found nothing for is free, and becomes a person's call when
+   one says so.
 3. **Research, in this order.**
    - **The nearest pattern the project already has.** Open the catalogue
      file for the closest kind of control and match it: the same controls
@@ -54,9 +61,8 @@ order:
    October)` when they decided, `(as GitHub does, 15 October)` when you
    followed a product, `(per <source>, 15 October)` when you followed a
    named written source (one `sources.md` lists), `(observed in <x>, 15
-   October)` when you measured it in an existing artifact, `(the agent's
-   choice, 15 October, <what was looked at and why none settles it>)`
-   when you chose. The date as the project writes
+   October)` when you measured it in an existing artifact. The date as
+   the project writes
    dates (`15 October` or `2026-10-15`). An entry another may override
    opens with an id in backticks, `` - `id` **Rule.** ``.
    One or two sentences, present tense, the reason in a sentence. An
@@ -67,4 +73,6 @@ order:
    component to the file's `paths` and the control's word to its
    `signals`, so the next edit of similar UI meets the rule. A kind of
    control with no file gets one, with the same frontmatter and a row in
-   the README's table.
+   the README's table. A free detail gets no entry. A person's call that
+   applies to the whole product, a principle, goes in the README's
+   everywhere rules under their name.

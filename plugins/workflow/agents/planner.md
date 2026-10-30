@@ -186,7 +186,7 @@ characters is the usual size; longer is a plan that should be two.
 8. **The words**: a table of every user-facing string the change adds or
    changes, in full, with where it appears and what it rests on (the
    entry or rule by name, the product with its Sources line, the person,
-   or the agent's choice with what was looked at); a plan that changes no
+   or free, with the principle or copy rule it follows); a plan that changes no
    string says so in a line.
 9. **Building it**: the steps in order, each leaving the project working,
    naming the files, functions, schema changes, docs to update and

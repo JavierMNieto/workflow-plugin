@@ -89,7 +89,13 @@ describe("catalogue-context", () => {
     const ctx = JSON.parse(out).hookSpecificOutput.additionalContext as string;
     expect(ctx).toContain("docs/patterns/chat.md");
     expect(ctx).toContain("Javi, 11 October: The calculator opens in the field's place.");
-    expect(ctx).toContain("2 more rules");
+    // The fixture's entry at the retired tier is still no person's: counted, not listed.
+    expect(ctx).toContain(
+      "- and 2 more rules there (shown already this session, or a product's or a source's).",
+    );
+    expect(ctx).toContain(
+      "A new control follows the rules above; one that carries a decision gets its entry in the same change, and a free detail gets none.",
+    );
     expect(ctx).not.toContain("Keys are drawn");
   });
 
@@ -117,7 +123,7 @@ describe("catalogue-context", () => {
     expect(ctx).not.toContain("Undo where it is cheap");
   });
 
-  it("says that nothing covers a control drawn where no rule matches, and sends it to the research", () => {
+  it("says that nothing covers a control drawn where no rule matches: a known one to the research, a free detail to the everywhere rules", () => {
     const out = run(context, [], {
       tool_input: {
         file_path: join(repo, "apps/forum/src/components/Wizard.tsx"),
@@ -126,13 +132,11 @@ describe("catalogue-context", () => {
     });
     const ctx = JSON.parse(out).hookSpecificOutput.additionalContext as string;
     expect(ctx).toContain("No recorded design decision covers");
-    expect(ctx).toContain("design-research");
-    expect(ctx).toContain("skips the question, never the research");
-    expect(ctx).not.toContain("make your own call");
-    expect(ctx).toContain("for a new screen or flow, the skill's question comes first");
     expect(ctx).toContain(
-      "any control other than a new screen or flow, large or small, skips the question, never the research",
+      "It is free unless it carries a decision. Did Javi say how it should work and look? Then it is their call: build it and record it under their name. A control, flow or string people know from a product is looked up (the design-research skill: name the product, match the nearest pattern this project has, keep its look) and recorded as that product's; a new screen or flow is asked about first, by the skill. Anything else, a tooltip's words, an icon among a set, spacing, a line kept or cut, is free: build it by the catalogue's everywhere rules and the nearest pattern, record nothing, ask nothing, and end the turn with the line decisions: none (free: <the rule it follows>).",
     );
+    expect(ctx).not.toContain("make your own call");
+    expect(ctx).not.toContain("the agent's choice");
     expect(
       run(context, [], {
         tool_input: {
@@ -150,7 +154,7 @@ describe("catalogue-context", () => {
         content: "export function Wizard() {\n  return <ol><li>First</li></ol>;\n}\n",
       },
     });
-    expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain("did Javi say how");
+    expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain("Did Javi say how");
   });
 
   it("says nothing in a project whose file names no catalogue", () => {

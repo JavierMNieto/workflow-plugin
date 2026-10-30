@@ -277,31 +277,28 @@ export function untiered(text) {
     .map((rule) => rule.slice(2));
 }
 
-/** The agent's choice tier: its date, and the clause after the date when it has one. */
-const AGENTS_CHOICE =
-  /\(the agent's choice, (\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})(?:,([^)]*))?\)/;
-
-/** Whether text says something: a letter, once a placeholder such as `<what was looked at>` is taken out. */
-const says = (text) => /\p{L}/u.test(text.replace(/<[^>]*>/g, ""));
+/** The retired agent's choice tier, and its date. */
+const AGENTS_CHOICE = /^the agent's choice, (\d{1,2} [A-Z][a-z]+(?: \d{4})?|\d{4}-\d{2}-\d{2})\b/;
 
 /**
- * **The agent's choice carries its reason** (docs/workflow.md, "The tier
- * says who may change a rule"): the rules of a catalogue file at that tier
- * that are the tag alone, nothing after the date and nothing after the tag;
- * with `day` (dates as entries write them), only those dated then. A rule's
- * tier is read by `tierOf`; a struck-through predecessor kept under it is
- * history, neither its tier nor its reason. Presence is what a script can
- * check, as Rust's and ESLint's lints check that a reason is there, never
- * whether it is a good one; a placeholder copied from a hint is not one.
+ * **The agent's choice is retired** (docs/workflow.md, "The tier says who
+ * may change a rule"): the catalogue holds only well-formed opinions, a
+ * person's call or a product or source followed, so every rule of a
+ * catalogue file at that tier is listed, reasoned or not; with `day` (dates
+ * as entries write them), only those dated then. The tag stays in the
+ * grammar so the fault can name it: an entry dropped from it would read as
+ * one without its tier and date. A rule's tier is read by `tierOf`; a
+ * struck-through predecessor kept under it is history. Presence is what a
+ * script can check, as Rust's and ESLint's lints do, never whether a
+ * detail mattered.
  */
-export function unreasoned(text, day) {
+export function agentsChoice(text, day) {
   const days = day === undefined ? null : [day].flat();
   return rules(text)
     .filter((rule) => {
       const tier = tierOf(rule);
-      const tag = tier && AGENTS_CHOICE.exec(`(${tier.tag})`);
-      if (!tag || tag.index !== 0) return false;
-      if (says(tag[2] || "") || says(tier.after)) return false;
+      const tag = tier && AGENTS_CHOICE.exec(tier.tag);
+      if (!tag) return false;
       return !days || days.includes(tag[1]);
     })
     .map((rule) => rule.slice(2));
@@ -362,7 +359,7 @@ export function reasonFor(
         `${made.length} call${made.length === 1 ? "" : "s"} to ${[...new Set(made)].slice(0, 4).join(", ")} ${made.length === 1 ? "was" : "were"} made`,
       );
     reasons.push(
-      `${parts.join(" and ")}, and nothing under ${under} did. Add or update the entry in ${under} in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why).`,
+      `${parts.join(" and ")}, and nothing under ${under} did. Add or update the entry in ${under} in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why). A free detail, one nobody decided for a reason, gets no entry: decisions: none (free: <the rule it follows>).`,
     );
   }
   // **Every rule carries its tier and date**: a catalogue file this turn
@@ -380,18 +377,18 @@ export function reasonFor(
     if (!missing.length) continue;
     const first = missing[0].length > 80 ? `${missing[0].slice(0, 77)}...` : missing[0];
     reasons.push(
-      `${file} has ${missing.length} rule${missing.length === 1 ? "" : "s"} without a tier and date: "${first}". Every rule ends with who it rests on and when: (${person}, ${day}), (as GitHub does, ${day}) or (the agent's choice, ${day}, <what was looked at>).`,
+      `${file} has ${missing.length} rule${missing.length === 1 ? "" : "s"} without a tier and date: "${first}". Every rule ends with who it rests on and when: (${person}, ${day}), (as GitHub does, ${day}) or (per <source>, ${day}).`,
     );
   }
-  // **The agent's choice carries its reason**: today's bare one is asked for
-  // it; an older one is `plans check`'s, so no session is pushed to invent a
-  // reason for an entry it did not write.
+  // **The agent's choice is retired**: today's entry at it is asked to be
+  // taken out or tiered by what it followed; an older one is `plans check`'s,
+  // so no session is pushed to sort an entry it did not write.
   for (const file of ruleFiles) {
-    const bare = unreasoned(texts[file] || "", days);
-    if (!bare.length) continue;
-    const first = bare[0].length > 80 ? `${bare[0].slice(0, 77)}...` : bare[0];
+    const retired = agentsChoice(texts[file] || "", days);
+    if (!retired.length) continue;
+    const first = retired[0].length > 80 ? `${retired[0].slice(0, 77)}...` : retired[0];
     reasons.push(
-      `${file} has ${bare.length} agent's choice${bare.length === 1 ? "" : "s"} dated today with no reason: "${first}". An agent's choice says what was looked at and why none of it settles the thing, in its tag after the date, (the agent's choice, ${day}, <what was looked at>), or in the sentence after it.`,
+      `${file} has ${retired.length} entr${retired.length === 1 ? "y" : "ies"} at the agent's choice dated today: "${first}". The catalogue holds only well-formed opinions, a person's call or a product or source followed; a detail nobody decided is free, changed on sight and not recorded. Take the entry out, or tier it by what it followed (as <product> does, per <source>, observed in <x>).`,
     );
   }
   return reasons.join("\n\n");

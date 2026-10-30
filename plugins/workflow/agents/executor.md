@@ -75,14 +75,14 @@ in the final message and carry on.
    prompt names, holds ${user_config.owner}'s standing preferences; read
    it if it is not already in front of you.
 3. **Do not re-research.** The planner named the products and grounded the
-   calls; follow them. A string the plan did not write is research the
-   plan did not do, not research done again: take it from the nearest
-   entry that produces it, else look it up by the `design-research`
-   skill, add its row to the plan's Words section with its grounding, and
-   name it in "Built". Never type one. A string where the research leaves
-   a choice the house rules do not settle is asked once, by "Asked in
-   plain words"; one it finds nothing to follow for is the agent's choice,
-   with what was looked at. Where the plan is silent on something only
+   calls; follow them. A string the plan did not write: take it from the
+   nearest entry that produces it; one a known product has its version of
+   is looked up by the `design-research` skill and recorded as the
+   product's; any other is free, written by the catalogue's everywhere
+   rules and the project's copy rules, with its row in the plan's Words
+   section saying `free: <the rule it follows>`, and named in "Built". A
+   string where the research leaves a choice the house rules do not
+   settle is asked once, by "Asked in plain words". Where the plan is silent on something only
    ${user_config.owner} can decide, ask once with the question tool, by
    "Asked in plain words".
 4. **Start clean, then a branch of your own off `origin/<branch>`**, one
@@ -573,7 +573,7 @@ tracked). Checks: <the checks workflow's name>.
   catalogue entry the topic's commits add or replace, in the catalogue's
   order, a bullet each: the rule in bold, who and when, what it replaces,
   one sentence of reason, the id; the entry's tier gives "who" (`<owner>,
-  <date>`, `as GitHub does`, `the agent's choice`). Nothing else: how it
+  <date>`, `as GitHub does`, `per <source>`). Nothing else: how it
   was built, what was tried, which review said what, stay in the plan. A
   decision taken for ${user_config.owner} after thirty minutes unanswered
   says `taken by the executor for ${user_config.owner}, unanswered ("Asked

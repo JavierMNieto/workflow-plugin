@@ -35,7 +35,12 @@ import {
   QUEUE_IGNORES,
   QUEUE_KINDS,
 } from "../plugins/workflow/scripts/project.mjs";
-import { globToRegExp, reasonFor, untiered } from "../plugins/workflow/scripts/turn-audit.mjs";
+import {
+  agentsChoice,
+  globToRegExp,
+  reasonFor,
+  untiered,
+} from "../plugins/workflow/scripts/turn-audit.mjs";
 
 // The end timer and the stops are recorded here, so no hook a test runs
 // leaves a timer sleeping for an hour (plans/idle-chats-end.md).
@@ -708,22 +713,27 @@ describe("every string rests on what produced it", () => {
   it("the skill's question and the edit-time line name one boundary, a new screen or flow", () => {
     const skill = readFileSync(join(plugin, "skills", "design-research", "SKILL.md"), "utf8");
     const step2 = /^2\. [\s\S]*?(?=^3\. )/m.exec(skill)![0];
-    expect(step2).toContain("A new screen or flow: ask, once, with three choices");
-    expect(step2).toContain("Any other control, large or small");
+    expect(step2).toContain("A new screen or flow: ask, once, with two choices");
+    expect(step2).toContain("A detail no product settles is free");
+    expect(step2).not.toContain("you choose");
+    // The skill no longer offers the retired tier.
+    expect(skill).not.toContain("(the agent's choice,");
     expect(readFileSync(join(plugin, "agents", "maker.md"), "utf8")).toContain(
       "a new screen or flow is asked about",
     );
   });
 
-  it("the audit's tier hint asks for what was looked at", () => {
-    expect(
-      reasonFor(["docs/patterns/a.md"], "", "", {
-        catalogue: "docs/patterns",
-        texts: { "docs/patterns/a.md": "- **No tier.**\n" },
-        day: "27 October",
-        who: "Javi",
-      }),
-    ).toContain("(the agent's choice, 27 October, <what was looked at>)");
+  it("the audit's tier hint offers the tiers that stand, never the retired agent's choice", () => {
+    const hint = reasonFor(["docs/patterns/a.md"], "", "", {
+      catalogue: "docs/patterns",
+      texts: { "docs/patterns/a.md": "- **No tier.**\n" },
+      day: "27 October",
+      who: "Javi",
+    });
+    expect(hint).toContain(
+      "(Javi, 27 October), (as GitHub does, 27 October) or (per <source>, 27 October).",
+    );
+    expect(hint).not.toContain("the agent's choice");
   });
 });
 
@@ -739,6 +749,10 @@ describe("the audit's tier check", () => {
 - ~~**A struck rule.**~~ (retired)
 `;
     expect(untiered(text)).toEqual(["**A button with no tier.** It says why."]);
+    // An entry at the retired tier has its tier and date: its fault is its own kind.
+    expect(agentsChoice(text)).toEqual([
+      "**Keys are drawn as a grid, four to a row.** (the agent's choice, 11 October)",
+    ]);
     expect(
       untiered("- **A rule.** (Mary Jane, 27 October)\n- **Another.** (José, 2 May)\n"),
     ).toEqual([]);
@@ -894,7 +908,7 @@ describe("the catalogue follow-up", () => {
       writeFileSync(join(root, "decisions", "b.md"), "- `x` **Two.** (Javi, 2026-10-21)\n");
       writeFileSync(
         join(root, "decisions", "c.md"),
-        "- **No tier.**\n- **Bare choice.** (the agent's choice, 2026-10-21)\n",
+        "- **No tier.**\n- **Bare choice.** (the agent's choice, 2026-10-21)\n- **Reasoned choice.** (the agent's choice, 2026-10-21, Gmail differs)\n",
       );
     }
     return root;
@@ -920,15 +934,18 @@ describe("the catalogue follow-up", () => {
     expect(bad.out).toContain("decisions/c.md: no tier and date: **No tier.**");
     expect(bad.out).toContain("id x is used twice in decisions");
     expect(bad.out).toContain(
-      "decisions/c.md: no reason: **Bare choice.** (the agent's choice, 2026-10-21)",
+      "decisions/c.md: the agent's choice, retired: **Bare choice.** (the agent's choice, 2026-10-21)",
     );
-    expect(bad.out).toContain("4 entries in 3 files, 3 faults.");
+    expect(bad.out).toContain(
+      "decisions/c.md: the agent's choice, retired: **Reasoned choice.** (the agent's choice, 2026-10-21, Gmail differs)",
+    );
+    expect(bad.out).toContain("5 entries in 3 files, 4 faults.");
     const good = plansIn(linted(true), ["check"]);
     expect(good).toMatchObject({ code: 0 });
     expect(good.out).toContain("1 entries in 1 file, no faults.");
   });
 
-  it("plans check reads a catalogue's README: a bare rule there is a fault", () => {
+  it("plans check reads a catalogue's README: an entry at the retired tier there is a fault", () => {
     const root = linted(true);
     writeFileSync(
       join(root, "decisions", "README.md"),
@@ -937,7 +954,7 @@ describe("the catalogue follow-up", () => {
     const bad = plansIn(root, ["check"]);
     expect(bad.code).toBe(1);
     expect(bad.out).toContain(
-      "decisions/README.md: no reason: **Everywhere.** (the agent's choice, 2026-10-21)",
+      "decisions/README.md: the agent's choice, retired: **Everywhere.** (the agent's choice, 2026-10-21)",
     );
     expect(bad.out).toContain("2 entries in 2 files, 1 fault.");
   });
@@ -1185,10 +1202,11 @@ describe("the catalogue follow-up", () => {
     };
     const first = turn(`calls-a-${process.pid}`, "Done.");
     expect(JSON.parse(first).reason).toBe(
-      "1 call to mcp__p__ppt_set_text was made, and nothing under decisions did. Add or update the entry in decisions in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why).",
+      "1 call to mcp__p__ppt_set_text was made, and nothing under decisions did. Add or update the entry in decisions in this turn, as the Decisions rules say, or say why not in your final message with the line: decisions: none (why). A free detail, one nobody decided for a reason, gets no entry: decisions: none (free: <the rule it follows>).",
     );
     expect(run("stop", { session_id: `calls-a-${process.pid}`, stop_hook_active: true })).toBe("");
     expect(turn(`calls-b-${process.pid}`, "decisions: none (a bug)")).toBe("");
+    expect(turn(`calls-c-${process.pid}`, "decisions: none (free: tooltips are short)")).toBe("");
   });
 
   it("audits a writing call in a project with no git", () => {

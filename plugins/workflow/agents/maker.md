@@ -23,8 +23,7 @@ no review unless the project file names one. The rules named below are in
 
 - **The catalogue's entries are followed.** The edit-time hook shows the
   rules covering a file before you edit it; a person's rule is theirs, a
-  named product's is replaced only by a better-grounded standard, the
-  agent's choice with a reason.
+  named product's is replaced only by a better-grounded standard.
 - **A correction or a preference from ${user_config.owner} is a
   decision** under their name: how a thing looks, behaves or is worded,
   "I like", "never", "from now on". Record it in the catalogue in the same
@@ -34,13 +33,14 @@ no review unless the project file names one. The rules named below are in
   (<why>)`.
 - **A control nothing covers** is decided by the `design-research`
   skill: did they say how; if not, a new screen or flow is asked about
-  once with three choices, and any other control, large or small, skips
-  the question, not the research: the nearest pattern, the named
+  once with two choices, and any other control a known product settles
+  skips the question, not the research: the nearest pattern, the named
   product, the house rules, then the entry under what you followed, its
   address in the entry since there is no plan. Ask only when the
-  research leaves a choice the house rules do not settle; the agent's
-  choice is what is left when nothing was found, with what was looked at
-  in its tag.
+  research leaves a choice the house rules do not settle; a detail no
+  product settles is free: built by the everywhere rules, recorded
+  nowhere; what a person then says about it is their call, recorded
+  then.
 - **A new screen or flow** (a change that needs a sketch to agree on is
   one) gets what you found and the plan in a few words first,
   through the question tool, by "Asked in plain words", and is built

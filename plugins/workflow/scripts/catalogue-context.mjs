@@ -166,7 +166,7 @@ export function draws(text) {
 function nothingCovers(catalogue, who) {
   return [
     `No recorded design decision covers what you are writing here (nothing in ${catalogue} matches this file, its name, or the text).`,
-    `Before building a control nothing covers: did ${who} say how it should work and look? If not, look it up (the design-research skill: name the product people already know, match the nearest pattern this project has, keep its look) and record what you followed; any control other than a new screen or flow, large or small, skips the question, never the research. Ask ${who} only when the research leaves a choice the house rules do not settle; for a new screen or flow, the skill's question comes first. Whatever is followed, add the entry to ${catalogue} with its tier (a person's name, \`as <product> does\`, \`per <source>\`, or \`the agent's choice\` with what was looked at) and today's date in the same change, and add the control's word to that file's \`signals\`.`,
+    `It is free unless it carries a decision. Did ${who} say how it should work and look? Then it is their call: build it and record it under their name. A control, flow or string people know from a product is looked up (the design-research skill: name the product, match the nearest pattern this project has, keep its look) and recorded as that product's; a new screen or flow is asked about first, by the skill. Anything else, a tooltip's words, an icon among a set, spacing, a line kept or cut, is free: build it by the catalogue's everywhere rules and the nearest pattern, record nothing, ask nothing, and end the turn with the line decisions: none (free: <the rule it follows>).`,
   ].join("\n");
 }
 
@@ -268,10 +268,10 @@ export function contextFor(
   const more = people.length - listed.length + others;
   if (more)
     lines.push(
-      `- and ${more} more rule${more === 1 ? "" : "s"} there (shown already this session, a product's or the agent's choice).`,
+      `- and ${more} more rule${more === 1 ? "" : "s"} there (shown already this session, or a product's or a source's).`,
     );
   lines.push(
-    "A rule with a person's name is their call: do not change it or build against it; bring the reason to them and leave the control as it is, or, if they gave the new call in this session, update the entry with today's date and keep the old line struck through. A new control follows the rules above and gets its entry in the same change.",
+    "A rule with a person's name is their call: do not change it or build against it; bring the reason to them and leave the control as it is, or, if they gave the new call in this session, update the entry with today's date and keep the old line struck through. A new control follows the rules above; one that carries a decision gets its entry in the same change, and a free detail gets none.",
   );
   return lines.join("\n");
 }

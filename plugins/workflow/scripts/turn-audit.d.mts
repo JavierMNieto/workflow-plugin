@@ -25,6 +25,7 @@ export function recordTool<S extends TurnState>(
 ): S;
 export function listToJudge(state: TurnState, now: Files): string[];
 export function untiered(text: string): string[];
+export function agentsChoice(text: string, day?: string | string[]): string[];
 export function reasonFor(
   changed: string[],
   prompt: string,
