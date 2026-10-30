@@ -175,8 +175,8 @@ only a start. There are three landings:
   opens with the first plan marked `ready`, when the topic holds its
   central decision or two substantial ones, from every plan of the topic
   so far, titled by the ready plan's title; until then the topic waits on
-  its branch, rebased onto `branch` when its next plan starts, since
-  nobody has read it yet. A later plan joins an open pull request: the
+  its branch, brought up to date by merging `branch` in when its next
+  plan starts, never force-pushed. A later plan joins an open pull request: the
   description is written again and one comment says what was added,
   since GitHub tells the people of a comment and not of a push. A later
   plan with a central decision of its own is a new topic. A plan with no
@@ -202,16 +202,21 @@ plan, the reviews included, a fix's as well; the Stop hook reads the
 pull requests' checks, then the run a fix pushed straight set off ("The
 queue"); the merge is the people's, and the executor never merges. A
 plan that rests on an open pull request (uses what it adds) is stacked
-on it; one that only changes the same file is not, and is rebased if it
-conflicts once the other merges. A stacked plan's branch starts at that
+on it; one that only changes the same file is not, and merges its base
+in if it conflicts once the other merges. A stacked plan's branch starts at that
 pull request's head, its base is that branch, and GitHub retargets it
 when the first's head branch is deleted on merge (the executor retargets
-it at its next batch otherwise). At a batch's start the executor rebases
-each open pull request GitHub reports as conflicting onto its own base,
-from its head as GitHub has it, runs its checks again and pushes it with
-`--force-with-lease` against that head to its own head branch, never to
-the branch (Javi, 29 October: each pull request is merged or held
-alone). The executor refreshes only its own person's pull requests, with
+it at its next batch otherwise). At a batch's start the executor brings
+each open pull request GitHub reports as conflicting up to date by
+merging its own base into its head as GitHub has it, the conflicts
+settled in the merge commit, runs its checks again and pushes it with a
+plain push to its own head branch, never to the branch (Javi, 29
+October: each pull request is merged or held alone). A branch is
+brought up to date by merging, never force-pushed: the refreshed pull
+request, the waiting topic and the day's fixes branch alike (Javi, 21
+October: merge, never force, which a project may enforce in its
+settings; a squash merge keeps the merge commit off `branch`, and
+another person's commits on the branch stay as they are). The executor refreshes only its own person's pull requests, with
 the checks alone: those opened by its machine's GitHub account (`gh pr
 list --author @me`) whose number or head branch a plan in its
 checkout's `plans/` names (a fix's "Built" names the day's pull request

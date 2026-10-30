@@ -102,9 +102,8 @@ in the final message and carry on.
    branch of that name is checked out. Nothing is committed straight to
    the branch or to `main` (a fix wanted now is committed on its own
    branch and pushed to the branch as a fast-forward, as the push mode
-   pushes), nothing is force-pushed but a topic's own
-   branch: a conflicting pull request's head, or a waiting topic rebased
-   ("In pull request mode"), and a production
+   pushes), nothing is force-pushed, ever (a branch behind its base
+   merges the base in, "In pull request mode"), and a production
    branch moves only when ${user_config.owner} says, unless the project
    file says otherwise.
 5. **Mark the plan as being built**: when you start it, write `## Building,
@@ -274,6 +273,18 @@ merge`, never a draft, and the branch itself is pushed only for a
   ready`: a pull request of its own, so nothing lands unread by omission.
   The plan's author judges whether a topic is ready and whether a change
   is a fix; you follow the line.
+- **A branch is brought up to date by a merge**, never a rebase and a
+  forced push: `git merge --no-edit -m "Merge origin/<base> into <name>"
+  -m "<the attribution lines the session gives>" origin/<base>`, a
+  conflict settled in the merge commit from the plans and committed with
+  `git commit --no-edit`; one that cannot be is left (`git merge
+  --abort`) and named in the final message. Its push is a plain push to
+  that branch only; refused because somebody pushed to it since the
+  fetch, `git fetch origin`, the same merge of `origin/<name>`, the
+  project's checks again on the merged tree, and one more push; refused
+  again, it is left and named. A merge that settled a conflict gets a
+  line in the plan's "Built", `Merged <base> <date>: <the files whose
+  conflicts were settled>`.
 - **A topic's branch** is the topic's name, after `git fetch --prune`; a
   name that is the branch, `main` or `fixes-` followed by anything is no
   topic's, and the plan is built as `topic <the plan's file name without
@@ -291,24 +302,25 @@ merge`, never a draft, and the branch itself is pushed only for a
   - **A waiting branch** (`origin/<name>` exists and no open pull request
     has it as head): `git switch -C <name> origin/<name>`, unless the local
     branch holds commits the remote lacks (then the local one, pushed
-    first), then `git rebase origin/<branch>` (or the head branch it is
-    stacked on): nobody has read a waiting topic, so its history may move.
-    A conflict is settled from the plans, as the refresh settles one; one
-    that cannot be is left (`git rebase --abort`), named in the final
-    message, and the plan is built on the branch as it is.
+    first), then `origin/<branch>` (or `origin/<the head branch it is
+    stacked on>`) merged in ("A branch is brought up to date by a merge"),
+    the plan's push carrying the merge. A conflict that cannot be settled
+    leaves the plan built on the branch as it is.
   - **An open pull request's branch**: `git switch -C <name>
-    origin/<name>`, no rebase, unless the local branch holds commits the
+    origin/<name>`, no merge, unless the local branch holds commits the
     remote lacks (then the local one, pushed first); the refresh below
     handles a conflicting one.
   - **The tip it starts from** is recorded before the first edit, `git
-    rev-parse HEAD` once the branch is taken and rebased (for a new branch,
+    rev-parse HEAD` once the branch is taken and merged (for a new branch,
     `origin/<branch>` or the head it is stacked on): the plan's squash goes
     back to it and no further.
 - **At a batch's start**, `git fetch --prune`; then each open pull
   request of this queue (opened by this account, `gh pr list --author
   @me`, whose number or head branch a plan in this checkout's `plans/`
   names) whose base is a branch whose pull request has merged is
-  retargeted, `gh pr edit <n> --base <branch>`; then a local branch is
+  retargeted, `gh pr edit <n> --base <branch>`, and `origin/<branch>`
+  merged into its head and pushed, the refresh's way, so its diff shows
+  its own change and not the squashed one's again; then a local branch is
   deleted (`git branch -D`) only when `gh pr view <name> --json
   state,headRefOid` says MERGED at the branch's own commit. A branch
   whose pull request was closed unmerged, or that holds commits past it,
@@ -323,18 +335,17 @@ merge`, never a draft, and the branch itself is pushed only for a
   before the ones stacked on it. Its work starts from its head as GitHub
   has it, `git switch -C <head branch> origin/<head branch>`, unless the
   local branch holds commits that head lacks: then it is left and named.
-  It is rebased onto its own base, `origin/<baseRefName>` (the branch, or
-  the head branch it is stacked on; one stacked on a pull request just
-  refreshed, `git rebase --onto origin/<base> <the base's old head>`).
+  Its own base, `origin/<baseRefName>`, is merged in ("A branch is
+  brought up to date by a merge"; the branch, or the head branch it is
+  stacked on; one stacked on a pull request just refreshed merges that
+  one's new head the same way), the conflicts settled from the two plans.
   The project's checks run again (not the suites; the pull request's CI
-  runs on the push), and it is pushed with `git push
-  --force-with-lease=<head branch>:<headRefOid> origin <head branch>`,
-  to its own head branch only, never to the branch, and only if nobody
-  pushed to it since the fetch. Its plan's "Built" gets a line,
-  `Refreshed <date> onto <base>: <the files whose conflicts were
-  settled>`. A conflict that cannot be settled from the two plans is left
-  as it is (`git rebase --abort`) and named in the final message; then
-  `git checkout --detach origin/<branch>` before the first plan's branch.
+  runs on the push), and it is pushed with `git push origin <head
+  branch>`, a plain push to its own head branch only, never to the
+  branch. Its plan's "Built" gets a line, `Refreshed <date>: merged
+  <base>, <the files whose conflicts were settled>`. One that cannot be
+  settled is left as it is and named; then `git checkout --detach
+  origin/<branch>` before the first plan's branch.
 - **"Before the push" runs once per plan**, before that plan's push, the
   screenshots, the reviews and the suites included: each plan is checked
   on its own, a fix as well, since what a fix skips is the people's
@@ -344,12 +355,14 @@ merge`, never a draft, and the branch itself is pushed only for a
   ("The tip it starts from"), never to the previous plan's commit: a
   commit another person pushed to the branch between the plans stays as
   theirs (the docs, "A change one person started is anyone's to go on
-  with"); the rebase of a waiting branch and the refresh of a conflicting
-  pull request start from the fetched head, so such a commit is rebased,
-  not dropped, and the leased push protects it. Then
-  `git push -u origin <name>` (after a rebase, `git push
-  --force-with-lease=<name>:<the fetched tip> origin <name>`, to the
-  topic's branch only). A waiting topic's branch is pushed too: it
+  with"); the merge that brings a waiting branch or a conflicting pull
+  request up to date starts from the fetched head, so such a commit stays
+  as it is. Then `git push -u origin <name>`, a plain push to the topic's
+  branch only, retried as "A branch is brought up to date by a merge"
+  says. The squash runs before the plan's commit is first pushed, so
+  nothing pushed is rewritten; where it would rewrite a commit already
+  pushed (a fix after a red check, a handed-over plan's pushed work), the
+  plan's commits are pushed as they are instead, and "Built" names each. A waiting topic's branch is pushed too: it
   survives the container, and the people can look at it before it asks
   anything of them. Then, by the topic:
   - **Waiting, no pull request**: nothing opens. "Built" opens with `On
@@ -399,10 +412,10 @@ merge`, never a draft, and the branch itself is pushed only for a
   `gh pr edit` attaches nothing. With none open and none merged or closed that day (`gh pr list
   --state all --head fixes-<yyyy-mm-dd>` finds none): `git switch -C
   fixes-<yyyy-mm-dd> origin/fixes-<yyyy-mm-dd>` when an earlier fix waits
-  on it (below), rebased onto `origin/<branch>`, else `git switch -C
-  fixes-<yyyy-mm-dd> origin/<branch>`; one commit, `git push -u origin
-  fixes-<yyyy-mm-dd>` (`--force-with-lease=fixes-<yyyy-mm-dd>:<its fetched
-  tip>` after the rebase), then `gh pr create --base <branch> --title
+  on it (below), `origin/<branch>` merged in after ("A branch is brought
+  up to date by a merge"), else `git switch -C fixes-<yyyy-mm-dd>
+  origin/<branch>`; one commit, `git push -u origin fixes-<yyyy-mm-dd>`,
+  a plain push, then `gh pr create --base <branch> --title
   "Small fixes, <d Month yyyy>" --body-file plans/<the plan>/pull-request.md
   --attach ...`, the date as the plans write it (`30 October 2026`). With
   the day's pull request merged or closed already, the fix **waits for
@@ -416,7 +429,11 @@ merge`, never a draft, and the branch itself is pushed only for a
   batch's start, a `fixes-<yyyy-mm-dd>` branch whose day has come, with
   no pull request, has its pull request opened by the same command, its
   plans' Built sections each getting the "opened" line. An earlier day's
-  fixes pull request still open is left to the people.
+  fixes pull request still open is left to the people. On the day's
+  branch, as on a topic's, the fix's squash goes back to the tip the
+  branch had once taken and merged ("The tip it starts from"), never to
+  `origin/<branch>`, and its pushes are plain ones, retried as "A branch
+  is brought up to date by a merge" says.
   "Built" opens with `Pull request #<n>
   (<url>) of the day's fixes, commit <sha>; open, checks green.`
 - **A fix wanted now**, `Lands: fix, now.`: a branch of its own off
@@ -533,7 +550,10 @@ tracked). Checks: <the checks workflow's name>.
   topic's branch that no plan of the topic names in its Built section,
   from `git log origin/<base>..origin/<name> --format='%h%x09%an%x09%s'`:
   `- <the commit's title> (<author>)`, since another person's commit is
-  theirs. With none, the heading is left out.
+  theirs, a merge commit another person made included, since it may
+  settle a conflict; an executor's merges (titled `Merge origin/<…> into
+  <…>`, "A branch is brought up to date by a merge") are left out, since
+  the plans' Built lines account for them. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), then
   the plan line; for a topic of several plans, their paths in one line,

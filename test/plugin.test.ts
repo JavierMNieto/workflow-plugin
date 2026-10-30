@@ -1359,11 +1359,56 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     expect(mode).toContain("one whose additions it uses");
     expect(mode).toContain("only changes a file an open pull request changes is not stacked");
     expect(mode).toContain("`mergeable` `CONFLICTING`");
-    // From the head as GitHub has it, onto its own base, leased against the fetched head.
+    // From the head as GitHub has it, its own base merged in, a plain push.
     expect(mode).toContain("`git switch -C <head branch> origin/<head branch>`");
-    expect(mode).toContain("rebased onto its own base, `origin/<baseRefName>`");
+    expect(mode).toContain("Its own base, `origin/<baseRefName>`, is merged in");
     expect(mode).toContain(
-      "`git push --force-with-lease=<head branch>:<headRefOid> origin <head branch>`, to its own head branch only, never to the branch",
+      "`git push origin <head branch>`, a plain push to its own head branch only, never to the branch",
+    );
+  });
+
+  // plans/refresh-by-merge.md: a branch is brought up to date by merging, never force-pushed.
+  it("has the executor merge a branch up to date and never force-push", () => {
+    const text = read("agents/executor.md");
+    const flat = text.replace(/\s+/g, " ");
+    expect(text).not.toContain("--force-with-lease");
+    expect(text).not.toContain("git rebase --onto");
+    expect(flat).toContain("nothing is force-pushed, ever");
+    const mode = /### In pull request mode[\s\S]*?\n\*\*The description\*\*/
+      .exec(text)![0]
+      .replace(/\s+/g, " ");
+    const part = (from: string, to: string) => {
+      const [start, end] = [mode.indexOf(from), mode.indexOf(to)];
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      return mode.slice(start, end);
+    };
+    // One merge, defined once: no editor, the attribution, a plain push retried after a merge.
+    const merge = part("**A branch is brought up to date by a merge**", "**A topic's branch**");
+    expect(merge).toContain(
+      '`git merge --no-edit -m "Merge origin/<base> into <name>" -m "<the attribution lines the session gives>" origin/<base>`',
+    );
+    expect(merge).toContain("`git commit --no-edit`");
+    expect(merge).toContain("Its push is a plain push to that branch only");
+    expect(merge).toContain("the project's checks again on the merged tree");
+    // The refresh, the waiting topic and the day's fixes branch merge, then push plainly.
+    const named = '("A branch is brought up to date by a merge"';
+    const refresh = part("**Then a conflicting pull request is refreshed**", '**"Before the push"');
+    expect(refresh).toContain("`origin/<baseRefName>`, is merged in " + named);
+    expect(refresh).toContain("`git push origin <head branch>`, a plain push");
+    expect(refresh).toContain("`Refreshed <date>: merged <base>, <the files");
+    const waiting = part("**A waiting branch**", "**An open pull request's branch**");
+    expect(waiting).toContain("merged in " + named);
+    expect(waiting).not.toContain("rebase");
+    const topic = part("**A topic's plan**", "**Waiting, no pull request**");
+    expect(topic).toContain("`git push -u origin <name>`, a plain push");
+    const fixes = part("**A fix**, `Lands: fix.`", "**A fix wanted now**");
+    expect(fixes).toContain("`origin/<branch>` merged in after " + named);
+    expect(fixes).toContain("`git push -u origin fixes-<yyyy-mm-dd>`, a plain push");
+    expect(fixes).toContain("never to `origin/<branch>`");
+    expect(fixes).not.toContain("rebase");
+    expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
+      "A branch is brought up to date by merging, never force-pushed",
     );
   });
 
