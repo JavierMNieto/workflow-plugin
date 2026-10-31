@@ -405,22 +405,27 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
     (<url>) opened <date> with plans/<the ready plan>.md.`
   - **A pull request already open**, the plan marked ready or waiting:
     the description is written again from every plan of the topic, this
-    one included, keeping the uploaded image addresses of its current body
-    (`gh pr view <n> --json body`), and set with `gh pr edit <n>
-    --body-file`, the pull request made a draft again before the push
-    when it was not one (`gh pr view <n> --json isDraft`, `gh pr ready
-    --undo <n>`), since the plan's work is his to review; then one
-    comment, since GitHub tells the people of a comment and not of a push
-    or an edit: `gh pr comment <n> --body 'Added "<the plan's title>":
-    <its decisions' bold sentences, a semicolon between; or "no decision
-    in it">. The description above now includes it.'`, the same when it
-    was converted back, since GitHub's timeline shows that already, with
-    `--attach <file>#<the line>` for each of the plan's screenshots, since
-    `gh pr edit` attaches nothing, and the description lists those by their line
-    with `(in the comment below)` in place of the image. "Built" opens with
-    `Pull request #<n> (<url>) joined, commit <sha>; draft, checks green.`;
-    for a plan marked waiting, a line says the pull request was open
-    already.
+    one included, to `plans/<this plan>/pull-request.md`, keeping the
+    uploaded image addresses of its current body (`gh pr view <n> --json
+    body`) for the earlier plans' screenshots and writing this plan's as
+    local paths, `![<the line>](plans/<topic>/<file>.png)`, under the
+    decisions they show; the pull request made a draft again before the
+    push when it was not one (`gh pr view <n> --json isDraft`, `gh pr
+    ready --undo <n>`), since the plan's work is his to review; then
+
+    ```
+    gh pr edit <n> --body-file plans/<this plan>/pull-request.md \
+      --attach plans/<topic>/<file>.png#<the line> ...
+    ```
+
+    one `--attach` per screenshot of this plan, which gh uploads and
+    writes into the body in place of the path, as `gh pr create
+    --attach` does. No comment: the description is the record, he reads
+    it when he reviews, and a draft asks nothing of anyone else (the
+    docs, "`land: pull-request` lands by pull request"). "Built" opens
+    with `Pull request #<n> (<url>) joined, commit <sha>; draft, checks
+    green.`; for a plan marked waiting, a line says the pull request was
+    open already.
 - **A fix**, `Lands: fix.`: built on the day's branch,
   `fixes-<yyyy-mm-dd>` (the day is yours when the plan's push happens),
   whose pull request is found by that branch, `gh pr list --state open
@@ -428,11 +433,13 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   switch -C fixes-<yyyy-mm-dd> origin/fixes-<yyyy-mm-dd>`, unless the
   local branch holds commits the remote lacks (then the local one), one
   commit, `git push -u origin fixes-<yyyy-mm-dd>`, and its description
-  rewritten, keeping its uploaded image addresses, `gh pr edit <n>
-  --body-file`, and no comment, since a fix
-  has nothing to decide; a later fix's screenshots go up in one comment,
-  `gh pr comment <n> --body "<the line>" --attach <file>#<the line>`, as
-  `gh pr edit` attaches nothing. With none open and none merged or closed that day (`gh pr list
+  rewritten, keeping its uploaded image addresses and writing this fix's
+  screenshots as local paths under its line, `gh pr edit <n> --body-file
+  plans/<the plan>/pull-request.md --attach plans/<x>/<file>.png#<the
+  line> ...`, one `--attach` per screenshot of this fix, which gh writes
+  into the body in place of the path; and no comment, since a fix has
+  nothing to decide and nobody has to read it. With none open and none
+  merged or closed that day (`gh pr list
   --state all --head fixes-<yyyy-mm-dd>` finds none): `git switch -C
   fixes-<yyyy-mm-dd> origin/fixes-<yyyy-mm-dd>` when an earlier fix waits
   on it (below), `origin/<branch>` merged in after ("A branch is brought
@@ -485,13 +492,19 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
 - **The screenshots, when `--attach` fails**: when `gh --version` is
   under 2.99.0, or the upload is refused, the body's images are taken
   out, each one's line kept where it stood, one line goes under `## To
-  try it` before its own, and the pull request is created without
-  `--attach`; when the refused `gh pr create` opened one anyway (`gh pr
-  view <name> --json number,url` finds it), its body is replaced instead
-  (`gh pr edit <n> --body-file`), never a second pull request. The line:
-  `Screenshots: sent in the executor's chat; attaching them needs gh 2.99
-  or newer in this container, signed in with a token that can upload (the
-  plugin's docs, "Installing").` The final message and "Built" say the
+  try it` before its own, and the pull request is created, or its
+  description set, without `--attach`; an image already uploaded, kept
+  from the current body by its address, stays. When the refused `gh pr
+  create` opened one anyway (`gh pr view <name> --json number,url` finds
+  it), its body is replaced instead (`gh pr edit <n> --body-file`), never
+  a second pull request; when a refused `gh pr edit` set part of the
+  body (gh keeps the uploads that succeeded and exits nonzero), the body
+  is read back (`gh pr view <n> --json body`) into the file, so the
+  addresses gh wrote for the ones that went up stay, and set again from
+  it with the images that failed taken out. The line: `Screenshots: sent
+  in the executor's chat; attaching them needs gh 2.99 or newer in this
+  container, signed in with a token that can upload (the plugin's docs,
+  "Installing").` The final message and "Built" say the
   same in a line.
 - **The checks are watched**: `gh pr checks <n> --watch --fail-fast`
   (exit 8 is pending, any other nonzero a failure), then a failed job's
@@ -672,9 +685,7 @@ to a Claude session left out>
 - **Fixes**: every fix on the day's branch, a line each: the commit's
   title, oldest first.
 - **Screenshots**: each under the fix that sent it, one level in, its
-  line above it, as in the topic's description; a later fix's, posted in
-  a comment, keeps its line with `(in the comment below)` in place of the
-  image.
+  line above it, as in the topic's description.
 - **Already on <branch>**: the day's fixes pushed straight, from `git
   log origin/<branch> --first-parent --since=<the day's start>
   --format='%h %s'`, keeping the commits whose title does not end in `

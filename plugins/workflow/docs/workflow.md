@@ -238,8 +238,13 @@ only a start. There are three landings:
   so far, titled by the ready plan's title; until then the topic waits on
   its branch, brought up to date by merging `branch` in when its next
   plan starts, never force-pushed. A later plan joins an open pull request: the
-  description is written again and one comment says what was added,
-  since GitHub tells the people of a comment and not of a push. A later
+  description is written again, its screenshots attached with `gh pr edit
+  --attach`, and nothing is posted (Javi, 31 October: the description is
+  what he reads when he reviews it, and a draft asks nothing of anyone
+  else; replaces "one comment says what was added, since GitHub tells the
+  people of a comment and not of a push", 28 October, whose reason the
+  draft answers, since nobody waits on a pull request he has not
+  reviewed). A later
   plan with a central decision of its own is a new topic. A plan with no
   `Lands` line is a topic of its own, ready: nothing lands unread by
   omission.
@@ -259,7 +264,8 @@ catalogue stores it, the rule, its tier and date, its reason in a
 sentence and its id, a changed one with the replaced line struck through
 under it and a conflict (a struck line with another person's name)
 first; each screenshot under the decision it shows, with one line saying
-what changed in it, attached with `gh pr create --attach`; then the
+what changed in it, attached with `gh pr create --attach`, a later
+plan's with `gh pr edit --attach`; then the
 other changes a line each and the commits no plan here accounts for,
 with their author, under `Also`; then where to try it in a line; the
 whole, screenshots aside, on one screen (Javi, 31 October: the diff of
@@ -980,9 +986,9 @@ variable is set, so `git push` over HTTPS and `gh run watch` work in
 every chat. The token's value is in no file; the setup's final message
 says where access stands. A token expires: `gh auth status` says so,
 and a new one on the host and a rebuild renew it. **Screenshots on a
-pull request** go up through `gh pr create --attach`, which needs gh
-2.99 or newer and authenticates, by GitHub's changelog, with the OAuth
-token or a classic token; if a fine-grained token's upload is refused,
+pull request** go up through `gh pr create --attach` and `gh pr edit
+--attach`, which need gh 2.99 or newer and authenticate, by GitHub's
+changelog, with the OAuth token or a classic token; if a fine-grained token's upload is refused,
 the fix is a classic token with `repo` on the host. Debian's packaged gh
 is 2.23, so a container that attaches installs gh from GitHub's own apt
 repository; with an older gh the executor opens the pull request without

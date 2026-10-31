@@ -1644,14 +1644,27 @@ describe("a pull request per topic", () => {
     expect(mode).toContain(
       "converts it back with `gh pr ready --undo <n>` before its commit is pushed",
     );
-    expect(mode).toContain("then one comment");
+    // plans/joined-pull-request-no-comment.md: a plan joining an open pull request posts nothing.
+    expect(mode).not.toContain("one comment");
     // plans/owner-reviews-before-anyone-else.md: a topic's pull request opens as a draft.
     expect(mode).toContain("gh pr create --draft --base");
     expect(mode).toContain("never `gh pr ready` without `--undo`");
     // plans/draft-says-nothing-about-itself.md: GitHub already shows a draft as one.
     expect(mode).not.toContain("Opened as a draft");
     expect(read("docs/workflow.md")).not.toContain("The draft's first line says so");
-    expect(mode).toContain("`gh pr comment <n> --body 'Added");
+    // plans/joined-pull-request-no-comment.md: the screenshots go in by `gh pr edit --attach`.
+    expect(mode).not.toContain("gh pr comment");
+    expect(mode).not.toContain("in the comment below");
+    expect(mode).toContain(
+      "gh pr edit <n> --body-file plans/<this plan>/pull-request.md \\ --attach plans/<topic>/<file>.png#<the line>",
+    );
+    expect(mode).toContain("No comment: the description is the record");
+    expect(mode).toContain("or its description set, without `--attach`");
+    expect(mode).toContain(
+      "--attach plans/<x>/<file>.png#<the line> ...`, one `--attach` per screenshot of this fix",
+    );
+    // The Codex review of it: a partly refused edit is set again from the body gh left.
+    expect(mode).toContain("is read back (`gh pr view <n> --json body`) into the file");
     // Javi, 30 October: the comment says nothing of the draft either.
     expect(mode).not.toContain("a draft again until");
     expect(mode).not.toContain("its comment says so");
@@ -1667,6 +1680,14 @@ describe("a pull request per topic", () => {
       "A topic's pull request opens as a draft and stays one until its owner has reviewed it himself",
     );
     expect(read("docs/workflow.md")).not.toContain("in this mode the queue reads no run");
+    // plans/joined-pull-request-no-comment.md: the docs carry the rule, the old one quoted.
+    expect(read("docs/workflow.md")).toContain(
+      "its screenshots attached with `gh pr edit --attach`, and nothing is posted (Javi, 31 October",
+    );
+    expect(read("docs/workflow.md")).not.toContain("written again and one comment says");
+    expect(read("docs/workflow.md")).toContain(
+      "`gh pr create --attach` and `gh pr edit --attach`, which need gh 2.99",
+    );
     expect(read("agents/assistant.md")).toContain(
       "Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.",
     );
