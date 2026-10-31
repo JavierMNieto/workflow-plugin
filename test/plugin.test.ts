@@ -327,11 +327,21 @@ describe("the plugin's queue in any project", () => {
     expect(doc).toContain("**A decision has a name; a part has none.**");
     expect(doc).toContain("**A change one person started is anyone's to go on with.**");
     // plans/also-lists-the-right-commits.md: Also holds other people's commits and no others.
-    expect(executor).toContain("Left out: this plan's own commits");
-    expect(executor).toContain("by `^<its headRefOid>`");
-    expect(executor).toContain("`git fetch origin pull/<n>/head` first when this checkout lacks");
-    expect(executor).toContain("a merge whose author is this checkout's `git config user.name`");
     expect(executor).not.toContain("titled `Merge origin/<…> into <…>`");
+    // plans/also-knows-whose-commit.md: the plans account for the queue's commits, by hash.
+    expect(executor).toContain("that this checkout's plans do not account for");
+    expect(executor).toContain("`git log --first-parent <tip>..HEAD --format=%H`");
+    expect(executor).toContain("a merge this plan made before its tip");
+    expect(executor).toContain("`gh pr view <n> --json commits --jq '.commits[].oid'`");
+    expect(executor).toContain("Nothing is left out by author or by title.");
+    expect(executor).toContain(
+      'Every merge gets a line in the plan\'s "Built", `Merged <base> <date>, commit <sha>:',
+    );
+    expect(executor).toContain("`Refreshed <date>: merged <base>, commit <sha>,");
+    expect(executor).not.toContain("^<its headRefOid>");
+    expect(executor).not.toContain("git fetch origin pull/<n>/head");
+    expect(executor).not.toContain("`git config user.name`");
+    expect(doc).toContain("**The plans account for the queue's commits.**");
     expect(executor).toContain("other people's commit titles under `Also` aside");
     expect(doc).toContain("no commit log, other people's commits aside");
   });
@@ -1547,7 +1557,7 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     const refresh = part("**Then a conflicting pull request is refreshed**", '**"Before the push"');
     expect(refresh).toContain("`origin/<baseRefName>`, is merged in " + named);
     expect(refresh).toContain("`git push origin <head branch>`, a plain push");
-    expect(refresh).toContain("`Refreshed <date>: merged <base>, <the files");
+    expect(refresh).toContain("`Refreshed <date>: merged <base>, commit <sha>, <the files"); // plans/also-knows-whose-commit.md
     const waiting = part("**A waiting branch**", "**An open pull request's branch**");
     expect(waiting).toContain("merged in " + named);
     expect(waiting).not.toContain("rebase");

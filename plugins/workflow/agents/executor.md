@@ -296,9 +296,11 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   that branch only; refused because somebody pushed to it since the
   fetch, `git fetch origin`, the same merge of `origin/<name>`, the
   project's checks again on the merged tree, and one more push; refused
-  again, it is left and named. A merge that settled a conflict gets a
-  line in the plan's "Built", `Merged <base> <date>: <the files whose
-  conflicts were settled>`.
+  again, it is left and named. Every merge gets a line in the plan's
+  "Built", `Merged <base> <date>, commit <sha>: <the files whose
+  conflicts were settled, or none>`, so the pull request's `Also` can
+  tell it from a merge someone else made (the docs, "The plans account
+  for the queue's commits").
 - **A topic's branch** is the topic's name, after `git fetch --prune`; a
   name that is the branch, `main` or `fixes-` followed by anything is no
   topic's, and the plan is built as `topic <the plan's file name without
@@ -357,7 +359,8 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   runs on the push), and it is pushed with `git push origin <head
   branch>`, a plain push to its own head branch only, never to the
   branch. Its plan's "Built" gets a line, `Refreshed <date>: merged
-  <base>, <the files whose conflicts were settled>`. One that cannot be
+  <base>, commit <sha>, <the files whose conflicts were settled>`. One
+  that cannot be
   settled is left as it is and named; then `git checkout --detach
   origin/<branch>` before the first plan's branch.
 - **"Before the push" runs once per plan**, before that plan's push, the
@@ -604,22 +607,28 @@ to a Claude session left out>
   of the topic goes under `## To try it`, before the line, with its own
   line. No heading of their own.
 - **Also**: a line per change with no decision in it, from the plans'
-  "Building it", the mechanism left out; then a line per other person's
-  commit on the topic's branch, from `git log origin/<base>..origin/<name>
-  --format='%h%x09%an%x09%s'`: `- <the commit's title> (<author>)`, since
-  another person's commit is theirs, a merge another person made
-  included, since it may settle a conflict. Left out: this plan's own
-  commits, which its "Building it" lines already cover; a commit a plan
-  of the topic names in its Built section, matched by hash (`%h` against
-  each `commit <sha>` there, the shorter a prefix of the longer); on a
-  branch stacked on a pull request since squash merged, the commits that
-  pull request's head held, by `^<its headRefOid>` (`gh pr view <n>
-  --json headRefOid`; `git fetch origin pull/<n>/head` first when this
-  checkout lacks that commit, since its branch is deleted on merge)
-  added to the log; and a merge whose author is this
-  checkout's `git config user.name`, an executor's ("A branch is brought
-  up to date by a merge"), since the plans' Built lines account for it.
-  With none, the heading is left out.
+  "Building it", the mechanism left out; then a line per commit on the
+  topic's branch that this checkout's plans do not account for, from
+  `git log origin/<base>..origin/<name> --format='%H%x09%an%x09%s'`
+  after the push, the base the branch or the head branch it is stacked
+  on: `- <the commit's title> (<author>)`, the author as git records it,
+  since a commit another person pushed is theirs, a merge they made
+  included, since it may settle a conflict, and a Claude's commit from
+  another checkout is work no plan here describes (the docs, "The plans
+  account for the queue's commits"). Accounted for, and left out: this
+  plan's own commit and the merges it made, `git log --first-parent
+  <tip>..HEAD --format=%H` ("The tip it starts from"; first parent only,
+  so a commit a push's retry merged in is not taken for this plan's),
+  with a merge this plan made before its tip, whose `Merged` line its
+  "Built" will carry; a commit a plan of the topic names in its "Built"
+  (`commit <sha>` in its first line, in its `Merged` and `Refreshed`
+  lines, and in a line that names a pushed commit), matched by hash, the
+  shorter a prefix of the longer; and, on a branch stacked on a pull
+  request since merged, the commits that pull request held (`gh pr view
+  <n> --json commits --jq '.commits[].oid'`), whichever way it was
+  merged, and the same for the pull request that one was stacked on,
+  since the retarget carries them along. Nothing is left out by author
+  or by title. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), and
   nothing else but a screenshot that shows no decision, or the line
