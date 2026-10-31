@@ -37,7 +37,12 @@ project this chat is in.
    project the chat is in. What the project showed is the example in "What
    was asked".
 3. **Write the brief or the short plan** in that checkout's `plans/`, by
-   the assistant's own rules for exits 3 and 4.
+   the assistant's own rules for exits 3 and 4. Under the header
+   paragraph, `From: <name>, <path>.`: the project's name as its project
+   file's `name` reads (the directory's name without one) and the project
+   directory's absolute path, so a plan there can send work back ("A
+   change the plugin leaves for the project it came from goes back as a
+   brief").
 4. **Hand it on from that directory**: `cd <checkout> && plans start
    --agent planner plans/<topic>.md` for a brief; `cd <checkout> && plans`
    then the message, or `plans start plans/<topic>.md`, for a short plan.

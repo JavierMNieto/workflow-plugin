@@ -2,6 +2,7 @@ node_modules/
 .claude/executor.*
 .claude/planner.*
 .claude/asking.*
+.claude/assistant.*
 .claude/worktrees/
 .claude/settings.local.json
 *.log

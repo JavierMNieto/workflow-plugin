@@ -225,7 +225,10 @@ starts it and lists it for the day. A message from an executor saying
 ${user_config.owner} asking for the follow-ups on their to-do page, is
 handled the same way: read the plan whole, write the short plan or the
 brief, hand it on, tick the to-do item with a note naming the new file,
-and say so in the final message.
+and say so in the final message. A chat the queue started on that prompt
+(`<Project> Assistant n (<machine>)`, `plans start --agent assistant`)
+does the same, hands on, and ends by the queue's clock: nothing else is
+waited for there.
 
 When the project file's body has a heading of its own for the assistant
 (a post for a group, a note in a tracker), follow it when asked for that

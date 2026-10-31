@@ -18,6 +18,18 @@ export type PlanState = {
   stuck?: boolean;
   branch?: string;
   step?: string;
+  /** A plan's `From` line: the project it came from and its checkout. */
+  from?: { project: string; path: string } | null;
+  /** A plan's `## For <Project>: plans/<topic>.md` sections. */
+  carries?: { project: string; file: string }[];
+};
+/** A brief a built plan owes the project it came from (plans/project-follow-ups-reach-the-project.md). */
+export type Carry = {
+  path: string;
+  project: string;
+  file: string;
+  checkout: string;
+  missing: "" | "file" | "from";
 };
 export type Waiting = { path: string; related?: boolean; asks?: boolean; state?: string };
 export type Handed = { path: string; stuck: boolean; resumed: string[] };
@@ -119,7 +131,7 @@ export type LiveRow = {
 export type Tree = { path: string; branch: string };
 /** A live executor or planner session, as its line and `canStart` see it. */
 export type Session = {
-  kind: "executor" | "planner";
+  kind: "executor" | "planner" | "assistant";
   sessionId: string;
   id: string;
   name: string;
@@ -154,13 +166,13 @@ export function parseName(
   name: string,
 ): { project: string; kind: string; n: number; machine: string } | null;
 export function isSession(
-  kind: "executor" | "planner",
+  kind: "executor" | "planner" | "assistant",
   row: LiveRow,
   state: { agent?: string } | null | undefined,
   lock: Lock | null,
 ): boolean;
 export function sessionsOf(
-  kind: "executor" | "planner",
+  kind: "executor" | "planner" | "assistant",
   live: LiveRow[] | null,
   lock: Lock | null,
   options?: {
@@ -262,6 +274,24 @@ export function stopRetiredPlanners(
   },
 ): void;
 export function plannerPrompt(path: string): string;
+/** The first prompt of an assistant chat the queue starts on a built plan's follow-ups. */
+export function assistantPrompt(path: string): string;
+/** The executor's `Follow-ups ready` message, which a start beside an open assistant chat prints. */
+export function followUpsMessage(path: string): string;
+export function fromOf(text?: string): { project: string; path: string } | null;
+export function carriesOf(text?: string): { project: string; file: string }[];
+export function briefThere(
+  checkout: string,
+  file: string,
+  path: string,
+  read?: (at: string) => string,
+): boolean;
+export function carryOf(
+  plans: { path: string; from?: PlanState["from"]; carries?: PlanState["carries"] }[],
+  options?: { read?: (at: string) => string },
+): Carry[];
+export function briefMissingWords(carry: Carry): string;
+export function fromMissingWords(carry: Carry): string;
 export function versionLine(
   live: LiveRow[] | null,
   options?: { installed?: string; versionOf?: (pid?: number) => string },
@@ -304,6 +334,9 @@ export function decideStop(facts: {
   usage?: SessionUsage | null;
   ceiling?: number;
   now?: number;
+  land?: string;
+  /** The briefs this session's built plans owe their projects. */
+  carry?: Carry[];
 }): StopDecision;
 export type SessionUsage = { context: number; at: number };
 export const REUSE_DEFAULT: number;
@@ -339,7 +372,7 @@ export function decideResumed(facts: {
   plan?: { path: string; stuck?: boolean } | null;
 }): string;
 export function canStart(facts: {
-  kind?: "executor" | "planner";
+  kind?: "executor" | "planner" | "assistant";
   lock?: Lock | null;
   alive?: (pid?: number | null) => boolean;
   log?: { at: number; name: string }[];
@@ -356,6 +389,8 @@ export function canStart(facts: {
   machine?: string;
   /** A timer's start: an idle executor is replaced whatever its warmth. */
   unwatched?: boolean;
+  /** This project's assistant chats open on this machine, by name: an assistant start is refused beside one. */
+  open?: string[];
 }): StartDecision;
 export function cutoffEdit(
   text: string,

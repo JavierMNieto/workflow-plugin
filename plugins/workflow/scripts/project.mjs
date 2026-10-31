@@ -469,6 +469,8 @@ export const QUEUE_KINDS = ["executor", "planner", "asking"];
  */
 export const QUEUE_IGNORES = [
   ...QUEUE_KINDS.map((kind) => `.claude/${kind}.*`),
+  // An assistant chat's start writes `assistant.started`; it has no deferral.
+  ".claude/assistant.*",
   ".claude/worktrees/",
 ];
 

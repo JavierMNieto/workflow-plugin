@@ -87,7 +87,9 @@ ${user_config.owner}.
    functions and files the plan will name, by the tools the project
    file's **Reading** names, so the executor goes straight to them. State
    what exists today, what is right and stays, and what the change reuses,
-   changes or replaces, by file and function. First, in a project with
+   changes or replaces, by file and function, and, when the brief has a
+   `From` line, the files of the project it names that a `For` section
+   would send work to (section 11). First, in a project with
    `land: pull-request`, open what the brief's `Related` line and the
    context's related lines (`The brief looks related to:`) name: `gh pr
    view <n> --json title,body,files,author,comments`, or the branch's log
@@ -175,7 +177,9 @@ characters is the usual size; longer is a plan that should be two.
    `Dropped on ${user_config.owner}'s word: #<n> already decides it.`,
    keep "What was asked" and "Decided" with his word and its reason, and
    hand nothing over: the queue reads the section and never starts it
-   ("The queue").
+   ("The queue"). A `From` line on the brief (`From: <Project>, <path>.`)
+   is kept under the `Lands` and `Related` lines, or under the header
+   paragraph when there are none.
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When
@@ -199,7 +203,21 @@ characters is the usual size; longer is a plan that should be two.
 10. **Tests**: by file, the cases to add and the ones that stay, including
    the project's rule for a new read path, when it has one.
 11. **Not in this plan**: what was left out and why, so the executor does
-    not add it and ${user_config.owner} knows where the edge is.
+    not add it and ${user_config.owner} knows where the edge is. Work the
+    plan leaves to the project the brief came from is not a bullet here:
+    it is a section of its own after this one, `## For <Project>:
+    plans/<topic>.md`, the project from the `From` line and `<topic>` a
+    name free in that checkout's `plans/` (list it), holding a brief in
+    the assistant's shape: a line `Title: <the brief's title>.`, then `###
+    What was asked`, in a paragraph of your own naming this plan by its
+    path in this checkout and the commit it will need as "the plugin's
+    commit of this plan, on `main` once its run is green", then `### Where
+    to look`, the project's files by their paths in that checkout, which
+    you read, and the docs and plans there that bear on it. The executor
+    writes it into that queue after the push ("A change the plugin leaves
+    for the project it came from goes back as a brief"). A plan that
+    leaves work for a project the `From` line does not name says so under
+    "Not in this plan", for the assistant to carry.
     **For the group**, after it, only for a change to another person's
     part: the message in ${user_config.owner}'s words, short enough for a
     chat group, saying what he wants to change, which of the person's

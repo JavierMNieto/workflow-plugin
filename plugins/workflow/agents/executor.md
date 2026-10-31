@@ -654,6 +654,33 @@ to a Claude session left out>
   After the deviations, a `Codex review:` paragraph: `<n> findings; fixed
   C1, C4; not a bug C2 (<why>), C3 (<why>); out of scope C5 (Needs a
   decision)`, or `not run (<the script's reason>)`.
+- **A `For` section is a brief for another queue** ("A change the plugin
+  leaves for the project it came from goes back as a brief"): for each
+  `## For <Project>: plans/<topic>.md` section of the plan, with the
+  checkout from the plan's `From` line, after the push: write
+  `<path>/plans/<topic>.md` as `# <title>` from the section's `Title`
+  line, a blank line, the header paragraph `Brief for the planner,
+  <date>, by <this session's name> from <this checkout's
+  path>/plans/<x>.md (commit <sha>). The planner's plan replaces this
+  file.`, then the section's `### What was asked` and `### Where to
+  look` as `## ` headings, their text as written. When a file of that
+  name is already there, read it: one that names this plan's path is the
+  brief already written by hand, and stands; any other is left as it is
+  and the brief is written as the first free `<topic>-<n>.md` from 2,
+  said in "Built", and that name is the one started and recorded. Then
+  `cd <path> && plans start --agent planner plans/<the file written>`;
+  when it prints
+  the message for a live planner, send that session the message with
+  `SendMessage`, once; when it refuses (paused, the window, an untrusted
+  folder, no project file), the file stands and the refusal is the
+  record. One line in "Built" per section: `For <Project>:
+  <path>/plans/<topic>.md written; <planner started as <name> | handed
+  to <name> by message | already there, written by hand | not started:
+  <the command's line>>.` A `For` section with no `From` line on the plan
+  is a "Needs a decision" item sized assistant, naming the project the
+  section names. The Stop hook holds the first stop until each named
+  file exists, so this is done before the final message, never left
+  for it.
 - **Memory**: what the next session needs and the repository does not
   record (what is pushed, what waits for ${user_config.owner}) goes in a
   memory note, with a line in the index.
@@ -688,9 +715,11 @@ to a Claude session left out>
   of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
   decision", the items marked assistant and planner. Write a short plan
   for the assistant items and a brief for the planner items, then tick the
-  to-do item.` With none on this machine, the to-do item alone carries
-  them, its note ending `on <machine>` (this session's label, the one in
-  its name). Several plans get one item and one message each. The final
+  to-do item.` With none on this machine, start one: `plans start --agent
+  assistant plans/<x>.md`, which starts `<Project> Assistant n
+  (<machine>)` on the plan's items in Remote Control, or says why not
+  (paused, the window, a chat it found open, which you then message); the
+  final message says which. Several plans get one item and one message each. The final
   message says in one line which happened. Do not list the items in full
   in the message; the plan holds them.
 - **${user_config.owner} has no terminal** when they use the agents

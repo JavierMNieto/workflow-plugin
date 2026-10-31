@@ -82,7 +82,10 @@ executor's follow-ups, the "Needs a decision" items in its Built section,
 go to the assistant too, through the owner's to-do page when the project's
 memory names one and a message to an assistant chat ("Handed to the
 assistant"); the owner does not carry them, nor any message between the
-agents. No chat sends the owner a command to run.
+agents. Work a plan leaves for the project it came from goes to that
+project's queue as a brief the executor writes ("A change the plugin
+leaves for the project it came from goes back as a brief"). No chat sends
+the owner a command to run.
 
 **The chat he said it in writes it, and the agents pass the rest.** A
 change the owner asks for is written by the chat he asked in, when that
@@ -131,9 +134,13 @@ machine, its kind `interactive` or `bg`, not `Remote Control`, which is
 another machine's chat and cannot read this checkout; an idle one first,
 else a busy one, since a message to a busy chat waits for its next turn
 and an idle one wakes on it; one message. With none on this machine, the
-executor's to-do item carries it when the memory names a page, and
-otherwise the final message says the thing waits for an assistant chat
-and names it in a line.
+executor starts one, `plans start --agent assistant plans/<x>.md`, which
+starts `<Project> Assistant n (<machine>)` on the plan's items under the
+queue's bounds and refuses beside a chat it finds open, naming it; the
+chat ends an hour after it goes quiet, as any the queue started (Javi, 31
+October: four follow-ups and several decisions went into a final message
+nobody acted on once the to-do page was gone). The planner's new topic
+still waits for a chat, since its chat is one the owner is in.
 
 **Asked in plain words.** The owner reads a question on his phone, in the
 question tool's dialog, with none of the chat in front of him and other
@@ -607,7 +614,7 @@ nothing.
 
 Sessions the queue starts are Remote Control chats named after the
 project and the machine, `<Project> Executor 2 (lab)`, `<Project>
-Planner 3 (lab)`, started by `claude --bg --remote-control`, counted per
+Planner 3 (lab)`, `<Project> Assistant 4 (lab)`, started by `claude --bg --remote-control`, counted per
 project and per machine from the starts log and the live list; the
 machine's label is the plugin's `machine` option, the hostname when
 unset, and `plans` names it in its first line.
@@ -657,7 +664,8 @@ sync` moves a clean, detached checkout to the branch, and `plans start`
 does the same before it starts anything; an executor detaches the
 checkout at `origin/<branch>` after its batch's last push. The queue's
 own files in `.claude/` are git-ignored, one line per kind
-(`.claude/executor.*`, `.claude/planner.*`, `.claude/asking.*`), and so is
+(`.claude/executor.*`, `.claude/planner.*`, `.claude/asking.*`,
+`.claude/assistant.*`), and so is
 `.claude/worktrees/`, where Claude Code puts the worktrees it makes: `plans
 init` writes them into `.gitignore`, and `plans sync` and `plans start`
 add any a project set up earlier lacks to `.git/info/exclude`, which git
@@ -681,8 +689,9 @@ a start that never ran. **A checkout is a queue**: the same repository
 checked out on two machines is two queues, each with its `plans/`, its
 lock and its log, both pushing the project's branch, each executor
 branching from a fresh `origin/<branch>`; nothing is shared between
-them, and what crosses is a message, so an executor's follow-ups go to
-an assistant on its own machine.
+them, and what crosses is a message, or a brief one queue's executor
+writes into another's `plans/`, so an executor's follow-ups go to an
+assistant on its own machine.
 
 **Briefs are queued like plans**: a file headed `Brief for the planner` is
 a brief, listed under "Briefs, oldest first"; `## Planning, <date>,
@@ -693,7 +702,9 @@ background Remote Control chat at high effort, one at a time, and a
 second beside a busy one whose context is past the reuse ceiling or gone
 cold, under the
 executor's bounds (the usage windows and the pause shared, the names, the
-quick-death rule and the tripwire counted per kind). **A planner with room
+quick-death rule and the tripwire counted per kind), and `plans start
+--agent assistant plans/<x>.md` an assistant chat on a built plan's
+follow-ups, one at a time per project and machine. **A planner with room
 left takes the next brief**: its Stop hook applies the executor's rule to
 briefs, so with a brief waiting a planner that has not compacted takes the
 oldest, one that has compacted once takes the oldest related brief (the
@@ -853,6 +864,31 @@ picks the change up after its next session starts. On a second machine,
 `/workflow:change` keeps a second checkout, and that machine's queue
 builds what is written there; the plugin's `main` carries it to the
 other.
+
+**A change the plugin leaves for the project it came from goes back as a
+brief.** The brief `/workflow:change` writes says where it came from,
+`From: <Project>, <path>.` under its header paragraph (the project
+file's `name` and the checkout's absolute path), and the plan keeps the
+line. Work the plan leaves to that project, its docs, its catalogue, its
+hooks' copies of the plugin's readers, is never a bullet under "Not in
+this plan": the planner writes it as a brief for that project's planner,
+in a section `## For <Project>: plans/<topic>.md` in the assistant's
+brief shape, naming the plugin's plan by its path in this checkout and
+the project's files by theirs, with a name free in that project's
+`plans/`. After the push, the executor writes the file into that
+checkout's `plans/` and starts its queue (`cd <path> && plans start
+--agent planner plans/<topic>.md`, or the message the command prints to
+a live planner there), and its "Built" section says which happened. The
+file is the carrier and the start the nudge: a queue paused or over its
+window there lists the brief all the same. The executor's Stop hook
+holds the first stop until the file exists, as it holds it on a red run,
+and a plan whose section names a checkout the `From` line does not is
+held once too, so the brief is written or the gap said. (Jira's linked
+issue created in another project with the summary carried over;
+GitHub's issue transfer, which moves the item into the other list and
+leaves the address behind; Actions' `repository_dispatch`, which pokes
+the other repository's own workflow. Javi, 31 October: four built plans
+left the project's half under "Not in this plan" and nobody carried it.)
 
 ## Installing
 

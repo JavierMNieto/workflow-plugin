@@ -34,6 +34,8 @@ import {
   checksVerdict,
   decidePlannerStop,
   plannerPrompt,
+  assistantPrompt,
+  followUpsMessage,
   sessionsOf,
   versionLine,
   countCompaction,
@@ -58,6 +60,9 @@ import {
   relatedLines,
   relatedOf,
   relatedWork,
+  fromOf,
+  carriesOf,
+  carryOf,
   planTaken,
   readPlans,
   noteWritten,
@@ -875,6 +880,147 @@ describe("plan-queue", () => {
     });
   });
 
+  // plans/project-follow-ups-reach-the-project.md, part 4.
+  describe("a brief for the project a plan came from", () => {
+    const head = "# T\n\nPlan only, 31 October 2026, for Javi.\n";
+    it("reads the From line, wrapped or not, past a status section and outside a fence", () => {
+      const of = (line: string) => fromOf(`${head}${line}\n\n## What was asked\n`);
+      expect(of("From: Docs, /workspaces/docs.")).toEqual({
+        project: "Docs",
+        path: "/workspaces/docs",
+      });
+      expect(of("From: Docs, /workspaces/docs")).toEqual({
+        project: "Docs",
+        path: "/workspaces/docs",
+      });
+      expect(of("From: Docs,\n/workspaces/docs.")).toEqual({
+        project: "Docs",
+        path: "/workspaces/docs",
+      });
+      expect(of("From: My-Docs, /home/u/a.b.")).toEqual({
+        project: "My-Docs",
+        path: "/home/u/a.b",
+      });
+      expect(of("From: my_docs, /Users/j/My Projects/docs.")).toEqual({
+        project: "my_docs",
+        path: "/Users/j/My Projects/docs",
+      });
+      expect(of("From: Docs, workspaces/docs.")).toBeNull();
+      expect(of("")).toBeNull();
+      expect(of("```\nFrom: Docs, /workspaces/docs.\n```")).toBeNull();
+      expect(
+        fromOf(
+          `# T\n\n## Planning, 31 October 2026, session s\n\nPlan only, 31 October 2026, for Javi.\nFrom: Docs, /workspaces/docs.\n`,
+        ),
+      ).toEqual({ project: "Docs", path: "/workspaces/docs" });
+      // A From line in the body is no header line.
+      expect(fromOf(`${head}\n## Notes\n\nFrom: Docs, /workspaces/docs.\n`)).toBeNull();
+    });
+    it("reads every For section outside a fence, the file as written", () => {
+      expect(carriesOf(`${head}\n## For Docs: plans/catalogue-sorted.md\n\nTitle: x.\n`)).toEqual([
+        { project: "Docs", file: "plans/catalogue-sorted.md" },
+      ]);
+      expect(
+        carriesOf(`${head}\n## For Docs: plans/a.md\n\n## For Docs: plans/b.md\n`).map(
+          (c) => c.file,
+        ),
+      ).toEqual(["plans/a.md", "plans/b.md"]);
+      expect(carriesOf(`${head}\n\`\`\`\n## For Docs: plans/a.md\n\`\`\`\n`)).toEqual([]);
+      expect(carriesOf(head)).toEqual([]);
+    });
+    it("gives a plan its from and carries, and a brief neither", () => {
+      const plan = stateOf(
+        `${head}From: Docs, /workspaces/docs.\n\n## Built, 31 October 2026\n\nx\n\n## For Docs: plans/x.md\n`,
+      )!;
+      expect(plan.state).toBe("built");
+      expect(plan.from).toEqual({ project: "Docs", path: "/workspaces/docs" });
+      expect(plan.carries).toEqual([{ project: "Docs", file: "plans/x.md" }]);
+      const brief = stateOf(
+        "# B\n\nBrief for the planner, 31 October 2026.\n\n## For Docs: plans/x.md\n",
+      )!;
+      expect(brief).not.toHaveProperty("from");
+      expect(brief).not.toHaveProperty("carries");
+    });
+    it("finds what each built plan owes: a brief there that names the plan, at its name or the next free one", () => {
+      const files: Record<string, string> = {
+        "/w/docs/plans/y.md": "# Y\n\nBrief for the planner, by E from /p/plans/a.md (commit 1).\n",
+        "/w/docs/plans/z.md": "# Someone else's\n",
+        "/w/docs/plans/z-2.md": "# Z\n\nfrom /p/plans/d.md\n",
+      };
+      const read = (at: string) => {
+        if (!(at in files)) throw new Error("ENOENT");
+        return files[at];
+      };
+      const plans = [
+        {
+          path: "plans/a.md",
+          from: { project: "Docs", path: "/w/docs" },
+          carries: [
+            { project: "Docs", file: "plans/x.md" },
+            { project: "Docs", file: "plans/y.md" },
+          ],
+        },
+        { path: "plans/b.md", from: null, carries: [{ project: "Docs", file: "plans/z.md" }] },
+        {
+          path: "plans/c.md",
+          from: { project: "Other", path: "/w/other" },
+          carries: [{ project: "Docs", file: "plans/z.md" }],
+        },
+        {
+          path: "plans/d.md",
+          from: { project: "Docs", path: "/w/docs" },
+          carries: [{ project: "Docs", file: "plans/z.md" }],
+        },
+        {
+          path: "plans/e.md",
+          from: { project: "Docs", path: "/w/docs" },
+          carries: [{ project: "Docs", file: "plans/z.md" }],
+        },
+      ];
+      expect(carryOf(plans, { read }).map((one) => [one.path, one.file, one.missing])).toEqual([
+        ["plans/a.md", "plans/x.md", "file"],
+        ["plans/a.md", "plans/y.md", ""],
+        ["plans/b.md", "plans/z.md", "from"],
+        ["plans/c.md", "plans/z.md", "from"],
+        // Written as z-2.md, since z.md is another's.
+        ["plans/d.md", "plans/z.md", ""],
+        // Another's file of the name is no brief of this plan's.
+        ["plans/e.md", "plans/z.md", "file"],
+      ]);
+      expect(carryOf(plans, { read })[0].checkout).toBe("/w/docs");
+    });
+    it("refuses the stop once per brief not written, after a red run and before anything else", () => {
+      const owed = {
+        path: "plans/a.md",
+        project: "Docs",
+        file: "plans/x.md",
+        checkout: "/w/docs",
+        missing: "file",
+      };
+      const first = decideStop({ carry: [owed] })!;
+      expect(first).toMatchObject({ refuse: true, told: ["for:plans/a.md:plans/x.md"] });
+      expect(first.reason).toBe(
+        'plans/a.md leaves work for Docs (its section "For Docs: plans/x.md") and /w/docs/plans/x.md is not written. Write the brief there from the section, by your agent file, and start that queue: cd /w/docs && plans start --agent planner plans/x.md, or the message it prints for a live planner; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.',
+      );
+      expect(decideStop({ carry: [owed], told: ["for:plans/a.md:plans/x.md"] })).toBeNull();
+      const from = decideStop({ carry: [{ ...owed, checkout: "", missing: "from" }] })!;
+      expect(from.reason).toContain("but names no checkout for it: no From line");
+      expect(from.reason).toContain('Add "From: Docs, <path>."');
+      expect(decideStop({ carry: [{ ...owed, missing: "" }] })).toBeNull();
+      const failed = { id: 7, status: "completed", conclusion: "failure", onHead: true };
+      expect(decideStop({ carry: [owed], run: failed })!.reason).toContain("(7) is failed");
+      const second = { ...owed, file: "plans/y.md" };
+      expect(decideStop({ carry: [owed, second] })!.told).toEqual(["for:plans/a.md:plans/x.md"]);
+      expect(
+        decideStop({ carry: [owed, second], told: ["for:plans/a.md:plans/x.md"] })!.told,
+      ).toEqual(["for:plans/a.md:plans/y.md"]);
+      // Before the waiting plans, which would retire or hand on the session.
+      expect(
+        decideStop({ carry: [owed], waiting: [{ path: "plans/w.md", related: false }] })!.told,
+      ).toEqual(["for:plans/a.md:plans/x.md"]);
+    });
+  });
+
   it("asks for a handover at the third compaction inside a plan, and not otherwise", () => {
     const current = { path: "plans/x.md", stuck: false };
     expect(decideResumed({ compactions: 2, plan: current })).toBe("");
@@ -1443,7 +1589,7 @@ describe("plan-queue", () => {
       try {
         const test = g(clone, "rev-parse", "origin/test");
         expect(syncIn(clone)).toBe(
-          `Added .claude/asking.* to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
+          `Added .claude/asking.*, .claude/assistant.* to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
         );
         expect(g(clone, "rev-parse", "HEAD")).toBe(test);
         expect(g(clone, "status", "--porcelain")).toBe("");
@@ -1451,6 +1597,8 @@ describe("plan-queue", () => {
         expect(g(clone, "diff", "--name-only")).toBe("");
         expect(syncIn(clone)).toBe(`Already at test, ${test.slice(0, 8)}.`);
         expect(readFileSync(exclude, "utf8").split("\n")).toContain(".claude/asking.*");
+        // An assistant chat's start file too (plans/project-follow-ups-reach-the-project.md).
+        expect(readFileSync(exclude, "utf8").split("\n")).toContain(".claude/assistant.*");
       } finally {
         rmSync(join(clone, ".claude", "asking.deferred"), { force: true });
         writeFileSync(exclude, before);
@@ -1461,7 +1609,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n",
       );
       g(clone, "commit", "-q", "-am", "three kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -1552,6 +1700,98 @@ describe("the planner queue", () => {
   };
   afterAll(() => {
     for (const file of written) rmSync(file, { force: true });
+  });
+
+  // plans/project-follow-ups-reach-the-project.md, part 6.
+  it("starts an assistant chat on a built plan's follow-ups, refuses beside an open one, and lists it", () => {
+    const live = (rows: object[]) => JSON.stringify(rows);
+    const env = (rows: object[] = []) => ({
+      ...process.env,
+      CLAUDE_PROJECT_DIR: repo,
+      WORKFLOW_STARTS_LOG: join(repo, ".claude", "starts-assistant.log"),
+      WORKFLOW_USAGE_FILE: join(repo, ".claude", "usage-assistant.json"),
+      WORKFLOW_LIVE: live(rows),
+    });
+    const start = (path: string, rows: object[] = []) =>
+      execFileSync(
+        "node",
+        [join(here, "plan-queue.mjs"), "start", "--agent", "assistant", "--dry", path],
+        { encoding: "utf8", env: env(rows) },
+      ).trim();
+    put(
+      "q-built.md",
+      "# Built\n\nPlan only, 31 October 2026, for Javi.\n\n## Built, 31 October 2026\n\nPushed to test as commit 0123abcd.\n",
+    );
+    put("q-ready-a.md", "# Ready\n\nPlan only, 31 October 2026, for Javi.\n");
+    put("q-brief-a.md", brief("31 October 2026"));
+    const out = start("plans/q-built.md");
+    expect(out).toContain(
+      'Would run: claude "--bg" "--remote-control" "Test Assistant 1 (lab)" "--name" "Test Assistant 1 (lab)" "--agent" "workflow:assistant" "--effort" "medium" "Follow-ups ready: plans/q-built.md',
+    );
+    expect(out).toContain(JSON.stringify(assistantPrompt("plans/q-built.md")));
+    for (const path of ["plans/q-ready-a.md", "plans/q-brief-a.md"])
+      expect(start(path)).toBe(
+        `${path} is not a built plan with follow-ups; plans shows the built plans.`,
+      );
+    // Beside the owner's assistant chat or the queue's, idle or busy: the message instead.
+    for (const name of ["Test Assistant", "Test Assistant 2 (lab)"])
+      expect(
+        start("plans/q-built.md", [
+          { sessionId: "a1", name, status: "busy", kind: "interactive", cwd: repo },
+        ]),
+      ).toBe(
+        `${name} is open: send it the message instead. ${followUpsMessage("plans/q-built.md")}`,
+      );
+    // Not beside another project's, nor another machine's chat.
+    for (const row of [
+      { sessionId: "a2", name: "Other Assistant", status: "idle", kind: "interactive", cwd: repo },
+      {
+        sessionId: "a3",
+        name: "Test Assistant",
+        status: "idle",
+        kind: "remote-control",
+        cwd: repo,
+      },
+    ])
+      expect(start("plans/q-built.md", [row])).toContain("Would run: claude");
+    // The line, only while a chat the queue started is alive.
+    const started = {
+      sessionId: "44444444-aaaa-0000-0000-000000000000",
+      name: "Test Assistant 3 (lab)",
+      status: "idle",
+      kind: "background",
+      cwd: repo,
+    };
+    expect(listWith([started])).toMatch(
+      /\nThe assistant: Test Assistant 3 \(lab\) \[44444444\], idle\.\n/,
+    );
+    expect(listWith([{ ...started, name: "Test Assistant" }])).not.toContain("The assistant:");
+    expect(listWith([])).not.toContain("The assistant:");
+    // Its stop arms the end timer; the owner's own assistant chat arms none.
+    const log = process.env.WORKFLOW_STOP_LOG!;
+    rmSync(log, { force: true });
+    // The queue's launch marks its chat; the owner's chat has no mark and reads nothing.
+    const stop = (rows: object[], id: string, marked = true) =>
+      execFileSync("node", [join(here, "plan-queue.mjs"), "stop"], {
+        input: JSON.stringify({ session_id: id, agent_type: "workflow:assistant" }),
+        encoding: "utf8",
+        env: { ...env(rows), ...(marked ? { WORKFLOW_STARTED: "assistant" } : {}) },
+      });
+    stop([started], started.sessionId);
+    stop([started], `${started.sessionId.slice(0, -1)}9`, false);
+    const owner = {
+      ...started,
+      sessionId: "55555555-aaaa-0000-0000-000000000000",
+      name: "Test Assistant",
+    };
+    stop([owner], owner.sessionId);
+    const ends = existsSync(log) ? readFileSync(log, "utf8") : "";
+    expect(ends).toContain(`end ${started.sessionId} at `);
+    expect(ends).not.toContain(owner.sessionId);
+    for (const id of [started.sessionId, owner.sessionId])
+      rmSync(join(tmpdir(), `workflow-queue-${id}.json`), { force: true });
+    for (const name of ["q-built.md", "q-ready-a.md", "q-brief-a.md"])
+      rmSync(join(plansDir(), name), { force: true });
   });
 
   it("reads a brief being planned only while its session lives", () => {
@@ -3004,6 +3244,79 @@ describe("the queue's faults, closed", () => {
     expect(both).toContain("pull request #21");
     expect(both.indexOf("pull request #21")).toBeLessThan(both.indexOf("(7) is failed"));
     expect(stop(true, "straight-both")).toBe("");
+  });
+
+  // plans/project-follow-ups-reach-the-project.md, part 4.
+  it("holds the executor's stop once until a built plan's brief is in its project's plans", () => {
+    const dir = fixture("Carrier");
+    const docs = temp("queue-docs-");
+    mkdirSync(join(docs, "plans"));
+    const id = `carrier-${process.pid}`;
+    const plan = (from: string) =>
+      `# C\n\n## Building, 31 October 2026, session ${id}\n\nPlan only, 31 October 2026, for Javi.\n${from}\n## Built, 31 October 2026\n\nPushed to test as commit 0123abcd.\n\n## For Docs: plans/x.md\n\nTitle: X.\n`;
+    writeFileSync(join(dir, "plans", "c.md"), plan(`From: Docs, ${docs}.\n`));
+    const stop = () => runIn(dir, ["stop"], {}, { session_id: id, agent_type: "executor" });
+    const first = stop();
+    expect(first).toContain('"decision":"block"');
+    expect(first).toContain(`${docs}/plans/x.md is not written`);
+    expect(stop()).toBe("");
+    const state = (sid: string) =>
+      JSON.parse(readFileSync(join(tmpdir(), `workflow-queue-${sid}.json`), "utf8"));
+    expect(state(id).told).toContain("for:plans/c.md:plans/x.md");
+    // Written, a new session's stop passes.
+    // Another's file of the name is no brief of this plan's.
+    writeFileSync(join(docs, "plans", "x.md"), "# X\n");
+    const other = `carrier-other-${process.pid}`;
+    writeFileSync(join(dir, "plans", "c.md"), plan(`From: Docs, ${docs}.\n`).replace(id, other));
+    expect(runIn(dir, ["stop"], {}, { session_id: other, agent_type: "executor" })).toContain(
+      "is not written",
+    );
+    writeFileSync(
+      join(docs, "plans", "x.md"),
+      `# X\n\nBrief for the planner, from ${dir}/plans/c.md.\n`,
+    );
+    const again = `carrier-written-${process.pid}`;
+    writeFileSync(join(dir, "plans", "c.md"), plan(`From: Docs, ${docs}.\n`).replace(id, again));
+    expect(runIn(dir, ["stop"], {}, { session_id: again, agent_type: "executor" })).toBe("");
+    // No From line: refused once with the From words.
+    const bare = `carrier-bare-${process.pid}`;
+    writeFileSync(join(dir, "plans", "c.md"), plan("").replace(id, bare));
+    const told = runIn(dir, ["stop"], {}, { session_id: bare, agent_type: "executor" });
+    expect(told).toContain("but names no checkout for it");
+    expect(runIn(dir, ["stop"], {}, { session_id: bare, agent_type: "executor" })).toBe("");
+    // The Building line taken out at "Built": the session's own record still holds the plan.
+    const held = `carrier-held-${process.pid}`;
+    rmSync(join(docs, "plans", "x.md"));
+    writeFileSync(join(dir, "plans", "c.md"), plan(`From: Docs, ${docs}.\n`).replace(id, held));
+    runIn(
+      dir,
+      ["wrote"],
+      {},
+      {
+        session_id: held,
+        agent_type: "executor",
+        tool_name: "Write",
+        tool_input: { file_path: join(dir, "plans", "c.md") },
+      },
+    );
+    writeFileSync(
+      join(dir, "plans", "c.md"),
+      plan(`From: Docs, ${docs}.\n`).replace(/^## Building, [^\n]*\n\n/m, ""),
+    );
+    expect(runIn(dir, ["stop"], {}, { session_id: held, agent_type: "executor" })).toContain(
+      "is not written",
+    );
+    // Another session that never held it is not asked.
+    expect(
+      runIn(
+        dir,
+        ["stop"],
+        {},
+        { session_id: `carrier-none-${process.pid}`, agent_type: "executor" },
+      ),
+    ).toBe("");
+    for (const sid of [id, again, other, bare, held, `carrier-none-${process.pid}`])
+      rmSync(join(tmpdir(), `workflow-queue-${sid}.json`), { force: true });
   });
 
   it("refuses the first stop on a red pull request of this checkout, in the pull request mode", () => {

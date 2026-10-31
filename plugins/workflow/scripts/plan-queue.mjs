@@ -279,6 +279,46 @@ export function relatedOf(text = "") {
   );
 }
 
+/**
+ * A project's name in a `From` line or a `For` heading: anything up to the
+ * line's delimiter, as a project file's `name` or a directory's may be
+ * (`my_docs`), never a comma, a colon or a line break (Codex and /code-review).
+ */
+const PROJECT_WORDS = "[^\\s,:][^\\n,:]*?";
+
+/**
+ * **Where a brief from `/workflow:change` came from**, its `From: <Project>,
+ * <path>.` line (plans/project-follow-ups-reach-the-project.md, part 4): read
+ * as `landsOf` reads `Lands`, from the text before the first `## `, past the
+ * status sections and outside a fenced block; the path absolute, the full
+ * stop optional, the line wrapped at the comma or not. `{ project, path }`,
+ * or null with none.
+ */
+export function fromOf(text = "") {
+  const lines = withoutStatus(text).split("\n");
+  const end = lines.findIndex((line) => /^## /.test(line));
+  const head = withoutFences((end < 0 ? lines : lines.slice(0, end)).join("\n"));
+  // The path runs to the line's end, spaces and all (`/Users/j/My Projects/docs`).
+  const m = new RegExp(`^From:[ \\t]+(${PROJECT_WORDS}),\\s+(\\/[^\\n]*?)\\.?[ \\t]*$`, "mu").exec(
+    head,
+  );
+  return m ? { project: m[1].trim(), path: m[2] } : null;
+}
+
+/**
+ * **The briefs a plan carries to the project it came from**, its `## For
+ * <Project>: plans/<topic>.md` sections outside fenced blocks
+ * (plans/project-follow-ups-reach-the-project.md, part 4): `[{ project, file
+ * }]`, the file as written; `[]` with none.
+ */
+export function carriesOf(text = "") {
+  const heading = new RegExp(`^## For (${PROJECT_WORDS}): (plans\\/[^\\s/]+\\.md)[ \\t]*$`, "gmu");
+  return [...withoutFences(text).matchAll(heading)].map((m) => ({
+    project: m[1].trim(),
+    file: m[2],
+  }));
+}
+
 /** A `Related` line's items in words, for a Ready row: "#31 and branch a-b"; "" with none. */
 export function relatedWords(related) {
   if (!related?.length) return "";
@@ -381,6 +421,8 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     mtime,
     lands: landsOf(text),
     relatedTo: relatedOf(text),
+    from: fromOf(text),
+    carries: carriesOf(text),
   };
   // Dropped before built: nobody writes both, and the drop is the last word.
   if (dropped) return { ...plan, state: "dropped", ...dropped };
@@ -697,6 +739,10 @@ function treeOf(cwd, trees) {
  */
 export function isSession(kind, row, state, lock) {
   const named = parseName(row.name || "")?.kind === kind;
+  // **An assistant chat is the queue's by its numbered name alone**
+  // (plans/project-follow-ups-reach-the-project.md, part 6): the owner's own
+  // `<Project> Assistant` is his.
+  if (kind === "assistant") return named;
   if (kind === "planner") return row.kind === "background" && (named || state?.agent === "planner");
   return (
     named ||
@@ -711,13 +757,12 @@ export function isSession(kind, row, state, lock) {
  * project and the machine optional, so a session started before the
  * machine was in the name still counts as the queue's.
  */
-export const SESSION_NAME = /^(?:(.+) )?(Executor|Planner) (\d+)(?: \(([\w.-]+)\))?$/;
+export const SESSION_NAME = /^(?:(.+) )?(Executor|Planner|Assistant) (\d+)(?: \(([\w.-]+)\))?$/;
 
 /** The name the queue gives a session it starts. */
 export function sessionName(kind, n, { project = "", machine = "" } = {}) {
-  return [project, kind === "planner" ? "Planner" : "Executor", n, machine && `(${machine})`]
-    .filter(Boolean)
-    .join(" ");
+  const word = { planner: "Planner", assistant: "Assistant" }[kind] || "Executor";
+  return [project, word, n, machine && `(${machine})`].filter(Boolean).join(" ");
 }
 
 /** `{ project, kind, n, machine }` from a session's name, or null when the queue gave no such name. */
@@ -760,7 +805,7 @@ export function sessionsOf(
   } = {},
 ) {
   if (!live) return [];
-  const working = kind === "planner" ? "planning" : "building";
+  const working = { planner: "planning", executor: "building" }[kind] || "";
   return live
     .map((row) => ({ row, state: stateFor(row.sessionId) }))
     .filter(({ row, state }) => isSession(kind, row, state, lock))
@@ -782,7 +827,8 @@ export function sessionsOf(
           Boolean(lock && !lock.released && lock.sessionId === row.sessionId),
         retired: Boolean(state?.retired),
         on:
-          plans.find((plan) => plan.state === working && plan.session === row.sessionId)?.path ||
+          (working &&
+            plans.find((plan) => plan.state === working && plan.session === row.sessionId)?.path) ||
           "",
         // When its end timer fires, if it is left quiet (plans/idle-chats-end.md).
         endsAt: state?.end?.at || 0,
@@ -860,6 +906,15 @@ export function usageWords(one, now = Date.now()) {
 
 /** One session as its kind's line says it. */
 export function describeSession(one) {
+  if (one.kind === "assistant")
+    return [
+      `${one.name} [${String(one.sessionId).slice(0, 8)}]`,
+      one.status,
+      usageWords(one),
+      endsWords(one),
+    ]
+      .filter(Boolean)
+      .join(", ");
   if (one.kind === "planner") {
     const holds = one.holds || [];
     const n = one.compactions || 0;
@@ -903,7 +958,7 @@ function andList(items) {
 
 /** The line for a kind: "The executor: ...", "The executors: ...", or "none alive". */
 function sessionsLine(kind, alive) {
-  const word = kind === "planner" ? "planner" : "executor";
+  const word = kind === "executor" ? "executor" : kind;
   if (!alive.length) return `The ${word}: none alive.`;
   return `The ${word}${alive.length === 1 ? "" : "s"}: ${alive.map(describeSession).join("; ")}.`;
 }
@@ -1343,6 +1398,7 @@ export function decideStop({
   ceiling = REUSE_DEFAULT,
   now = Date.now(),
   land = "push",
+  carry = [],
 }) {
   if (retired) return null;
   // **A red or unfinished run refuses the first stop of every turn**. On a
@@ -1374,6 +1430,16 @@ export function decideStop({
       reason: `The ${run.workflow || "Actions"} run on your push (${run.id}) is ${how}. Read it before you stop: \`gh run watch ${run.id} --exit-status\`, then on a failure the job's log (\`gh api repos/{owner}/{repo}/actions/jobs/<job>/logs\`), fix it, push, and read the new run. A green push is not a deploy until the run says so.`,
     };
   }
+  // **A brief for the project a plan came from is written before the stop**
+  // (plans/project-follow-ups-reach-the-project.md, part 4), refused once
+  // per section, as "The audit's checks" are.
+  const owed = carry.find((one) => one.missing && !told.includes(`for:${one.path}:${one.file}`));
+  if (owed)
+    return {
+      refuse: true,
+      told: [`for:${owed.path}:${owed.file}`],
+      reason: owed.missing === "from" ? fromMissingWords(owed) : briefMissingWords(owed),
+    };
   // A session with a plan of its own still being built is not done: it is
   // neither handed more nor retired until it writes Built or hands it over.
   if (paused || current) return null;
@@ -1411,6 +1477,54 @@ export function decideStop({
     told: paths,
     reason: `Plans are waiting and this session can take them: ${fresh.map(annotate).join(", ")}. Build them as a new batch by your agent file: ReadNotifications first, ${how}. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
   };
+}
+
+/** The Stop hook's words when a plan's brief for its project is not in that project's `plans/`. */
+export function briefMissingWords({ path, project, file, checkout }) {
+  const there = checkout.replace(/\/+$/, "");
+  return `${path} leaves work for ${project} (its section "For ${project}: ${file}") and ${there}/${file} is not written. Write the brief there from the section, by your agent file, and start that queue: cd ${there} && plans start --agent planner ${file}, or the message it prints for a live planner; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.`;
+}
+
+/** The Stop hook's words when a plan's `For` section has no `From` line naming its project. */
+export function fromMissingWords({ path, project, file }) {
+  return `${path} leaves work for ${project} (its section "For ${project}: ${file}") but names no checkout for it: no From line, or one for another project. Add "From: ${project}, <path>." under the plan's header paragraph when the brief says where it came from, else hand the section to the assistant as a "Needs a decision" item sized assistant, and say so in "Built".`;
+}
+
+/**
+ * Whether a brief naming `path` is in `checkout`: at `file`, or, when that
+ * name is another's, at the first `<topic>-<n>.md` the executor wrote
+ * instead. A file of the name that does not name the plan is no brief of
+ * its (Codex and /code-review); nothing else is read from the other checkout.
+ */
+export function briefThere(checkout, file, path, read = (at) => readFileSync(at, "utf8")) {
+  const stem = file.replace(/\.md$/, "");
+  for (let n = 1; n <= 20; n++) {
+    let text;
+    try {
+      text = read(join(checkout, n === 1 ? file : `${stem}-${n}.md`));
+    } catch {
+      return false;
+    }
+    if (text.includes(path)) return true;
+  }
+  return false;
+}
+
+/**
+ * **The briefs this session's built plans owe their projects**
+ * (plans/project-follow-ups-reach-the-project.md, part 4): one entry per
+ * `For` section, `missing` "from" with no `From` line for its project, "file"
+ * while no brief naming the plan is in that checkout's `plans/`, else "".
+ */
+export function carryOf(plans, { read } = {}) {
+  return plans.flatMap((plan) =>
+    (plan.carries || []).map(({ project, file }) => {
+      const from = plan.from && plan.from.project === project ? plan.from : null;
+      const checkout = from?.path || "";
+      const missing = !from ? "from" : briefThere(checkout, file, plan.path, read) ? "" : "file";
+      return { path: plan.path, project, file, checkout, missing };
+    }),
+  );
 }
 
 /** The words after a compaction: hand the plan over at the third, unless it is stuck (the Stop hook says what then). */
@@ -1456,6 +1570,7 @@ export function canStart({
   taken = [],
   machine = "",
   unwatched = false,
+  open = [],
 }) {
   // **Session names carry the project and the machine** (`Docs Executor 2
   // (lab)`), and the count is per project and per machine (the log is this
@@ -1471,6 +1586,18 @@ export function canStart({
       refuse: true,
       why: `The queue is paused since ${paused} ("resume the queue" in any session lifts it).`,
     };
+  // **An assistant chat is started only when none is open**
+  // (plans/project-follow-ups-reach-the-project.md, part 6): this project's,
+  // the owner's or the queue's, idle or busy, is sent the message instead,
+  // and an assistant is never replaced.
+  if (kind === "assistant") {
+    if (open.length)
+      return {
+        refuse: true,
+        why: `${open[0]} is open: send it the message instead. ${followUpsMessage(brief)}`,
+      };
+    sessions = [];
+  }
   // **Any live, unretired session of the kind refuses a start, lock or not**
   // (plans/queue-counts-any-executor.md, plans/planner-queue.md). The lock
   // below is an executor's only evidence when the sessions cannot be read.
@@ -1555,7 +1682,7 @@ export function canStart({
   if (last && now - last.at < QUICK_DEATH && progressAt <= last.at) {
     return {
       refuse: true,
-      why: `The last ${kind} (${last.name}) ended within ten minutes with nothing ${kind === "planner" ? "planned" : "built"}, and usage was not the cause; starting another would repeat it. ${owner()} decides.`,
+      why: `The last ${kind} (${last.name}) ended within ten minutes with nothing ${{ planner: "planned", assistant: "written" }[kind] || "built"}, and usage was not the cause; starting another would repeat it. ${owner()} decides.`,
     };
   }
   if (log.filter((line) => now - line.at < 24 * 60 * MINUTE).length >= TRIPWIRE) {
@@ -1686,6 +1813,55 @@ export function plannerPrompt(path) {
   return `Plan ${path}: it is a brief. Read it whole, then your agent file: research the products, ground it in the project's docs and code, write the plan over the brief, put what research cannot settle to ${owner()} with the question tool in the same turn, and hand the plan to the executor by "The final message". ${owner()} reads this chat in Remote Control.`;
 }
 
+/**
+ * The executor's message to an assistant chat on a built plan's follow-ups
+ * (`executor.md`, "After"), which a start beside an open chat prints.
+ */
+export function followUpsMessage(path) {
+  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items, then tick the to-do item.`;
+}
+
+/**
+ * What an assistant chat the queue starts is told
+ * (plans/project-follow-ups-reach-the-project.md, part 6): the plan whose
+ * "Built" holds the items, and its agent file's way through them.
+ */
+export function assistantPrompt(path) {
+  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Read the plan whole, write a short plan for the assistant items and a brief for the planner items, hand each on by your agent file, and end this chat by "The final message". ${owner()} reads this chat in Remote Control.`;
+}
+
+/**
+ * The newest brief or waiting plan: what an assistant writes, its progress
+ * for the quick-death rule. A built plan is not one: the executor writes its
+ * "Built" just before it starts an assistant (/code-review).
+ */
+function writtenAt(plans) {
+  return Math.max(
+    0,
+    ...plans
+      .filter((plan) => ["brief", "planning", "ready"].includes(plan.state))
+      .map((plan) => plan.mtime || 0),
+  );
+}
+
+/**
+ * This project's assistant chats open on this machine, by name: the owner's
+ * `<Project> Assistant` and the queue's numbered ones, any state, never a
+ * Remote Control row, which is another machine's chat.
+ */
+function openAssistants(rows, project) {
+  return (rows || [])
+    .filter((row) => !/remote/i.test(row.kind || ""))
+    .map((row) => row.name || "")
+    .filter((name) => {
+      const parsed = parseName(name);
+      return (
+        name === `${project} Assistant` ||
+        (parsed?.kind === "assistant" && parsed.project === project)
+      );
+    });
+}
+
 /** "plans/a.md, plans/b.md (until 14:02)", a deferral as the pause and the resume say it. */
 function deferredWords(deferred) {
   return `${(deferred.paths || []).join(", ")} (until ${new Date(deferred.until).toTimeString().slice(0, 5)})`;
@@ -1735,6 +1911,7 @@ export function sessionEnv(env = process.env) {
     CLAUDE_PLUGIN_ROOT: _pluginRoot,
     CLAUDE_PLUGIN_DATA: _pluginData,
     CLAUDE_SESSION_ID: _session,
+    WORKFLOW_STARTED: _started,
     ...rest
   } = env;
   if (rest.PATH)
@@ -1769,7 +1946,8 @@ function launch(args, name, kind) {
       cwd: root,
       detached: true,
       stdio: ["ignore", fd, fd],
-      env: sessionEnv(),
+      // An assistant chat is marked as the queue's, for its own Stop hook.
+      env: { ...sessionEnv(), ...(kind === "assistant" ? { WORKFLOW_STARTED: "assistant" } : {}) },
     });
     child.on("error", () => {
       // A launcher that cannot run says so in nothing: the wait reports it.
@@ -2005,7 +2183,7 @@ export function endCommand(ids = [], { immediate = false } = {}) {
   if (!live) return "claude agents could not be read, so nothing is ended.";
   const lock = readJson(files.lock());
   const plans = readPlans(join(root, "plans"), liveIds(live));
-  const ours = ["executor", "planner"].flatMap((kind) =>
+  const ours = ["executor", "planner", "assistant"].flatMap((kind) =>
     sessionsOf(kind, live, lock, { plans, usageFor: () => null }),
   );
   const lines = [];
@@ -2159,9 +2337,11 @@ function startHere(
   // **Asked once**: a plan whose planner is asking the owner is that chat's
   // for thirty minutes, neither taken by default nor accepted by path.
   const plans = withAsking(readPlans(join(root, "plans"), liveIds(live)), live);
-  const kind = agent === "planner" ? "planner" : "executor";
+  const kind = agent === "planner" || agent === "assistant" ? agent : "executor";
   // **A planner takes one brief, the oldest** (plans/planner-queue.md); an
   // executor every plan waiting.
+  if (!paths.length && kind === "assistant")
+    return "A built plan's path is needed: plans start --agent assistant plans/<x>.md; plans shows the built plans.";
   if (!paths.length)
     paths =
       kind === "planner"
@@ -2212,11 +2392,18 @@ function startHere(
       return `${asked} is not a brief waiting for a planner; plans shows the briefs.`;
     paths = [asked];
   }
+  if (kind === "assistant") {
+    // An assistant is started on one built plan, whose "Built" holds the items.
+    const asked = paths[0];
+    if (!plans.some((p) => p.path === asked && p.state === "built"))
+      return `${asked} is not a built plan with follow-ups; plans shows the built plans.`;
+    paths = [asked];
+  }
   const paused = pausedSince();
   // Paused, the deferral is held (no timer), so the resume re-arms it.
   if (at && at > Date.now())
     return defer(at, `the usage limit cut the last ${kind} off`, paths, replace, kind);
-  const probe = agent !== "executor" && agent !== "planner";
+  const probe = !["executor", "planner", "assistant"].includes(agent);
   const decision = probe
     ? { start: true, name: `Probe ${Date.now() % 1000}`, note: "" }
     : canStart({
@@ -2224,15 +2411,25 @@ function startHere(
         lock: readJson(files.lock()),
         alive: () => holderAlive(readJson(files.lock()), live),
         log: readLog(),
-        progressAt: kind === "planner" ? plannedAt(plans) : progressAt(plans),
+        progressAt:
+          kind === "planner"
+            ? plannedAt(plans)
+            : kind === "assistant"
+              ? writtenAt(plans)
+              : progressAt(plans),
         paused,
         usage: readJson(files.usage()),
         // The session being replaced and retired ones do not block their successor.
-        sessions: sessionsOf(kind, live, readJson(files.lock()), {
-          plans,
-          ceiling: proj().reuse,
-        }).filter((one) => one.sessionId !== replace && !one.retired),
-        brief: kind === "planner" ? paths[0] : "",
+        sessions:
+          kind === "assistant"
+            ? []
+            : sessionsOf(kind, live, readJson(files.lock()), {
+                plans,
+                ceiling: proj().reuse,
+              }).filter((one) => one.sessionId !== replace && !one.retired),
+        brief: kind === "executor" ? "" : paths[0],
+        // This checkout's chats only: one in another checkout reads another queue (Codex).
+        open: kind === "assistant" ? openAssistants(live, proj().name) : [],
         name: proj().name,
         ceiling: proj().reuse,
         taken: liveNames(),
@@ -2241,6 +2438,9 @@ function startHere(
         unwatched: timer && deferral === "asking",
       });
   if (decision.refuse) return decision.why;
+  // An assistant is never deferred: its items wait in the plan for the next start.
+  if (decision.defer && kind === "assistant")
+    return `No assistant chat was started: ${decision.why}.`;
   // The window's start, deferred by usage, stays the window's, so at the reset
   // it still replaces an idle executor.
   if (decision.defer)
@@ -2256,7 +2456,9 @@ function startHere(
     ? "Reply with the single word ok"
     : kind === "planner"
       ? plannerPrompt(paths[0])
-      : startPrompt(paths, plans);
+      : kind === "assistant"
+        ? assistantPrompt(paths[0])
+        : startPrompt(paths, plans);
   // **The agent file's effort, on the command line** (part 4): a settings
   // file's effort for the model outranks the frontmatter, and the user
   // settings set Opus to medium for the assistant; the command line outranks both.
@@ -2309,7 +2511,7 @@ function startHere(
     return seen;
   }
   // The deferrals keep the paths this start did not take, and their timers.
-  for (const file of kind === "executor" ? ["executor", "asking"] : ["planner"])
+  for (const file of { executor: ["executor", "asking"], planner: ["planner"] }[kind] || [])
     dropDeferred(file, paths);
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
@@ -2547,6 +2749,12 @@ export function list({ all = false, live, related = true, readers = null } = {})
         sessionsOf("planner", live, lock, { trees, plans, ceiling: proj().reuse }),
       ),
     );
+  // **The assistant line**, only while a chat the queue started is alive
+  // (plans/project-follow-ups-reach-the-project.md, part 6).
+  const assistants = live
+    ? sessionsOf("assistant", live, lock, { trees, plans, ceiling: proj().reuse })
+    : [];
+  if (assistants.length) out.push(sessionsLine("assistant", assistants));
   const versions = versionLine(live);
   if (versions) out.push(versions);
   // **Leftover worktrees are seen** (plans/queue-sees-worktree-executor.md):
@@ -3922,6 +4130,18 @@ function hook(mode, input) {
     return;
   }
   if (mode === "wrote" && !executor && kindOf(input) !== "planner") return;
+  // **An assistant chat the queue started ends an hour after it goes quiet**
+  // (plans/project-follow-ups-reach-the-project.md, part 6), by its numbered
+  // name; the owner's own assistant chat is never the queue's to end.
+  if (mode === "stop" && kindOf(input) === "assistant") {
+    // Only a chat the queue launched carries the mark, so the owner's own
+    // chat never waits on `claude agents` at its stops (/code-review).
+    if (process.env.WORKFLOW_STARTED !== "assistant") return;
+    const live = liveSessions();
+    const row = live?.find((r) => r.sessionId === sessionId);
+    if (parseName(row?.name || "")?.kind === "assistant") armEnd(sessionId, live);
+    return;
+  }
   if (kindOf(input) === "planner") {
     plannerHook(mode, input, sessionId, statePath);
     return;
@@ -3944,6 +4164,14 @@ function hook(mode, input) {
       if (state.baseAt) return;
       const tip = branchTip();
       if (tip) writeJson(statePath, { ...state, base: tip, baseAt: "building" });
+    };
+    // **Every plan this session took, kept past its Building line**
+    // (plans/project-follow-ups-reach-the-project.md, part 4): "Built" takes
+    // the line out, and the Stop hook still asks what the built plan owes.
+    const hold = (paths) => {
+      const state = readState(sessionId);
+      const held = [...new Set([...(state.held || []), ...paths])];
+      if (held.length !== (state.held || []).length) writeJson(statePath, { ...state, held });
     };
     // A Building line written by a shell command: found by reading the plans
     // after the fact, since no tool hook could refuse it. **On a plan still
@@ -3979,7 +4207,9 @@ function hook(mode, input) {
       }
       if (String(taken) !== String(state.taken || []))
         writeJson(statePath, { ...readState(sessionId), taken });
-      // The batch starts at a Building line that stays, and the plan stops asking.
+      // The batch starts at a Building line that stays, and the plan stops
+      // asking; one the asking check took out is not this session's (/code-review).
+      if (taken.length) hold(taken);
       if (taken.length) markBase();
       if (newly.length) dropDeferred("asking", newly);
       if (said.length)
@@ -3989,6 +4219,7 @@ function hook(mode, input) {
     const path = planPath(input.tool_input?.file_path);
     if (!path) return;
     if (!building.test(planText(path))) return;
+    hold([path]);
     markBase();
     dropDeferred("asking", [path]);
     stopPlannersOn(path, liveSessions());
@@ -4107,7 +4338,17 @@ function hook(mode, input) {
       .filter((p) => !p.askingIn)
       .map((p) => ({ ...p, related: related(p.text, changed) }));
     const handed = plans.filter((p) => p.state === "handed");
+    const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
+    const carry = carryOf(
+      plans.filter(
+        (p) =>
+          p.state === "built" &&
+          p.carries?.length &&
+          ((state.held || []).includes(p.path) || building.test(p.text)),
+      ),
+    );
     const decision = decideStop({
+      carry,
       current: plans.find((p) => p.state === "building" && p.session === sessionId) || null,
       compactions: state.compactions,
       waiting,
@@ -4303,6 +4544,7 @@ const USAGE = `plans                 the queue: briefs, asking, ready, building,
 plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
 plans start --agent planner <brief>   start a planner on a brief
+plans start --agent assistant <plan>  start an assistant chat on a built plan's follow-ups
 plans pause | resume  stop and restart starting sessions
 plans end [id...] [--now]  end this queue's finished chats, or these; --now ends a named one whatever it is doing
 plans sync            move a clean, detached checkout to the branch

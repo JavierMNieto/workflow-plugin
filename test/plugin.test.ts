@@ -160,6 +160,7 @@ catalogue: docs/patterns
   it("ignores every file the queue keeps in .claude/, one line per kind, and the worktrees' folder", () => {
     expect(QUEUE_IGNORES).toEqual([
       ...QUEUE_KINDS.map((kind) => `.claude/${kind}.*`),
+      ".claude/assistant.*",
       ".claude/worktrees/",
     ]);
     // The names plan-queue.mjs writes there: its literal files and one per kind.
@@ -173,6 +174,8 @@ catalogue: docs/patterns
     const names = [
       ...literal.map((name) => (name === "worktrees" ? "worktrees/x/f" : name)),
       ...QUEUE_KINDS.flatMap((kind) => perKind.map((ext) => `${kind}${ext}`)),
+      // An assistant chat's start (plans/project-follow-ups-reach-the-project.md).
+      "assistant.started",
     ];
     const root = dir("ignores-");
     gitIn(root)("init", "-q");
@@ -192,7 +195,7 @@ catalogue: docs/patterns
     gitIn(root)("init", "-q");
     writeFileSync(join(root, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
     expect(ignoreQueueFiles(root)).toBe(
-      "Added .claude/asking.*, .claude/worktrees/ to .git/info/exclude.",
+      "Added .claude/asking.*, .claude/assistant.*, .claude/worktrees/ to .git/info/exclude.",
     );
     expect(ignoreQueueFiles(root)).toBe("");
     writeFileSync(join(root, ".gitignore"), "!.claude/**\n");
@@ -211,7 +214,7 @@ catalogue: docs/patterns
     writeFileSync(join(root, ".gitignore"), ".claude/worktrees\n");
     init(root);
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n",
+      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n",
     );
   });
 
@@ -230,7 +233,7 @@ catalogue: docs/patterns
     expect(project(root).found).toBe(true);
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/worktrees/\n",
+      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/worktrees/\n",
     );
     expect(text).toContain(
       "# deny:                  MCP tools an agent here may never call, by agent (regular expressions)",
@@ -459,8 +462,56 @@ describe("the plugin's queue in any project", () => {
         machine: options.machine || "",
       });
     }
-    for (const name of ["Assistant", "Assistant (Anton merge)", "Executor"])
+    for (const name of ["Assistant", "Assistant (Anton merge)", "Executor", "Docs Assistant"])
       expect(parseName(name)).toBeNull();
+    // plans/project-follow-ups-reach-the-project.md, part 6: the third kind.
+    expect(parseName("Docs Assistant 4 (lab)")).toEqual({
+      project: "Docs",
+      kind: "assistant",
+      n: 4,
+      machine: "lab",
+    });
+    expect(sessionName("assistant", 4, { project: "Docs", machine: "lab" })).toBe(
+      "Docs Assistant 4 (lab)",
+    );
+  });
+
+  // plans/project-follow-ups-reach-the-project.md, part 6.
+  it("starts an assistant chat only with none open, counted per project and machine, under the shared bounds", () => {
+    const log = [
+      { at: 0, name: "Docs Assistant 2 (lab)" },
+      { at: 0, name: "Docs Executor 9 (lab)" },
+      { at: 0, name: "Other Assistant 7 (lab)" },
+    ];
+    const base = { kind: "assistant", log, name: "Docs", machine: "lab", brief: "plans/a.md" };
+    expect(canStart(base)).toMatchObject({ start: true, name: "Docs Assistant 3 (lab)" });
+    for (const open of [["Docs Assistant"], ["Docs Assistant 2 (lab)"]])
+      expect(canStart({ ...base, open })).toEqual({
+        refuse: true,
+        why: `${open[0]} is open: send it the message instead. Follow-ups ready: plans/a.md, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items, then tick the to-do item.`,
+      });
+    expect(canStart({ ...base, paused: "today" })).toMatchObject({ refuse: true });
+    const now = Date.UTC(2026, 9, 31, 12);
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 90, resets_at: now / 1000 + 3600 },
+    };
+    expect(canStart({ ...base, usage, now })).toMatchObject({ defer: true });
+    const busy = Array.from({ length: 24 }, (_, i) => ({
+      at: now - i * 60_000 - 20 * 60_000,
+      name: `Docs Assistant ${i + 1} (lab)`,
+    }));
+    expect(canStart({ ...base, log: busy, now, progressAt: now })).toMatchObject({
+      refuse: true,
+      why: expect.stringContaining("Twenty-four assistants"),
+    });
+    // A live executor of the project does not hold an assistant back.
+    expect(
+      canStart({
+        ...base,
+        sessions: [{ sessionId: "e", name: "Docs Executor 9 (lab)", status: "busy" }],
+      }),
+    ).toMatchObject({ start: true });
   });
 
   it("numbers a start per machine, from the log and the live list", () => {
@@ -593,6 +644,7 @@ describe("the plugin's queue in any project", () => {
         CLAUDE_SESSION_ID: "s",
         CLAUDE_PLUGIN_ROOT: "/r",
         CLAUDE_PLUGIN_DATA: "/d",
+        WORKFLOW_STARTED: "assistant",
         PATH: "/bin",
         HOME: "/h",
       }),
