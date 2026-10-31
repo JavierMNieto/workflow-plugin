@@ -326,6 +326,14 @@ describe("the plugin's queue in any project", () => {
     const doc = text("docs/workflow.md");
     expect(doc).toContain("**A decision has a name; a part has none.**");
     expect(doc).toContain("**A change one person started is anyone's to go on with.**");
+    // plans/also-lists-the-right-commits.md: Also holds other people's commits and no others.
+    expect(executor).toContain("Left out: this plan's own commits");
+    expect(executor).toContain("by `^<its headRefOid>`");
+    expect(executor).toContain("`git fetch origin pull/<n>/head` first when this checkout lacks");
+    expect(executor).toContain("a merge whose author is this checkout's `git config user.name`");
+    expect(executor).not.toContain("titled `Merge origin/<…> into <…>`");
+    expect(executor).toContain("other people's commit titles under `Also` aside");
+    expect(doc).toContain("no commit log, other people's commits aside");
   });
 
   // plans/try-it-is-one-line.md.

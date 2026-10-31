@@ -264,13 +264,14 @@ other changes a line each and another person's commits with their
 author, under `Also`; then where to try it in a line; the whole,
 screenshots aside, on one screen (Javi, 31 October: the diff of the
 decisions, what is new, what changed, what conflicted; Keep a
-Changelog's grouped kinds and no commit log; MADR's superseded record
-kept in sight; GOV.UK Frontend's effect under each change; Javi, 31
-October, the `Also` list kept, answering after the plan was built).
-The project's "Before the push" runs once per plan, the reviews
-included, a fix's as well; the Stop hook reads the
-pull requests' checks, then the run a fix pushed straight set off ("The
-queue"); the merge is the people's, and the executor never merges. A
+Changelog's grouped kinds and no commit log, other people's commits
+aside, which are theirs; MADR's superseded record kept in sight;
+GOV.UK Frontend's effect under each change; Javi, 31 October, the
+`Also` list kept, answering after the plan was built). The project's
+"Before the push" runs once per plan, the reviews included, a fix's as
+well; the Stop hook reads the pull requests' checks, then the run a fix
+pushed straight set off ("The queue"); the merge is the people's, and
+the executor never merges. A
 plan that rests on an open pull request (uses what it adds) is stacked
 on it; one that only changes the same file is not, and merges its base
 in if it conflicts once the other merges. A stacked plan's branch starts at that

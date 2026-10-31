@@ -519,8 +519,9 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
 **The description** is the catalogue's words in the catalogue's order,
 not a story: a reader who approves a bullet approves a rule, and one he
 objects to names the entry to change. Plain words, no dashes, the
-project's spelling; every string from the plans or the catalogue; the
-whole of it, screenshots aside, fits one screen:
+project's spelling; every string from the plans or the catalogue, other
+people's commit titles under `Also` aside, which are kept as their
+authors wrote them; the whole of it, screenshots aside, fits one screen:
 
 ```
 Builds on #<n>; merge that first.             <- stacked plans only
@@ -603,14 +604,22 @@ to a Claude session left out>
   of the topic goes under `## To try it`, before the line, with its own
   line. No heading of their own.
 - **Also**: a line per change with no decision in it, from the plans'
-  "Building it", the mechanism left out; then a line per commit on the
-  topic's branch that no plan of the topic names in its Built section,
-  from `git log origin/<base>..origin/<name> --format='%h%x09%an%x09%s'`:
-  `- <the commit's title> (<author>)`, since another person's commit is
-  theirs, a merge commit another person made included, since it may
-  settle a conflict; an executor's merges (titled `Merge origin/<…> into
-  <…>`, "A branch is brought up to date by a merge") are left out, since
-  the plans' Built lines account for them. With none, the heading is left out.
+  "Building it", the mechanism left out; then a line per other person's
+  commit on the topic's branch, from `git log origin/<base>..origin/<name>
+  --format='%h%x09%an%x09%s'`: `- <the commit's title> (<author>)`, since
+  another person's commit is theirs, a merge another person made
+  included, since it may settle a conflict. Left out: this plan's own
+  commits, which its "Building it" lines already cover; a commit a plan
+  of the topic names in its Built section, matched by hash (`%h` against
+  each `commit <sha>` there, the shorter a prefix of the longer); on a
+  branch stacked on a pull request since squash merged, the commits that
+  pull request's head held, by `^<its headRefOid>` (`gh pr view <n>
+  --json headRefOid`; `git fetch origin pull/<n>/head` first when this
+  checkout lacks that commit, since its branch is deleted on merge)
+  added to the log; and a merge whose author is this
+  checkout's `git config user.name`, an executor's ("A branch is brought
+  up to date by a merge"), since the plans' Built lines account for it.
+  With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), and
   nothing else but a screenshot that shows no decision, or the line
