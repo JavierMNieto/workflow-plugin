@@ -260,10 +260,10 @@ sentence and its id, a changed one with the replaced line struck through
 under it and a conflict (a struck line with another person's name)
 first; each screenshot under the decision it shows, with one line saying
 what changed in it, attached with `gh pr create --attach`; then the
-other changes a line each and another person's commits with their
-author, under `Also`; then where to try it in a line; the whole,
-screenshots aside, on one screen (Javi, 31 October: the diff of the
-decisions, what is new, what changed, what conflicted; Keep a
+other changes a line each and the commits no plan here accounts for,
+with their author, under `Also`; then where to try it in a line; the
+whole, screenshots aside, on one screen (Javi, 31 October: the diff of
+the decisions, what is new, what changed, what conflicted; Keep a
 Changelog's grouped kinds and no commit log, other people's commits
 aside, which are theirs; MADR's superseded record kept in sight;
 GOV.UK Frontend's effect under each change; Javi, 31 October, the

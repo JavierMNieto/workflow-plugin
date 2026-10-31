@@ -624,11 +624,12 @@ to a Claude session left out>
   (`commit <sha>` in its first line, in its `Merged` and `Refreshed`
   lines, and in a line that names a pushed commit), matched by hash, the
   shorter a prefix of the longer; and, on a branch stacked on a pull
-  request since merged, the commits that pull request held (`gh pr view
-  <n> --json commits --jq '.commits[].oid'`), whichever way it was
-  merged, and the same for the pull request that one was stacked on,
-  since the retarget carries them along. Nothing is left out by author
-  or by title. With none, the heading is left out.
+  request since merged, the commits of each merged pull request down the
+  stack, from this one's old base to the first, each found by the
+  `Builds on #<n>` line its body opens with (`gh api --paginate
+  repos/{owner}/{repo}/pulls/<n>/commits --jq '.[].sha'`), whichever way
+  it was merged, since the retarget carries them along. Nothing is left
+  out by author or by title. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), and
   nothing else but a screenshot that shows no decision, or the line

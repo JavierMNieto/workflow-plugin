@@ -332,7 +332,6 @@ describe("the plugin's queue in any project", () => {
     expect(executor).toContain("that this checkout's plans do not account for");
     expect(executor).toContain("`git log --first-parent <tip>..HEAD --format=%H`");
     expect(executor).toContain("a merge this plan made before its tip");
-    expect(executor).toContain("`gh pr view <n> --json commits --jq '.commits[].oid'`");
     expect(executor).toContain("Nothing is left out by author or by title.");
     expect(executor).toContain(
       'Every merge gets a line in the plan\'s "Built", `Merged <base> <date>, commit <sha>:',
@@ -342,6 +341,15 @@ describe("the plugin's queue in any project", () => {
     expect(executor).not.toContain("git fetch origin pull/<n>/head");
     expect(executor).not.toContain("`git config user.name`");
     expect(doc).toContain("**The plans account for the queue's commits.**");
+    // plans/also-knows-whose-commit-follow-up.md: every merged base down the stack, read in pages.
+    expect(executor).toContain("each merged pull request down the stack");
+    expect(executor).toContain("each found by the `Builds on #<n>` line its body opens with");
+    expect(executor).toContain(
+      "`gh api --paginate repos/{owner}/{repo}/pulls/<n>/commits --jq '.[].sha'`",
+    );
+    expect(executor).not.toContain("--json commits");
+    expect(doc).toContain("the commits no plan here accounts for, with their author, under `Also`");
+    expect(doc).not.toContain("another person's commits with their author");
     expect(executor).toContain("other people's commit titles under `Also` aside");
     expect(doc).toContain("no commit log, other people's commits aside");
   });
