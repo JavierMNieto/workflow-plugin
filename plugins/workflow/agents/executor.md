@@ -547,6 +547,11 @@ Related: #<n>.                                <- plans with a Related line only
 - ~~<The rule, as the catalogue keeps it.>~~ (<its tier and date>;
   retired <date>) <Why, one sentence.> `<catalogue file>#<id>`
 
+## Also
+
+- <A change with no decision in it, in a line.>
+- <The commit's title.> (<author>)
+
 ## To try it
 
 <One line.>
@@ -597,10 +602,15 @@ to a Claude session left out>
   without `--attach` loses nothing. A screenshot that shows no decision
   of the topic goes under `## To try it`, before the line, with its own
   line. No heading of their own.
-- **Nothing else**: a change with no decision in it is a detail the diff
-  shows; another person's commit on the topic's branch is kept as it is
-  ("A topic's plan") and credited by GitHub's commits list and the squash
-  merge's `Co-authored-by` lines, not by the description.
+- **Also**: a line per change with no decision in it, from the plans'
+  "Building it", the mechanism left out; then a line per commit on the
+  topic's branch that no plan of the topic names in its Built section,
+  from `git log origin/<base>..origin/<name> --format='%h%x09%an%x09%s'`:
+  `- <the commit's title> (<author>)`, since another person's commit is
+  theirs, a merge commit another person made included, since it may
+  settle a conflict; an executor's merges (titled `Merge origin/<…> into
+  <…>`, "A branch is brought up to date by a merge") are left out, since
+  the plans' Built lines account for them. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), and
   nothing else but a screenshot that shows no decision, or the line

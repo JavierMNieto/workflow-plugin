@@ -259,13 +259,16 @@ catalogue stores it, the rule, its tier and date, its reason in a
 sentence and its id, a changed one with the replaced line struck through
 under it and a conflict (a struck line with another person's name)
 first; each screenshot under the decision it shows, with one line saying
-what changed in it, attached with `gh pr create --attach`; then where to
-try it in a line; nothing else, the whole, screenshots aside, on one
-screen (Javi, 31 October: the diff of the decisions, what is new, what
-changed, what conflicted; Keep a Changelog's grouped kinds and no commit
-log; MADR's superseded record kept in sight; GOV.UK Frontend's effect
-under each change). The project's "Before the push" runs once per
-plan, the reviews included, a fix's as well; the Stop hook reads the
+what changed in it, attached with `gh pr create --attach`; then the
+other changes a line each and another person's commits with their
+author, under `Also`; then where to try it in a line; the whole,
+screenshots aside, on one screen (Javi, 31 October: the diff of the
+decisions, what is new, what changed, what conflicted; Keep a
+Changelog's grouped kinds and no commit log; MADR's superseded record
+kept in sight; GOV.UK Frontend's effect under each change; Javi, 31
+October, the `Also` list kept, answering after the plan was built).
+The project's "Before the push" runs once per plan, the reviews
+included, a fix's as well; the Stop hook reads the
 pull requests' checks, then the run a fix pushed straight set off ("The
 queue"); the merge is the people's, and the executor never merges. A
 plan that rests on an open pull request (uses what it adds) is stacked
@@ -464,8 +467,8 @@ the model not followed.) Javi, 30 October.
 topic's branch and an open pull request's are pushed, so another person,
 or their Claude, pushes to them or comments; a commit another person
 pushed to a topic's branch is kept as theirs when the executor builds the
-topic's next plan, which squashes only its own work, and GitHub's
-commits list and the squash merge's `Co-authored-by` lines credit it. A
+topic's next plan, which squashes only its own work, and the
+description lists it under `Also` with its author. A
 plan's reasoning is on the machine that planned it (`plans/` is not
 tracked); what reaches another machine is the pull request's
 description, which carries the decisions, the catalogue entry, and, once

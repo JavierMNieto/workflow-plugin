@@ -317,9 +317,9 @@ describe("the plugin's queue in any project", () => {
       "a commit another person pushed to the branch between the plans stays as theirs",
     );
     expect(executor).toContain("Related: #<n>. <- plans with a Related line only");
-    // plans/pull-request-description-standard.md: GitHub's commits list credits it, not the description.
-    expect(executor).not.toContain("- <The commit's title.> (<author>)");
-    expect(executor).toContain("credited by GitHub's commits list");
+    // plans/pull-request-description-standard-follow-up.md: the description lists it under Also.
+    expect(executor).toContain("- <The commit's title.> (<author>)");
+    expect(executor).not.toContain("credited by GitHub's commits list");
     expect(executor).toContain("what it was marked related to in the same sentence");
     for (const agent of ["planner", "assistant"])
       expect(text(`agents/${agent}.md`), agent).toContain("`Related: #31.`");
@@ -347,8 +347,11 @@ describe("the plugin's queue in any project", () => {
       .filter((block) => block.includes("## To try it"));
     for (const heading of ["## New", "## Changed", "## Retired"]) expect(topic).toContain(heading);
     for (const block of [topic, fixes])
-      for (const gone of ["## Decisions", "## Also", "## Screenshots"])
-        expect(block).not.toContain(gone);
+      for (const gone of ["## Decisions", "## Screenshots"]) expect(block).not.toContain(gone);
+    // plans/pull-request-description-standard-follow-up.md: Also stays in a topic's, after Retired.
+    expect(fixes).not.toContain("## Also");
+    expect(topic.indexOf("## Also")).toBeGreaterThan(topic.indexOf("## Retired"));
+    expect(topic.indexOf("## Also")).toBeLessThan(topic.indexOf("## To try it"));
     // The replaced line, struck through, one level in under the changed bullet.
     expect(topic).toMatch(/^- \*\*<The rule, as the entry words it\.>\*\*[^\n]*\n[^\n]*\n  - ~~/m);
     // A screenshot sits under its decision, one level in.
@@ -358,7 +361,7 @@ describe("the plugin's queue in any project", () => {
     const doc = readFileSync(join(plugin, "docs/workflow.md"), "utf8").replace(/\s+/g, " ");
     expect(doc).toContain("The description is the catalogue's diff");
     expect(doc).not.toContain("the plan's path;");
-    expect(doc).not.toContain("under `Also`");
+    expect(doc).toContain("under `Also`");
   });
 
   // plans/no-session-link-in-pull-requests.md.
