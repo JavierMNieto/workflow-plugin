@@ -264,8 +264,8 @@ other changes a line each and the commits no plan here accounts for,
 with their author, under `Also`; then where to try it in a line; the
 whole, screenshots aside, on one screen (Javi, 31 October: the diff of
 the decisions, what is new, what changed, what conflicted; Keep a
-Changelog's grouped kinds and no commit log, other people's commits
-aside, which are theirs; MADR's superseded record kept in sight;
+Changelog's grouped kinds and no commit log, the commits no plan here
+accounts for aside; MADR's superseded record kept in sight;
 GOV.UK Frontend's effect under each change; Javi, 31 October, the
 `Also` list kept, answering after the plan was built). The project's
 "Before the push" runs once per plan, the reviews included, a fix's as
@@ -486,10 +486,11 @@ Claude from another's by the author. What knows a commit is the plan
 that made it: its "Built" names its commit and every merge the executor
 made for it, by hash, and the checkout's `plans/` is the record. So a
 pull request's `Also` lists every commit on the topic's branch that no
-plan in this checkout accounts for, with the author git records:
-another person's commit, their Claude's, or this person's own queue's
-from another checkout, which is work the people have not been told of
-here. No commit is left out by its author or its title.
+plan in this checkout accounts for and no merged pull request down the
+stack already showed, with the author git records: another person's
+commit, their Claude's, or this person's own queue's from another
+checkout, which is work the people have not been told of here. No
+commit is left out by its author or its title.
 
 **A string rests on what produced it.** Every word a person sees, a
 label, a button, a message, a sentence they are told to paste, is

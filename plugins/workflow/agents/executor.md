@@ -522,8 +522,8 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
 **The description** is the catalogue's words in the catalogue's order,
 not a story: a reader who approves a bullet approves a rule, and one he
 objects to names the entry to change. Plain words, no dashes, the
-project's spelling; every string from the plans or the catalogue, other
-people's commit titles under `Also` aside, which are kept as their
+project's spelling; every string from the plans or the catalogue, the
+titles of the commits under `Also` aside, which are kept as their
 authors wrote them; the whole of it, screenshots aside, fits one screen:
 
 ```

@@ -350,8 +350,10 @@ describe("the plugin's queue in any project", () => {
     expect(executor).not.toContain("--json commits");
     expect(doc).toContain("the commits no plan here accounts for, with their author, under `Also`");
     expect(doc).not.toContain("another person's commits with their author");
-    expect(executor).toContain("other people's commit titles under `Also` aside");
-    expect(doc).toContain("no commit log, other people's commits aside");
+    // plans/also-docs-match-the-rule.md: the docs and the opening sentence name the rule as built.
+    expect(executor).toContain("the titles of the commits under `Also` aside");
+    expect(doc).toContain("no commit log, the commits no plan here accounts for aside");
+    expect(doc).toContain("and no merged pull request down the stack already showed");
   });
 
   // plans/try-it-is-one-line.md.
