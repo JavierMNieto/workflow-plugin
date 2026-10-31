@@ -323,6 +323,15 @@ describe("the plugin's queue in any project", () => {
     expect(doc).toContain("**A change one person started is anyone's to go on with.**");
   });
 
+  // plans/try-it-is-one-line.md.
+  it("keeps a pull request's To try it to the one line of how to try it", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    expect(executor).not.toContain("(plans/ is not tracked)");
+    expect(executor).not.toContain("Checks: <the checks workflow's name>");
+    expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
+  });
+
   // plans/dropped-plan-state.md, part 3.
   it("names the Dropped section in the agents and the state in the doc's queue", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;

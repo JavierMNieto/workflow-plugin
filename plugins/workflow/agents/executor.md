@@ -544,8 +544,7 @@ Related: #<n>.                                <- plans with a Related line only
 
 ## To try it
 
-<One line.> Plan: `plans/<topic>.md` on <machine> (plans/ is not
-tracked). Checks: <the checks workflow's name>.
+<One line.>
 
 <the attribution lines the session gives for a pull request>
 ```
@@ -582,9 +581,8 @@ tracked). Checks: <the checks workflow's name>.
   <…>`, "A branch is brought up to date by a merge") are left out, since
   the plans' Built lines account for them. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push" for
-  where the change shows once merged (else "Check out the branch."), then
-  the plan line; for a topic of several plans, their paths in one line,
-  oldest first.
+  where the change shows once merged (else "Check out the branch."), and
+  nothing else.
 - **The title** is the title of the plan that marks the topic ready,
   which says what the project does after the topic's change.
 
@@ -609,7 +607,7 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 
 ## To try it
 
-<One line.> Checks: <the checks workflow's name>.
+<One line.>
 
 <the attribution lines the session gives for a pull request>
 ```
