@@ -253,12 +253,18 @@ only a start. There are three landings:
 
 A fix whose commit turns out to change a rule lands as a waiting topic
 instead, and the owner says through the assistant whether it is ready.
-The description leads with the decisions, each a bold sentence with who
-decided it, when, the rule it replaces, one sentence of reason and the
-catalogue entry's id; then the screenshots, each under one line saying
-what changed in it, attached with `gh pr create --attach`; then the
-other changes a line each; then where to try it; the whole, screenshots
-aside, on one screen. The project's "Before the push" runs once per
+The description is the catalogue's diff: under `New`, `Changed` and
+`Retired`, each entry the topic's commits add, replace or retire as the
+catalogue stores it, the rule, its tier and date, its reason in a
+sentence and its id, a changed one with the replaced line struck through
+under it and a conflict (a struck line with another person's name)
+first; each screenshot under the decision it shows, with one line saying
+what changed in it, attached with `gh pr create --attach`; then where to
+try it in a line; nothing else, the whole, screenshots aside, on one
+screen (Javi, 31 October: the diff of the decisions, what is new, what
+changed, what conflicted; Keep a Changelog's grouped kinds and no commit
+log; MADR's superseded record kept in sight; GOV.UK Frontend's effect
+under each change). The project's "Before the push" runs once per
 plan, the reviews included, a fix's as well; the Stop hook reads the
 pull requests' checks, then the run a fix pushed straight set off ("The
 queue"); the merge is the people's, and the executor never merges. A
@@ -458,13 +464,13 @@ the model not followed.) Javi, 30 October.
 topic's branch and an open pull request's are pushed, so another person,
 or their Claude, pushes to them or comments; a commit another person
 pushed to a topic's branch is kept as theirs when the executor builds the
-topic's next plan, which squashes only its own work, and the description
-lists it under `Also` with its author. A plan's reasoning is on the
-machine that planned it (`plans/` is not tracked); what reaches another
-machine is the pull request's description, which carries the decisions,
-the catalogue entry, and, once merged, the squash commit titled `<title>
-(#<n>)`, so `git log -S<id>` on an entry's id finds the pull request where
-the rule was discussed. What the other person's Claude is told before an
+topic's next plan, which squashes only its own work, and GitHub's
+commits list and the squash merge's `Co-authored-by` lines credit it. A
+plan's reasoning is on the machine that planned it (`plans/` is not
+tracked); what reaches another machine is the pull request's
+description, which carries the decisions, the catalogue entry, and, once
+merged, the squash commit titled `<title> (#<n>)`, so `git log -S<id>`
+on an entry's id finds the pull request where the rule was discussed. What the other person's Claude is told before an
 edit is what the repository carries, the catalogue and the project's own
 copy of the edit-time hook, not this plugin.
 
@@ -790,12 +796,13 @@ changes the same way). The executor opens it with the day's first fix
 and rewrites its description with each next one, with no comment, since
 a fix has nothing to decide; the people merge it when they like, and
 nobody has to read it. Its description lists every fix, a line each, the
-commit's title and the plan's path; the screenshots the fixes sent, each
-with its line; under `Already on <branch>`, the day's fixes pushed
-straight, read off `git log`, the commits whose title does not end in
-GitHub's squash suffix ` (#<n>)`; and where to try it. The queue keeps no
-state for it: the day's pull request is found by its branch, and an
-earlier day's still open is left to the people. A fix that comes after
+commit's title (Javi, 31 October: a path nobody reading the pull
+request can open), each fix's screenshots under it with their line;
+under `Already on <branch>`, the day's fixes pushed straight, read off
+`git log`, the commits whose title does not end in GitHub's squash
+suffix ` (#<n>)`; and where to try it. The queue keeps no state for it:
+the day's pull request is found by its branch, and an earlier day's
+still open is left to the people. A fix that comes after
 the day's pull request was merged or closed waits for tomorrow (the
 owner, 30 October: never two in a day): it is built on the next day's
 branch, pushed, and listed with the topics waiting for a pull request,

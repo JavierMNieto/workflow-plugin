@@ -317,7 +317,9 @@ describe("the plugin's queue in any project", () => {
       "a commit another person pushed to the branch between the plans stays as theirs",
     );
     expect(executor).toContain("Related: #<n>. <- plans with a Related line only");
-    expect(executor).toContain("- <The commit's title.> (<author>)");
+    // plans/pull-request-description-standard.md: GitHub's commits list credits it, not the description.
+    expect(executor).not.toContain("- <The commit's title.> (<author>)");
+    expect(executor).toContain("credited by GitHub's commits list");
     expect(executor).toContain("what it was marked related to in the same sentence");
     for (const agent of ["planner", "assistant"])
       expect(text(`agents/${agent}.md`), agent).toContain("`Related: #31.`");
@@ -333,6 +335,30 @@ describe("the plugin's queue in any project", () => {
     expect(executor).not.toContain("(plans/ is not tracked)");
     expect(executor).not.toContain("Checks: <the checks workflow's name>");
     expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
+  });
+
+  // plans/pull-request-description-standard.md.
+  it("a pull request's description is the catalogue's diff", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8");
+    const mode = executor.slice(executor.indexOf("### In pull request mode"));
+    const [topic, fixes] = [...mode.matchAll(/^```\n([\s\S]*?)^```$/gm)]
+      .map((m) => m[1])
+      .filter((block) => block.includes("## To try it"));
+    for (const heading of ["## New", "## Changed", "## Retired"]) expect(topic).toContain(heading);
+    for (const block of [topic, fixes])
+      for (const gone of ["## Decisions", "## Also", "## Screenshots"])
+        expect(block).not.toContain(gone);
+    // The replaced line, struck through, one level in under the changed bullet.
+    expect(topic).toMatch(/^- \*\*<The rule, as the entry words it\.>\*\*[^\n]*\n[^\n]*\n  - ~~/m);
+    // A screenshot sits under its decision, one level in.
+    expect(topic).toContain("\n  ![<the same line>](plans/<topic>/<file>.png)");
+    expect(fixes).toMatch(/^## Fixes\n\n- <The commit's title\.>\n/m);
+    expect(fixes).not.toContain("plans/<x>.md");
+    const doc = readFileSync(join(plugin, "docs/workflow.md"), "utf8").replace(/\s+/g, " ");
+    expect(doc).toContain("The description is the catalogue's diff");
+    expect(doc).not.toContain("the plan's path;");
+    expect(doc).not.toContain("under `Also`");
   });
 
   // plans/no-session-link-in-pull-requests.md.
@@ -1598,8 +1624,7 @@ describe("a pull request per topic", () => {
     // Javi, 30 October: the comment says nothing of the draft either.
     expect(mode).not.toContain("a draft again until");
     expect(mode).not.toContain("its comment says so");
-    // The shorter description.
-    expect(mode).toContain("## Screenshots");
+    // The shorter description: plans/pull-request-description-standard.md.
     expect(mode).not.toContain("None: no rule changed");
   });
 

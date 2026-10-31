@@ -480,8 +480,9 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   the final message names it, so ${user_config.owner} says through the
   assistant whether the topic is ready. Review beats silence.
 - **The screenshots, when `--attach` fails**: when `gh --version` is
-  under 2.99.0, or the upload is refused, the body's image lines are
-  replaced by one line and the pull request is created without
+  under 2.99.0, or the upload is refused, the body's images are taken
+  out, each one's line kept where it stood, one line goes under `## To
+  try it` before its own, and the pull request is created without
   `--attach`; when the refused `gh pr create` opened one anyway (`gh pr
   view <name> --json number,url` finds it), its body is replaced instead
   (`gh pr edit <n> --body-file`), never a second pull request. The line:
@@ -525,22 +526,26 @@ whole of it, screenshots aside, fits one screen:
 Builds on #<n>; merge that first.             <- stacked plans only
 Related: #<n>.                                <- plans with a Related line only
 
-## Decisions
+## New
 
-- **<The rule, as the catalogue entry words it.>** <Who>, <date>;
-  replaces "<the struck rule>" (<who>, <date>). <The reason, one
-  sentence.> `<catalogue file>#<id>`
+- **<The rule, as the catalogue entry words it.>** (<tier and date, as
+  the entry has them>) <The reason, one sentence.> `<catalogue file>#<id>`
 
-## Screenshots
+  <What changed in the screenshot, in one line.>
 
-<What changed in it, in one line.>
+  ![<the same line>](plans/<topic>/<file>.png)
 
-![<the same line>](plans/<topic>/<file>.png)
+## Changed
 
-## Also
+- **<The rule, as the entry words it.>** (<tier and date>) <The
+  reason, one sentence.> `<catalogue file>#<id>`
+  - ~~<The rule it replaces, as the catalogue keeps it.>~~ (<its tier
+    and date>)
 
-- <A change with no decision in it, in a line.>
-- <The commit's title.> (<author>)
+## Retired
+
+- ~~<The rule, as the catalogue keeps it.>~~ (<its tier and date>;
+  retired <date>) <Why, one sentence.> `<catalogue file>#<id>`
 
 ## To try it
 
@@ -557,33 +562,50 @@ to a Claude session left out>
   read. With no line, nothing. You never look for related work yourself,
   since the plan's author did, and never comment on another person's pull
   request (${user_config.owner}, 30 October).
-- **Decisions**: every "Decided" item of the topic's plans and every
-  catalogue entry the topic's commits add or replace, in the catalogue's
-  order, a bullet each: the rule in bold, who and when, what it replaces,
-  one sentence of reason, the id; the entry's tier gives "who" (`<owner>,
-  <date>`, `as GitHub does`, `per <source>`). Nothing else: how it
-  was built, what was tried, which review said what, stay in the plan. A
-  decision taken for ${user_config.owner} after thirty minutes unanswered
-  says `taken by the executor for ${user_config.owner}, unanswered ("Asked
-  once")`, so the people see what nobody chose.
-- **Screenshots**: after the decisions, each with one line above it
-  saying what changed in it, the difference a reader looks for, not what
-  the screen is; the same change in light, dark and on a phone is one line
-  and three images. The line is the image's caption and its `--attach`
-  alt text, so the fallback without `--attach` loses nothing. With none,
-  the heading is left out.
-- **Also**: a line per change with no decision in it, from the plans'
-  "Building it", the mechanism left out; then a line per commit on the
-  topic's branch that no plan of the topic names in its Built section,
-  from `git log origin/<base>..origin/<name> --format='%h%x09%an%x09%s'`:
-  `- <the commit's title> (<author>)`, since another person's commit is
-  theirs, a merge commit another person made included, since it may
-  settle a conflict; an executor's merges (titled `Merge origin/<…> into
-  <…>`, "A branch is brought up to date by a merge") are left out, since
-  the plans' Built lines account for them. With none, the heading is left out.
+- **New, Changed, Retired**: the catalogue's diff. Every catalogue entry
+  the topic's commits add, replace or retire, and every "Decided" item of
+  the topic's plans that has no entry (a doc rule, a project-file line),
+  each under the heading of what the commit did to it, a conflict first
+  (below), then in the catalogue's order; only the headings with a
+  bullet under them. A bullet is the entry's line as the catalogue stores it:
+  the rule in bold, the tier and date in the parenthesis as the entry has
+  them, the reason as the entry has it (one sentence; a longer one cut to
+  its first), then the id in backticks, at the end even where the entry
+  opens with it; a "Decided" item with no entry is written the same way
+  from the plan, the parenthesis holding who decided it and when, the
+  plan's reason and no id, under `New`, or `Changed` with the struck rule
+  when it replaces one the docs had.
+  Under a changed entry, the replaced line as the catalogue keeps it,
+  struck through, with its tier and date, one level in; a retired entry
+  is the struck line with `retired <date>` in its parenthesis. A changed
+  or retired rule whose struck line carries another person's name is a
+  conflict: it goes first under its heading, so the person overruled
+  reads it first and answers on the pull request ("A decision has a
+  name; a part has none"). Nothing else in a bullet: no second sentence
+  of reason, no aside, no question to a person (that is a comment on the
+  pull request, which GitHub tells them of), no how it was built or what
+  a review said; those stay in the plan. A decision taken for
+  ${user_config.owner} after thirty minutes unanswered keeps `taken by the
+  executor for ${user_config.owner}, unanswered ("Asked once")` in its
+  parenthesis in place of his name and date, so the people see what
+  nobody chose.
+- **Screenshots**: each under the bullet of the decision it shows, one
+  level in, its one line above it saying what changed in the image, the
+  difference a reader looks for, not what the screen is; the same change
+  in light, dark and on a phone is one line and three images. The line is
+  the image's caption and its `--attach` alt text, so the fallback
+  without `--attach` loses nothing. A screenshot that shows no decision
+  of the topic goes under `## To try it`, before the line, with its own
+  line. No heading of their own.
+- **Nothing else**: a change with no decision in it is a detail the diff
+  shows; another person's commit on the topic's branch is kept as it is
+  ("A topic's plan") and credited by GitHub's commits list and the squash
+  merge's `Co-authored-by` lines, not by the description.
 - **To try it**: one line from the project file's "After the push" for
   where the change shows once merged (else "Check out the branch."), and
-  nothing else.
+  nothing else but a screenshot that shows no decision, or the line
+  saying the screenshots were not attached ("The screenshots, when
+  `--attach` fails"), above it.
 - **The title** is the title of the plan that marks the topic ready,
   which says what the project does after the topic's change.
 - **The attribution** is the lines the session gives for a pull request,
@@ -600,13 +622,11 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 ```
 ## Fixes
 
-- <The commit's title.> (`plans/<x>.md`)
+- <The commit's title.>
 
-## Screenshots
+  <What changed in the screenshot, in one line.>
 
-<What changed in it, in one line.>
-
-![<the same line>](plans/<x>/<file>.png)
+  ![<the same line>](plans/<x>/<file>.png)
 
 ## Already on <branch>
 
@@ -620,12 +640,12 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 to a Claude session left out>
 ```
 
-- **Fixes**: every fix on the day's branch, oldest first, a line each:
-  the commit's title and the plan's path in the queue's checkout.
-- **Screenshots**: those the fixes sent, each with its line, as above; a
-  later fix's, posted in a comment, are listed by their line with `(in
-  the comment below)` in place of the image. With none, the heading is
-  left out.
+- **Fixes**: every fix on the day's branch, a line each: the commit's
+  title, oldest first.
+- **Screenshots**: each under the fix that sent it, one level in, its
+  line above it, as in the topic's description; a later fix's, posted in
+  a comment, keeps its line with `(in the comment below)` in place of the
+  image.
 - **Already on <branch>**: the day's fixes pushed straight, from `git
   log origin/<branch> --first-parent --since=<the day's start>
   --format='%h %s'`, keeping the commits whose title does not end in `
