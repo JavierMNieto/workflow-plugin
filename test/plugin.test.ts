@@ -332,6 +332,17 @@ describe("the plugin's queue in any project", () => {
     expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
   });
 
+  // plans/no-session-link-in-pull-requests.md.
+  it("leaves the link to a Claude session out of a pull request's description", () => {
+    const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    const ending =
+      "<the attribution lines the session gives for a pull request, with any link to a Claude session left out>";
+    expect(executor.split(ending)).toHaveLength(3);
+    expect(executor).not.toContain("<the attribution lines the session gives for a pull request>");
+    expect(executor).toContain("less any line that carries a `claude.ai/code/session_` address");
+  });
+
   // plans/dropped-plan-state.md, part 3.
   it("names the Dropped section in the agents and the state in the doc's queue", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;

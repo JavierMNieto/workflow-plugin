@@ -546,7 +546,8 @@ Related: #<n>.                                <- plans with a Related line only
 
 <One line.>
 
-<the attribution lines the session gives for a pull request>
+<the attribution lines the session gives for a pull request, with any link
+to a Claude session left out>
 ```
 
 - **Related**: the plans' `Related` lines as written (`Related: #31.`,
@@ -585,6 +586,12 @@ Related: #<n>.                                <- plans with a Related line only
   nothing else.
 - **The title** is the title of the plan that marks the topic ready,
   which says what the project does after the topic's change.
+- **The attribution** is the lines the session gives for a pull request,
+  less any line that carries a `claude.ai/code/session_` address, which
+  opens for its owner alone and is a dead link to every other reader
+  (${user_config.owner}, 31 October); a rewrite of an open pull request's
+  description leaves it out too, an old one in the body it replaces
+  included.
 
 **The day's fixes pull request**, `Small fixes, <d Month yyyy>` from
 `fixes-<yyyy-mm-dd>`, has its own description, written to `plans/<the
@@ -609,7 +616,8 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 
 <One line.>
 
-<the attribution lines the session gives for a pull request>
+<the attribution lines the session gives for a pull request, with any link
+to a Claude session left out>
 ```
 
 - **Fixes**: every fix on the day's branch, oldest first, a line each:
@@ -625,6 +633,7 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
   project that merges otherwise, what the log shows, which the final
   message says. With none, the heading is left out.
 - **To try it**: one line from the project file's "After the push".
+- **The attribution**: as the topic's description, no session link.
 
 ## After
 
