@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { nameWords } from "../plugins/workflow/scripts/catalogue-context.mjs";
 
 /**
  * **The catalogue's hook** (`catalogue-context.mjs`, docs/workflow.md,
@@ -350,6 +351,72 @@ tools:
         { CLAUDE_PROJECT_DIR: paper },
       ),
     ).hookSpecificOutput.additionalContext as string;
-    expect(ctx).toContain("_talk/decisions.md (1 rules; its rules name this control)");
+    // plans/catalogue-hook-and-audit.md: one file with no paths governs every ui path.
+    expect(ctx).toContain("_talk/decisions.md (1 rules; it governs this file)");
+  });
+});
+
+/**
+ * **One list, in the project file, and the hook's piece said once**
+ * (plans/catalogue-hook-and-audit.md): a one-file catalogue with no `paths`
+ * governs every `ui` path; its instruction is printed once a session.
+ */
+describe("a one-file catalogue with no paths", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "catalogue-one-"));
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    mkdirSync(join(dir, "docs"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "workflow.md"),
+      '---\nname: One\ncatalogue: docs/decisions.md\nui:\n  - "plugins/**"\n  - "INSTALL.md"\n---\n',
+    );
+    writeFileSync(
+      join(dir, "docs", "decisions.md"),
+      "# Decisions\n\n- `one-line` **Anyone installs by pasting one line.** (Javi, 2 November)\n",
+    );
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const edit = (file: string, session?: string) =>
+    run(
+      context,
+      [],
+      {
+        ...(session ? { session_id: session } : {}),
+        tool_name: "Edit",
+        tool_input: { file_path: join(dir, file), new_string: "x" },
+      },
+      { CLAUDE_PROJECT_DIR: dir },
+    );
+  const said = (out: string) =>
+    out ? (JSON.parse(out).hookSpecificOutput.additionalContext as string) : "";
+
+  it("governs every ui path, and nothing outside ui", () => {
+    for (const file of ["INSTALL.md", "plugins/workflow/bin/plans"]) {
+      const ctx = said(edit(file));
+      expect(ctx, file).toContain(`Recorded design decisions cover \`${file}\``);
+      expect(ctx, file).toContain("docs/decisions.md (1 rules; it governs this file)");
+      expect(ctx, file).toContain("Anyone installs by pasting one line.");
+    }
+    expect(edit("test/a.test.ts")).toBe("");
+    // An all-caps name is one word, so INSTALL.md finds the rules on installing.
+    expect(nameWords("INSTALL.md")).toEqual(["install"]);
+    expect(nameWords("PlayCalculator.tsx")).toEqual(["calculator"]);
+    expect(nameWords("URLInput.tsx")).toEqual(["input"]);
+    expect(nameWords("HTMLEditor.tsx")).toEqual(["editor"]);
+    expect(nameWords("Step2Toolbar.tsx")).toEqual(["toolbar"]);
+  });
+
+  it("prints its instruction on a session's first context and not on the second, the header on both", () => {
+    const session = `one-${process.pid}`;
+    try {
+      const first = said(edit("INSTALL.md", session));
+      const second = said(edit("plugins/a.mjs", session));
+      for (const ctx of [first, second]) expect(ctx).toContain("Recorded design decisions cover");
+      expect(first).toContain("A rule with a person's name is their call");
+      expect(second).not.toContain("A rule with a person's name is their call");
+    } finally {
+      rmSync(join(tmpdir(), `workflow-catalogue-${session}.json`), { force: true });
+    }
   });
 });

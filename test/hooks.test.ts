@@ -22,6 +22,7 @@ import {
   recordTool,
   shellWrites,
   agentsChoice,
+  reasonFor,
   treeFiles,
   untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
@@ -213,6 +214,71 @@ describe("turn-audit", () => {
     expect(reason).not.toContain("changed 1 files");
     expect(run(audit, ["stop"], { session_id: "t2", stop_hook_active: true })).toBe("");
     expect(run(audit, ["stop"], { session_id: "t2", stop_hook_active: false })).toBe("");
+  });
+
+  /**
+   * **A catalogue is written to when an entry is** (plans/catalogue-hook-and-audit.md):
+   * a frontmatter, heading or prose line is no decision; an entry added or
+   * changed is.
+   */
+  it("refuses once a UI change whose catalogue edit touched only frontmatter or prose", () => {
+    const file = join(repo, "docs/patterns/buttons.md");
+    const before = readFileSync(file, "utf8");
+    try {
+      run(audit, ["prompt"], { session_id: "e1", prompt: "Widen the composer" });
+      writeFileSync(join(repo, "apps/forum/src/components/Wide.tsx"), "export {}\n");
+      writeFileSync(
+        file,
+        `---\npaths:\n  - "apps/**"\n---\n\n${before}\nA note on buttons, no rule.\n`,
+      );
+      wrote("e1", "apps/forum/src/components/Wide.tsx");
+      wrote("e1", "docs/patterns/buttons.md");
+      const out = run(audit, ["stop"], {
+        session_id: "e1",
+        stop_hook_active: false,
+        last_assistant_message: "Done.",
+      });
+      expect(JSON.parse(out).reason).toContain("nothing under docs/patterns did");
+    } finally {
+      writeFileSync(file, before);
+    }
+  });
+
+  it("lets a UI change stop whose catalogue edit added an entry or changed one's text", () => {
+    const file = join(repo, "docs/patterns/buttons.md");
+    const before = readFileSync(file, "utf8");
+    try {
+      for (const [id, after] of [
+        ["e2", `${before}- **Text buttons say what they do.** (Javi, 2 November)\n`],
+        ["e3", before.replace("carry a tooltip", "carry a short tooltip")],
+      ]) {
+        writeFileSync(file, before);
+        run(audit, ["prompt"], { session_id: id, prompt: "Label the buttons" });
+        writeFileSync(join(repo, `apps/forum/src/components/${id}.tsx`), "export {}\n");
+        writeFileSync(file, after);
+        wrote(id, `apps/forum/src/components/${id}.tsx`);
+        wrote(id, "docs/patterns/buttons.md");
+        const out = run(audit, ["stop"], {
+          session_id: id,
+          stop_hook_active: false,
+          last_assistant_message: "Done.",
+        });
+        expect(out ? JSON.parse(out).reason : "", id).not.toContain("nothing under docs/patterns");
+      }
+    } finally {
+      writeFileSync(file, before);
+    }
+  });
+
+  it("never takes an edit of the catalogue itself for a change to record, though ui covers it", () => {
+    const d = "plugins/docs/decisions.md";
+    const reason = reasonFor([d], "Fix a typo in the intro", "Done.", {
+      ui: [/^plugins\//],
+      catalogue: d,
+      texts: { [d]: "# Decisions\n\nThe intro, fixed.\n\n- **A rule.** (Javi, 2 November)\n" },
+      entries: { [d]: ["- **A rule.** (Javi, 2 November)"] },
+    });
+    expect(reason).toBe("");
   });
 
   it("accepts a decisions: none line in the final message", () => {

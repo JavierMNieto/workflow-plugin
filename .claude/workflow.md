@@ -4,12 +4,10 @@ branch: test
 run: checks.yml
 catalogue: plugins/workflow/docs/decisions.md
 ui:
-  - "plugins/workflow/agents/**"
-  - "plugins/workflow/docs/**"
-  - "plugins/workflow/scripts/**"
-  - "plugins/workflow/skills/**"
-  - "plugins/workflow/hooks/**"
-  - "plugins/workflow/bin/**"
+  - "plugins/**"
+  - "INSTALL.md"
+  - "README.md"
+  - ".claude-plugin/**"
 ---
 
 # The workflow plugin's part

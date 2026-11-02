@@ -25,7 +25,14 @@
 // state's `audited` flag), so nothing can loop. No model call. State lives in
 // the OS temp directory under the session id, never in the repository.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { kindOf, matches, owner, project } from "./project.mjs";
@@ -67,6 +74,43 @@ export function globToRegExp(glob) {
 function inCatalogue(path, location) {
   const at = location.replace(/\/$/, "");
   return Boolean(at) && (path === at || path.startsWith(`${at}/`));
+}
+
+/** The `.md` files of a catalogue location, a directory at any depth (its README, the rules for everywhere, among them) or one file. */
+export function catalogueFiles(path) {
+  if (path.endsWith(".md")) return existsSync(path) ? [{ path, name: basename(path) }] : [];
+  const out = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".md"))
+        out.push({ path: full, name: relative(path, full).replaceAll("\\", "/") });
+    }
+  };
+  walk(path);
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * **A catalogue is written to when an entry is** (plans/catalogue-hook-and-audit.md):
+ * the entries of every file of the project's own catalogue, as `paragraphs`
+ * reads them, by the file's path from the root, `{ [path]: [item, ...] }`,
+ * snapshotted at the prompt so the stop can tell an entry added, changed or
+ * removed from a frontmatter, heading or prose line. Empty with no catalogue
+ * or when it cannot be read.
+ */
+export function catalogueEntries(dir = root, proj = project(dir)) {
+  const entries = {};
+  if (!proj.catalogue) return entries;
+  try {
+    const at = resolve(dir, proj.catalogue);
+    for (const { path } of catalogueFiles(at))
+      entries[relative(dir, path).replaceAll("\\", "/")] = rules(readFileSync(path, "utf8"));
+  } catch {
+    return {};
+  }
+  return entries;
 }
 
 /** The paths a user sees, the catalogue that records them and the catalogue's changed files' text. */
@@ -330,6 +374,7 @@ export function reasonFor(
     days = [day, `${day} ${new Date().getFullYear()}`, isoDay()],
     calls = [],
     wrote = [],
+    entries = null,
   } = {},
 ) {
   const reasons = [];
@@ -343,10 +388,25 @@ export function reasonFor(
   // that changes what they see was called, and nothing in the catalogue was
   // written, is asked once; `decisions: none (why)` answers it.
   const under = catalogue.replace(/\/$/, "");
-  const ui = catalogue ? changed.filter((f) => uiPaths.some((p) => p.test(f))) : [];
+  // A catalogue file is never itself the change to record, though `ui` may
+  // cover it (the plugin's own catalogue sits under `plugins/**`).
+  const inAnyCatalogue = (f) => [catalogue, ...inherits].some((at) => inCatalogue(f, at));
+  const ui = catalogue
+    ? changed.filter((f) => uiPaths.some((p) => p.test(f)) && !inAnyCatalogue(f))
+    : [];
   const made = catalogue ? calls : [];
-  const recorded = [...changed, ...wrote].some((f) =>
-    [catalogue, ...inherits].some((at) => inCatalogue(f, at)),
+  // A catalogue file counts as written to when an entry in it was added,
+  // changed or removed since the prompt's snapshot; a file the snapshot does
+  // not hold (none taken, an inherited catalogue, a new file) or that is gone
+  // counts as before.
+  const entryChanged = (f) => {
+    if (!entries || !entries[f] || !(f in texts)) return true;
+    const now = rules(texts[f]);
+    const was = entries[f];
+    return now.length !== was.length || now.some((item, i) => item !== was[i]);
+  };
+  const recorded = [...new Set([...changed, ...wrote])].some(
+    (f) => inAnyCatalogue(f) && entryChanged(f),
   );
   if ((ui.length || made.length) && !recorded && !/decisions: none/.test(lastMessage)) {
     const parts = [];
@@ -414,6 +474,7 @@ function main() {
     } catch {
       files = {};
     }
+    const entries = catalogueEntries();
     writeFileSync(
       path,
       JSON.stringify({
@@ -423,6 +484,7 @@ function main() {
         audited: false,
         wrote: [],
         shell: false,
+        entries,
       }),
     );
     writeFileSync(toolsPath(input.session_id), "");
@@ -474,6 +536,7 @@ function main() {
     ...uiRule([...new Set([...changed, ...(state.wrote || [])])]),
     calls: state.calls || [],
     wrote: state.wrote || [],
+    entries: state.entries || null,
   });
   if (reason) process.stdout.write(JSON.stringify({ decision: "block", reason }));
 }

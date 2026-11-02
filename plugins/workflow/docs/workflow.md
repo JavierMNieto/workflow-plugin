@@ -161,7 +161,7 @@ name: Docs                # the project's name in session names
 branch: test              # the branch the executor pushes, fast-forward
 run: checks.yml           # the Actions workflow read after a push; omit for none
 land: pull-request        # a pull request per topic and one a day for small fixes; omit to push everything
-ui:                       # paths a user sees, for the turn audit; omit for none
+ui:                       # paths a user sees, for the turn audit and the edit-time hook; a one-file catalogue with no paths governs them all
   - "src/components/**"
 catalogue: docs/patterns  # the design catalogue: a directory or one file; omit for none
 inherits:                 # catalogues this one overrides by id, farthest first
@@ -299,8 +299,7 @@ override naming no inherited id, an entry at the agent's choice.
 named product (`as GitHub does`), a written source (`per <source>`) or a
 measurement (`observed in <x>`) is replaced only by a better-grounded one,
 named. `the agent's choice` is retired: an entry at it is a fault, until
-it is re-tiered, confirmed as a person's call or deleted. A product's
-address is written once, in the plan's Sources. A replaced rule stays
+it is re-tiered, confirmed as a person's call or deleted. A replaced rule stays
 struck through under its replacement; a retired one says "retired".
 (decisions.md#tier-says-who)
 
@@ -343,16 +342,17 @@ entry; and the chat, where the owner's correction is recorded under his
 name in the same turn. (decisions.md#recognized-three-places)
 
 **A decision is found again in three ways**: the README's everywhere
-rules, loaded always; a catalogue file's `paths` and `signals`, which
+rules, loaded always; a catalogue file's `paths` and `signals` (a one-file
+catalogue with no `paths` governs every `ui` path), which
 `scripts/catalogue-context.mjs` matches before an edit or a `tools` call,
-each entry shown once per session and again after a compaction; and the
-`design-research` skill, when nothing covers a thing.
-(decisions.md#found-three-ways)
+each entry, and the hook's instruction, shown once per session and again
+after a compaction; and the `design-research` skill, when nothing covers a
+thing. (decisions.md#found-three-ways)
 
-**The audit's checks**: a `ui` path changed or a `tools` call made with
-nothing written in the catalogue, answered by the entry or a `decisions:
-none (<why>)` line; a rule without its tier and date; an entry at the
-agent's choice dated today. Each is refused once.
+**The audit's checks**: a `ui` path changed or a `tools` call made with no
+entry added or changed in the catalogue, answered by the entry or a
+`decisions: none (<why>)` line; a rule without its tier and date; an entry
+at the agent's choice dated today. Each is refused once.
 (decisions.md#audit-checks)
 
 **The talk setup retires into the plugin.** A talk is the maker with a
@@ -390,12 +390,11 @@ a plan; twice at the same step, the owner is asked.
 window is above 80 percent or the seven-day above 95, deferred to the
 reset; none after a quick death; twenty-four a day at most; `plans pause`
 and `plans resume` on the owner's "pause the queue" and "resume the
-queue". A usage limit mid-build hands the plan over.
+queue".
 (decisions.md#starts-bounded)
 
 **Sessions the queue starts are Remote Control chats named after the
-project and the machine**, `<Project> Executor 2 (lab)`, the label the
-plugin's `machine` option.
+project and the machine**, `<Project> Executor 2 (lab)`.
 (decisions.md#session-names)
 
 **A finished chat ends an hour after it goes quiet**, by `claude stop`,

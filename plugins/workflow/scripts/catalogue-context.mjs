@@ -13,7 +13,9 @@
 // id in backticks; the project's catalogue overrides an inherited entry of
 // the same id. Three things are matched, all deterministic:
 //
-//   1. the edited file's path against every file's `paths` globs,
+//   1. the edited file's path against every file's `paths` globs (the
+//      project's own one-file catalogue with no `paths` governs every `ui`
+//      path, so the list is kept once, in the project file),
 //   2. the words of the file's name against the entries' text
 //      (PlayCalculator finds the rules that say "calculator"),
 //   3. the text being written (a Write's content, an Edit's new_string, a
@@ -21,16 +23,16 @@
 //      delete button in a brand-new file still meets the rules for
 //      destructive actions.
 //
-// It prints the rules a person decided first, each once per session, then
-// how many more there are and where. No model call, nothing blocked: the
+// It prints the rules a person decided first, each once per session, and its
+// instruction once per session, then how many more there are and where. No model call, nothing blocked: the
 // agent reads it as context. It prints nothing for a file outside the
 // project's `ui` paths, a call outside its `tools`, or nothing matching.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { globToRegExp, paragraphs, tierOf } from "./turn-audit.mjs";
+import { catalogueFiles, globToRegExp, paragraphs, tierOf } from "./turn-audit.mjs";
 
-export { paragraphs };
+export { catalogueFiles, paragraphs };
 import { matches, owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -57,22 +59,6 @@ export function frontmatter(text) {
     if (m && key) lists[key].push(m[1]);
   }
   return lists;
-}
-
-/** The `.md` files of a catalogue location, a directory at any depth (its README, the rules for everywhere, among them) or one file. */
-export function catalogueFiles(path) {
-  if (path.endsWith(".md")) return existsSync(path) ? [{ path, name: basename(path) }] : [];
-  const out = [];
-  const walk = (dir) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith(".md"))
-        out.push({ path: full, name: relative(path, full).replaceAll("\\", "/") });
-    }
-  };
-  walk(path);
-  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -110,6 +96,7 @@ export function readCatalogue(locations) {
         name,
         label: path.endsWith(".md") ? label : label ? `${label}/${name}` : name,
         own,
+        single: path.endsWith(".md"),
         paths,
         globs: paths.map(globToRegExp),
         // A signal that is not a valid pattern is matched as the plain word.
@@ -144,13 +131,17 @@ export function readCatalogue(locations) {
 
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The words of a file name worth matching: CamelCase parts of five letters or more. */
+/** The words of a file name worth matching: CamelCase parts, or an all-caps name, of five letters or more. */
 export function nameWords(file) {
   const stem = basename(file).replace(/\.[^.]+$/, "");
   return [
     ...new Set(
       stem
-        .split(/(?=[A-Z])|[-_. ]/)
+        // A capital after a lower-case letter or a digit starts a word, as
+        // does the last capital of a run before lower case (URLInput) and a
+        // digit after a letter (Step2Toolbar); an all-caps name (INSTALL,
+        // README) stays one word.
+        .split(/(?<=[a-z\d])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=\d)|[-_. ]/)
         .map((w) => w.toLowerCase())
         .filter((w) => w.length >= 5)
         .map(escapeRe),
@@ -229,9 +220,14 @@ export function contextFor(
   // Files found by the text's signals or by path come first, then those
   // whose rules name the file; the project's before the inherited at the
   // same rank; the rules listed follow the same order.
+  // **One list, in the project file** (plans/catalogue-hook-and-audit.md):
+  // the project's own catalogue, when it is one `.md` file with no `paths`,
+  // governs every `ui` path, which `rel` is already inside by here; a
+  // directory's files are found by their own `paths` as before.
+  const governs = (f) => f.globs.some((g) => g.test(rel)) || (f.own && f.single && !f.paths.length);
   const found = files
     .map((f) => {
-      const byPath = !call && f.globs.some((g) => g.test(rel));
+      const byPath = !call && governs(f);
       const signal = f.signals.find((s) => s.test(text));
       // Inside a file that governs this path, any word of the name ranks its
       // rules ("calculator" within chat.md); across files only a specific one does.
@@ -270,9 +266,15 @@ export function contextFor(
     lines.push(
       `- and ${more} more rule${more === 1 ? "" : "s"} there (shown already this session, or a product's or a source's).`,
     );
-  lines.push(
-    "A rule with a person's name is their call: do not change it or build against it; bring the reason to them and leave the control as it is, or, if they gave the new call in this session, update the entry with today's date and keep the old line struck through. A new control follows the rules above; one that carries a decision gets its entry in the same change, and a free detail gets none.",
-  );
+  // **The hook says its piece once**: the instruction is printed with the
+  // session's first context and counted as shown after, as an entry is; the
+  // header and the count say which file governs this edit, so they stay.
+  if (!shown.has("instruction")) {
+    shown.add("instruction");
+    lines.push(
+      "A rule with a person's name is their call: do not change it or build against it; bring the reason to them and leave the control as it is, or, if they gave the new call in this session, update the entry with today's date and keep the old line struck through. A new control follows the rules above; one that carries a decision gets its entry in the same change, and a free detail gets none.",
+    );
+  }
   return lines.join("\n");
 }
 

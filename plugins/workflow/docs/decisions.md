@@ -1,13 +1,3 @@
----
-paths:
-  - "plugins/workflow/agents/**"
-  - "plugins/workflow/docs/**"
-  - "plugins/workflow/scripts/**"
-  - "plugins/workflow/skills/**"
-  - "plugins/workflow/hooks/**"
-  - "plugins/workflow/bin/**"
----
-
 # The workflow's decisions
 
 The plugin's own catalogue, in the shape "The catalogue is the record"
@@ -249,10 +239,16 @@ on the machine that planned them.
   loaded always, the edit-time hook and the `design-research` skill.**
   (Javi, 27 October) A rule the agent never sees before the edit is a
   rule it breaks. plans/sizes-and-decisions.md.
+  2 November: a one-file catalogue with no `paths` governs every `ui`
+  path, so the list is kept once; the instruction is shown once a
+  session, as the rules are. plans/catalogue-hook-and-audit.md.
 - `audit-checks` **The audit's checks are refused once each, and the
   second stop passes.** (Javi, 27 October) A check that refuses forever
   loops; once is enough to make the agent look.
   plans/sizes-and-decisions.md, plans/log-only-decisions-with-a-reason.md.
+  2 November: a catalogue counts as written to only when an entry was
+  added, changed or removed; a frontmatter or prose line is no decision.
+  plans/catalogue-hook-and-audit.md.
 - `talk-setup-retires` **The talk setup retires into the plugin: the
   maker with a project file, its slide steps a skill of the talk
   workspace.** (Javi, 27 October) One mechanism serves the talks and the
