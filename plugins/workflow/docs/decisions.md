@@ -1,0 +1,385 @@
+---
+paths:
+  - "plugins/workflow/agents/**"
+  - "plugins/workflow/docs/**"
+  - "plugins/workflow/scripts/**"
+  - "plugins/workflow/skills/**"
+---
+
+# The workflow's decisions
+
+The plugin's own catalogue, in the shape "The catalogue is the record"
+asks of every project: one entry per rule of the handbook
+(`docs/workflow.md`), which cites each as `decisions.md#<id>`, with its
+tier and date, its reason and the plans that decided it. The rules are
+in the handbook; why each was decided is here. The plans are in `plans/`
+on the machine that planned them.
+
+## The three agents
+
+- `plan-then-build` **A change is planned by one session and built by
+  another, with the context cleared between.** (per Anthropic's best
+  practices, 27 October) Anthropic's own advice is to interview with the
+  question tool, write a self-contained spec and execute it in a fresh
+  session; spec-driven development does the same without its ceremony.
+  The plan is the spec for one change; the docs are the standing context
+  that outlives it.
+- `brief-is-a-prompt` **A brief or a plan is a prompt for the agent that
+  reads it, in four parts: what was asked, decided, done when, where to
+  look.** (Javi, 2 November) Claude Code's best practices ask for a
+  written definition of done and something that comes back pass or fail,
+  and cut what the reader would find by looking; its prompt library's
+  six patterns (outcome, check, reference, target, artifact, answer's
+  form); Anthropic's prompting best practices give the why and number
+  steps only when order matters. plans/briefs-and-plans-as-prompts.md.
+- `reading-beside-a-build` **The planner and the assistant read beside a
+  build, from the project's branch when the tree is dirty.** (Javi, 27
+  October) One checkout serves every agent, so a plan written while an
+  executor is mid-change must not rest on its half-built files.
+- `bounded-sweeps` **The planner and the assistant read the specifics
+  themselves and hand out only bounded, read-only sweeps.** (Javi, 27
+  October) A subagent's summary drops the detail a plan names, and a
+  sweep that writes would be a second builder.
+- `built-once-written` **A plan is built once it is written; order is
+  asked only when another plan already waits.** (Javi, 27 October) A
+  question about order costs the owner a round for nothing; a dependency
+  belongs in the plan, where the executor reads it.
+- `which-session` **The assistant ends every topic in one of four exits:
+  answered, a message, a short plan or a brief.** (per Anthropic's best
+  practices, 27 October) A diff you can describe in a sentence needs no
+  plan; Shape Up keeps a small batch and a big batch apart, each with
+  one way in.
+- `new-topic-to-assistant` **Every new topic starts in the assistant's
+  chat.** (Javi, 30 October) A planner's chat holds the plans it wrote
+  until an executor takes them; a new topic there would mix two plans in
+  one context. plans/agents-pass-messages-directly.md.
+- `chat-that-heard-it` **The chat he said it in writes it, and the agents
+  pass the rest.** (Javi, 30 October) What he wanted gone was the
+  copying between chats, and a pause until he has looked is fine; a
+  peer's message is never the user's consent (Claude Code's own rule), so
+  a relayed word is confirmed in the receiving chat.
+  plans/agents-pass-messages-directly.md.
+- `handed-to-the-assistant` **An executor's and a planner's follow-ups go
+  to this project's assistant chat on this machine, started when there is
+  none.** (Javi, 31 October) Four follow-ups and several decisions went
+  into a final message nobody acted on once the to-do page was gone.
+  plans/agents-pass-messages-directly.md.
+- `asked-in-plain-words` **A question to the owner is written for a
+  reader on a phone with none of the chat in front of him.** (Javi, 28
+  October) Apple's alerts (a title that says what it is about, buttons
+  that name the result); Nielsen Norman's confirmation dialogs; GOV.UK's
+  question pages and clear language; Anthropic's note that the dialog may
+  be all that is on the screen. plans/owner-questions-plain-and-once.md.
+
+## The project file
+
+- `project-file` **A project's part is one file, `.claude/workflow.md`:
+  frontmatter the hooks read and a body the agents read.** (as Claude
+  Code does, 27 October) The shape Claude Code uses for agents and
+  skills, so nothing new is learned to write one.
+- `compact-form` **`form: compact` is one chat that decides and builds;
+  absent, the full form.** (Javi, 27 October) A project whose changes are
+  small and many does not pay for a queue; the two forms share the
+  catalogue, the headings and the branch, so a project moves between
+  them by one line. plans/sizes-and-decisions.md.
+- `land-by-pull-request` **With `land: pull-request`, a plan lands by its
+  `Lands` line: a topic's pull request, the day's fixes or straight to
+  the branch.** (Javi, 30 October) A pull request per topic when the
+  topic has its central decision or two substantial ones; the fixes, with
+  no decision, one pull request a day; one wanted at once straight to the
+  branch. The author of the plan heard the owner say whether he wanted
+  the thing or only a start. plans/land-by-pull-request.md,
+  plans/pull-requests-by-topic.md.
+  - ~~One pull request per plan.~~ (Javi, 28 October; made nine in a
+    day)
+- `topic-landing` **A topic's plans are built on one branch, pushed after
+  each, and its pull request opens with the first plan marked ready.**
+  (Javi, 30 October) The branch survives the container and the people
+  can look at it before it asks anything of them; a later plan with a
+  central decision of its own is a new topic; a plan with no `Lands`
+  line is a topic of its own, so nothing lands unread by omission.
+  plans/pull-requests-by-topic.md.
+- `joined-pull-request` **A later plan joins an open pull request: the
+  description is written again, its screenshots attached with `gh pr edit
+  --attach`, and nothing is posted.** (Javi, 31 October) The description
+  is what he reads when he reviews it, and a draft asks nothing of anyone
+  else. plans/joined-pull-request-no-comment.md.
+  - ~~A later plan joins an open pull request: the description is
+    written again and one comment says what was added, since GitHub tells
+    the people of a comment and not of a push.~~ (Javi, 28 October)
+- `fix-landing` **A fix, a short plan with no decision that changes no
+  catalogue or doc rule, goes into the day's fixes pull request.** (Javi,
+  30 October) A fix has nothing to decide, so it asks nobody's reading;
+  one whose commit changes a rule lands as a waiting topic, since review
+  beats silence. plans/pull-requests-by-topic.md.
+- `fix-now-landing` **A fix wanted now, on the owner's word only, is
+  pushed straight to the branch and listed in the day's fixes.** (Javi,
+  30 October) A fix the site needs today cannot wait for a merge.
+  plans/pull-requests-by-topic.md.
+- `description-is-the-diff` **The description is the catalogue's diff:
+  New, Changed and Retired, each entry as the catalogue stores it, a
+  conflict first, each screenshot under its decision, then Also and To
+  try it.** (Javi, 31 October) The diff of the decisions, what is new,
+  what changed, what conflicted; Keep a Changelog's grouped kinds and no
+  commit log, the commits no plan here accounts for aside; MADR's
+  superseded record kept in sight; GOV.UK Frontend's
+  effect under each change; the `Also` list kept, answered after the plan
+  was built. plans/pull-request-description-standard.md,
+  plans/pull-request-description-standard-follow-up.md.
+- `stack-only-on-use` **A plan that rests on an open pull request (uses
+  what it adds) is stacked on it; one that only changes the same file is
+  not.** (Javi, 30 October) Each pull request can be merged or held
+  alone; a shared file is a conflict to merge later, not a dependency.
+  plans/stack-only-when-it-depends.md.
+- `merge-never-force` **A branch is brought up to date by merging, never
+  force-pushed.** (Javi, 29 October) Merge, never force, which a project
+  may enforce in its settings; a squash merge keeps the merge commit off
+  the branch, and another person's commits on it stay as they are.
+  plans/refresh-by-merge.md.
+- `refresh-only-your-own` **The executor refreshes only its own person's
+  pull requests, with the checks alone.** (Javi, 30 October) Another
+  person's pull request is refreshed by their own executor; the suites
+  run in the pull request's CI on the push. plans/refresh-only-your-own.md.
+- `draft-until-reviewed` **A topic's pull request opens as a draft and
+  stays one until its owner has reviewed it himself.** (Javi, 30 October)
+  No pull request asks anyone else's time until he has reviewed it;
+  GitHub's draft pull requests, which nobody can merge until the author
+  marks them ready; Gerrit's work in progress, visible to anyone and
+  asking nothing of a reviewer. The old reason, that a draft hides a pull
+  request whose checks never finish, the Stop hook answers, since it
+  reads a draft's checks as any open pull request's.
+  plans/owner-reviews-before-anyone-else.md, plans/no-agent-marks-ready.md,
+  plans/draft-says-nothing-about-itself.md.
+  - ~~A pull request opens ready, never as a draft.~~ (Javi, 28 October)
+- `mcp-configs` **`mcp` names the MCP configs a chat here needs, which
+  every chat the queue starts passes on the command line.** (Javi, 27
+  October) The tools then exist in the project's chats and nowhere else,
+  and a token in a config stays where the config keeps it.
+  plans/sizes-and-decisions-follow-up.md.
+- `deny-key` **`deny` keeps an agent off a tool the project gives
+  another.** (Javi, 27 October) A plugin agent's frontmatter cannot be
+  extended from a project, and a settings deny holds for every agent
+  alike, so the hook is the one place a per-agent deny can live.
+  plans/deny-key-review-findings.md.
+- `body-headings` **The project file's body headings are the executor's
+  steps for this project: Before a build, While working, Before the push,
+  After the push, Reading, Products, People.** (Javi, 27 October) A
+  project's own steps belong in its file, so no agent or script names a
+  project's specifics. plans/sizes-and-decisions.md,
+  plans/land-by-pull-request.md.
+- `setup-interview` **A project is set up in a short interview,
+  `/workflow:setup`, with the defaults of its kind.** (Javi, 27 October)
+  A project file written by hand drifted from what the queue reads; the
+  interview asks once and says what each thing turned on costs.
+  plans/project-setup-interview.md.
+- `connectors-off` **A project turns off the claude.ai connectors it does
+  not use, whole, in its own settings.** (Javi, 27 October) The account's
+  connectors otherwise reach every chat in every project; a project
+  setting holds there and nowhere else, and the local file keeps the
+  names out of a public repository. plans/setup-scopes-connectors.md.
+- `no-project-file` **A project with no project file is not the
+  workflow's: the hooks do nothing there.** (Javi, 27 October) A project
+  with hooks of its own keeps them until its file lands.
+
+## Decisions
+
+- `catalogue-is-the-record` **The catalogue is the record: each rule a
+  bold list item with its tier and date, read there and nowhere else.**
+  (Javi, 27 October) What is not there was not decided, as far as the
+  next agent can tell; one place to read a tier means one reader for the
+  audit, the hook and the lint. plans/sizes-and-decisions.md,
+  plans/tier-pattern-and-readme.md.
+- `only-well-formed-opinions` **The catalogue is only for well-formed
+  opinions, researched or given by a person; anything not in it is
+  assumed to have no reason and is free to change.** (Javi, 30 October)
+  The first project's catalogue had grown past six hundred rules, 138 of
+  them the agent's choice, a record of details anyone can see by
+  looking; Nygard's and MADR's records are for significant decisions,
+  Bezos's two-way doors get a light process, GOV.UK admits a pattern that
+  is useful and unique. plans/log-only-decisions-with-a-reason.md.
+- `catalogue-inherits` **A catalogue inherits others, farthest first; the
+  project's entry of the same id overrides an inherited one and says
+  so.** (Javi, 27 October) A workspace's or a talk's rules are written
+  once and overridden by id, never copied.
+  plans/sizes-and-decisions-follow-up.md.
+- `tier-says-who` **The tier says who may change a rule.** (as MADR does,
+  27 October) MADR's accepted, superseded and deprecated, in the
+  catalogue's shape: a person's call is theirs, a product or source is
+  replaced only by a better-grounded one, named.
+  plans/sizes-and-decisions.md, plans/every-word-researched.md.
+  - ~~`the agent's choice`, the tier for what nothing covered.~~ (Javi,
+    11 October; retired 30 October, a detail with no well-formed opinion
+    behind it being free and not the catalogue's)
+- `decision-has-a-name` **A decision has a name; a part has none.**
+  (Javi, 30 October) When anyone can have Claude build anything, who
+  carries a change out no longer matters; collective code ownership as
+  Fowler names it, whose one condition is a discipline the team keeps,
+  here the catalogue; MADR's `decision-makers`; GitHub's CODEOWNERS is
+  the model not followed. plans/collaborating-when-claude-writes-the-code.md.
+- `anyone-goes-on` **A change one person started is anyone's to go on
+  with.** (Javi, 30 October) A plan's reasoning stays on the machine that
+  planned it; what reaches another machine is the pull request, whose
+  description carries the decisions and, once merged, the squash commit
+  that `git log -S<id>` finds.
+  plans/collaborating-when-claude-writes-the-code.md.
+- `plans-account-for-commits` **The plans account for the queue's
+  commits, by hash.** (Javi, 31 October) Every queue commits as `Claude
+  <noreply@anthropic.com>`, one shared account on GitHub, so no reader
+  tells one person's Claude from another's by the author; only the plan
+  that made a commit knows it. plans/also-knows-whose-commit.md,
+  plans/also-knows-whose-commit-follow-up.md, plans/also-docs-match-the-rule.md.
+- `string-rests-on-source` **A string rests on what produced it: an
+  entry or house rule, a product looked up, a person, or free.** (Javi,
+  29 October) Even simple text goes through the research, so a grounded
+  answer exists before he asks why; since 30 October only a string that
+  carries a decision is researched and recorded.
+  plans/every-word-researched.md, plans/question-only-for-a-new-screen.md.
+- `reason-gone-ask` **A rule whose reason is gone is put to the owner,
+  not followed.** (Javi, 27 October) A deleted component or a fixed bug
+  leaves a rule that looks binding and is not; only the owner retires it.
+  plans/sizes-and-decisions.md.
+- `recognized-three-places` **A decision is recognized in a plan's
+  Decided section, an edit under `ui` and the chat.** (Javi, 27 October)
+  The audit cannot read the chat, so it watches the effect: a turn that
+  changed what a person sees and recorded nothing is asked once.
+  plans/sizes-and-decisions.md.
+- `found-three-ways` **A decision is found again by the everywhere rules
+  loaded always, the edit-time hook and the `design-research` skill.**
+  (Javi, 27 October) A rule the agent never sees before the edit is a
+  rule it breaks. plans/sizes-and-decisions.md.
+- `audit-checks` **The audit's checks are refused once each, and the
+  second stop passes.** (Javi, 27 October) A check that refuses forever
+  loops; once is enough to make the agent look.
+  plans/sizes-and-decisions.md, plans/log-only-decisions-with-a-reason.md.
+- `talk-setup-retires` **The talk setup retires into the plugin: the
+  maker with a project file, its slide steps a skill of the talk
+  workspace.** (Javi, 27 October) One mechanism serves the talks and the
+  projects; the plugin never names PowerPoint's steps.
+  plans/sizes-and-decisions-follow-up.md.
+
+## The queue
+
+- `plan-state-in-file` **A plan's state is in its file: its header and
+  its `## ` sections.** (Javi, 27 October) No agent and no daemon of the
+  queue's own; any session reads the state where any session wrote it.
+  A dropped plan is kept as the record of why, as GitHub closes an issue
+  as not planned with the reason and MADR keeps a rejected record.
+  plans/handed-plan-stays-in-queue.md, plans/dropped-plan-state.md.
+- `related-line` **In pull request mode, `plans` says what each brief and
+  ready plan looks related to, and the author answers with a `Related`
+  line.** (Javi, 30 October) GitHub links a `#<n>` and writes a backlink
+  on the other pull request, so its people see it where they read.
+  plans/land-by-pull-request.md.
+- `one-executor` **One checkout has one executor, and its Stop hook holds
+  the stop on a red run or pull request, then reuses or retires the
+  session.** (Javi, 27 October) Every turn re-reads the whole context at
+  the cache-read price and a fresh session's first turn is 50k tokens,
+  so a session is reused only while it is cheaper than a fresh one.
+  plans/cache-aware-queue.md, plans/base-at-building-line.md.
+- `starts-bounded` **Starts are bounded, as every loop over model calls
+  is.** (Javi, 27 October) A queue that starts sessions on its own must
+  not spend the subscription's window or loop on a session that dies.
+  plans/queue-faults-carried-over.md.
+- `session-names` **Every session the queue starts is a Remote Control
+  chat named after the project and the machine.** (Javi, 27 October) The
+  owner finds each chat on his phone by its name, and no two sessions on
+  any machine share one. plans/session-names-across-machines.md.
+- `chat-ends-after-an-hour` **A finished chat ends an hour after it goes
+  quiet.** (Javi, 27 October) The cache lives an hour; Claude Code's own
+  supervisor stops a done background session on its own clock, about an
+  hour by its docs and eight by this machine's log, so idle chats
+  lingered. plans/idle-chats-end.md.
+- `end-now` **`plans end <id> --now` ends a named chat whatever it is
+  doing.** (Javi, 31 October) A stuck turn or a question no one will
+  answer otherwise holds the lock for good. plans/end-a-stuck-chat.md.
+- `archiving` **Archiving a chat in the Claude app does not stop it.**
+  (observed in Claude Code 2.1.113, 27 October) The app is a window into
+  the session; the process's exit is what archives the chat.
+  plans/idle-chats-end.md.
+- `background-in-checkout` **A background session works in the
+  checkout, one executor holding the lock.** (Javi, 27 October) A
+  worktree per session made the queue lose track of what was built
+  where. plans/worktrees-ignored.md.
+- `queues-in-parallel` **Each project's queue runs apart from every
+  other, in parallel.** (Javi, 27 October) A change to the workflow is
+  never held by the project it was noticed in.
+  plans/session-names-across-machines.md, plans/plans-command-reads-cwd.md.
+- `checkout-is-a-queue` **A checkout is a queue: two machines' checkouts
+  of one repository are two queues.** (Javi, 27 October) Nothing is
+  shared between machines but the branch and a message.
+  plans/session-names-across-machines.md.
+- `briefs-queued` **Briefs are queued like plans.** (Javi, 27 October) A
+  brief written while the planner is busy is not lost, and the planner
+  is started under the executor's bounds. plans/cache-aware-queue.md.
+- `planner-takes-next-brief` **A planner with room left takes the next
+  brief.** (Javi, 27 October) A warm planner with a related brief is
+  cheaper than a fresh one, by the executor's own rule.
+  plans/cache-aware-queue.md.
+- `asked-once` **A decision a plan leaves to the owner is asked by its
+  planner, once, and the plan is the planner's for thirty minutes.**
+  (Javi, 28 October) Wait thirty minutes, then decide for him; a plan
+  asked in two rounds keeps its hold until the last.
+  plans/owner-questions-plain-and-once.md, plans/asking-window-ends.md,
+  plans/asking-plan-held-by-path.md, plans/asking-plan-guarded.md.
+- `group-message` **A change to another person's part is built as any
+  plan, with a message for the group the owner sends.** (Javi, 28
+  October) The speed: nothing lands until a person merges, so the plan
+  is not held for the group's answer. plans/land-by-pull-request.md.
+- `days-fixes` **The day's fixes are one pull request, `Small fixes, <d
+  Month yyyy>`, never two in a day.** (Javi, 30 October) A daily pull
+  request for the small fixes rather than a message for the group, which
+  would look odd there; Rust's rollups and Dependabot's grouped updates
+  batch small changes the same way. plans/pull-requests-by-topic.md.
+- `context-cost` **A session's context is worth keeping only while it is
+  cheaper than a fresh one.** (per Anthropic's pricing page, 27 October)
+  Every turn re-reads the whole context at the cache-read price: a plan
+  of about 120 turns reads about $1.90 at 80k, $4.80 at 200k and $14.40
+  at 600k (Opus), where a fresh executor costs about $2.60 per plan in
+  all, so the wash is near 100k; the default ceiling, 200k, buys a
+  related plan's continuity for about $2.40 more, and a cold cache adds
+  the rewrite of the whole context. plans/cache-aware-queue.md.
+- `one-thread` **The executor works in one thread, with a subagent only
+  in four named cases.** (per Anthropic's multi-agent research post, 27
+  October) A plan's steps share one context, coding has few parallel
+  strands, and a multi-agent run costs about fifteen times a chat; the
+  owner's own trial cost more than it saved. Instructions are advisory, a
+  setting is not, hence the spawn depth of 1.
+- `second-model` **A second model reviews every plan's diff, and never
+  gates.** (Javi, 27 October) A model that did not write the code finds
+  what the writer's reviews share a blind spot for; a review that cannot
+  run must not stop the build. plans/project-setup-interview.md.
+- `turn-audit` **The turn audit asks once per turn why each file was
+  needed and where the decision went.** (Javi, 27 October) A turn that
+  changed what a person sees and recorded nothing is how a catalogue
+  falls behind. plans/sizes-and-decisions.md.
+
+## Changing the workflow
+
+- `change-in-plugin-repo` **A change to the workflow is planned and built
+  in the plugin's own repository.** (Javi, 27 October) A project's queue
+  cannot change the plugin every machine installs; the plugin's own queue
+  and CI can. plans/plans-command-reads-cwd.md.
+- `leave-back-as-brief` **A change the plugin leaves for the project it
+  came from goes back as a brief.** (Javi, 31 October) Four built plans
+  left the project's half under "Not in this plan" and nobody carried it;
+  Jira's linked issue created in another project, GitHub's issue
+  transfer and Actions' `repository_dispatch` carry work across the same
+  way. plans/project-follow-ups-reach-the-project.md.
+
+## Installing
+
+- `install-one-line` **Anyone installs the workflow by pasting one line
+  into Claude Code.** (Javi, 27 October) `INSTALL.md`, written for
+  Claude, does the rest, and a test holds its settings to the handbook's.
+  plans/install-by-asking-claude.md.
+- `push-token` **A push needs a token in the container.** (Javi, 27
+  October) The queue's chats run where no VS Code window may be, and VS
+  Code's credential helper answers only while its window is attached; the
+  Workflows scope lets a plan that changes `.github/workflows/` push.
+  plans/push-to-github.md.
+- `screenshots-attach` **Screenshots on a pull request go up through `gh
+  pr create --attach` and `gh pr edit --attach`, from gh 2.99.** (as
+  GitHub CLI does, 31 October) GitHub's changelog of 1 September 2026
+  added `--attach` to the create and the edit together; an older gh opens
+  the pull request without them and says so.
+  plans/land-by-pull-request.md, plans/joined-pull-request-no-comment.md.

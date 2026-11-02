@@ -9,8 +9,9 @@ hook, the project's tool denials and the plain-words check of every
 question to Javi (`scripts/`, run by `hooks/hooks.json`), the status
 line, the `/workflow:change` and `design-research` skills and the `plans`
 command (`bin/plans`). The rules
-the agents follow are `plugins/workflow/docs/workflow.md`; read it before
-changing an agent or a script.
+the agents follow are `plugins/workflow/docs/workflow.md`, and why each
+was decided is `plugins/workflow/docs/decisions.md`, the plugin's own
+catalogue; read the rules before changing an agent or a script.
 
 **The plugin's own queue builds changes to it.** A change arrives as a
 brief or a short plan in `plans/`, through `/workflow:change` from any

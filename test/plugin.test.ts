@@ -352,7 +352,10 @@ describe("the plugin's queue in any project", () => {
     expect(doc).not.toContain("another person's commits with their author");
     // plans/also-docs-match-the-rule.md: the docs and the opening sentence name the rule as built.
     expect(executor).toContain("the titles of the commits under `Also` aside");
-    expect(doc).toContain("no commit log, the commits no plan here accounts for aside");
+    // plans/docs-as-a-prompt.md: the reason is the catalogue's entry, not the handbook's.
+    expect(text("docs/decisions.md")).toContain(
+      "no commit log, the commits no plan here accounts for aside",
+    );
     expect(doc).toContain("and no merged pull request down the stack already showed");
   });
 
@@ -387,9 +390,11 @@ describe("the plugin's queue in any project", () => {
     expect(fixes).toMatch(/^## Fixes\n\n- <The commit's title\.>\n/m);
     expect(fixes).not.toContain("plans/<x>.md");
     const doc = readFileSync(join(plugin, "docs/workflow.md"), "utf8").replace(/\s+/g, " ");
-    expect(doc).toContain("The description is the catalogue's diff");
+    expect(doc).toContain("**The description is the catalogue's diff**");
     expect(doc).not.toContain("the plan's path;");
-    expect(doc).toContain("under `Also`");
+    expect(readFileSync(join(plugin, "docs/decisions.md"), "utf8")).toContain(
+      "the `Also` list kept",
+    );
   });
 
   // plans/no-session-link-in-pull-requests.md.
@@ -887,6 +892,86 @@ describe("every string rests on what produced it", () => {
       "(Javi, 27 October), (as GitHub does, 27 October) or (per <source>, 27 October).",
     );
     expect(hint).not.toContain("the agent's choice");
+  });
+});
+
+describe("the handbook holds every rule the plugin cites", () => {
+  const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+  const handbook = readFileSync(join(plugin, "docs", "workflow.md"), "utf8");
+  // A rule's name is its bold statement, read outside the fenced examples, on one line.
+  const prose = handbook.replace(/```[\s\S]*?```/g, "");
+  const bold = [...prose.matchAll(/\*\*([^*]+?)\*\*/g)].map((m) =>
+    m[1].replace(/\s+/g, " ").replace(/\.$/, ""),
+  );
+  const headings = [...handbook.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  // The names the agent files, the scripts, the skills and the tests cite in
+  // quotation marks, collected by hand on 2 November (plans/docs-as-a-prompt.md).
+  const NAMES = [
+    "A brief or a plan is a prompt for the agent that reads it",
+    "A change one person started is anyone's to go on with",
+    "A change the plugin leaves for the project it came from goes back as a brief",
+    "A decision has a name; a part has none",
+    "A second model reviews every plan's diff",
+    "A string rests on what produced it",
+    "A topic's pull request opens as a draft and stays one until its owner has reviewed it himself",
+    "After the push",
+    "Asked in plain words",
+    "Asked once",
+    "Before a build",
+    "Before the push",
+    "Briefs are queued like plans",
+    "Handed to the assistant",
+    "Reading beside a build",
+    "The audit's checks",
+    "The catalogue is the record",
+    "The chat he said it in writes it",
+    "The group's message",
+    "The plans account for the queue's commits",
+    "The tier says who may change a rule",
+    "The turn audit",
+    "Which session a topic goes to",
+    "While working",
+    "`land: pull-request` lands by pull request",
+  ];
+  const SECTIONS = [
+    "The three agents",
+    "The project file",
+    "Decisions",
+    "The queue",
+    "Changing the workflow",
+    "Installing",
+  ];
+
+  it("holds each cited name as the opening of a bold statement", () => {
+    for (const name of NAMES)
+      expect(
+        bold.some((b) => b.startsWith(name)),
+        name,
+      ).toBe(true);
+  });
+
+  it("ends every rule's paragraph with its entry in decisions.md, and cites every entry", () => {
+    const decisions = readFileSync(join(plugin, "docs", "decisions.md"), "utf8");
+    const ids = new Set([...decisions.matchAll(/^- `([\w.-]+)` \*\*/gm)].map((m) => m[1]));
+    expect(ids.size).toBeGreaterThanOrEqual(60);
+    const cited = new Set<string>();
+    for (const para of prose.split(/\n\s*\n/)) {
+      const text = para.trim();
+      if (!/^(- )?\*\*/.test(text)) continue;
+      const refs = [...text.matchAll(/decisions\.md#([\w.-]+)/g)].map((m) => m[1]);
+      expect(refs.length, text.slice(0, 60)).toBeGreaterThan(0);
+      for (const id of refs) {
+        expect(ids.has(id), id).toBe(true);
+        cited.add(id);
+      }
+    }
+    // A paragraph with no bold lead-in may cite an entry too (the Installing line).
+    for (const m of prose.matchAll(/decisions\.md#([\w.-]+)/g)) cited.add(m[1]);
+    for (const id of ids) expect(cited.has(id), id).toBe(true);
+  });
+
+  it("holds each cited section as a heading", () => {
+    for (const section of SECTIONS) expect(headings, section).toContain(section);
   });
 });
 
@@ -1735,16 +1820,17 @@ describe("a pull request per topic", () => {
   });
 
   it("has the docs, the assistant and the planner say where a plan lands", () => {
-    expect(read("docs/workflow.md")).toContain(
-      "A pull request per topic, opened when the topic has its central decision or two substantial ones; the day's fixes, with no decision in them, one pull request a day; and one wanted on the site at once straight to the branch and listed there (Javi, 30 October",
+    // plans/docs-as-a-prompt.md: the reason and the date are the catalogue's entry.
+    expect(read("docs/decisions.md").replace(/\s+/g, " ")).toContain(
+      "A pull request per topic when the topic has its central decision or two substantial ones; the fixes, with no decision, one pull request a day; one wanted at once straight to the branch.",
     );
     expect(read("docs/workflow.md")).toContain(
       "A topic's pull request opens as a draft and stays one until its owner has reviewed it himself",
     );
     expect(read("docs/workflow.md")).not.toContain("in this mode the queue reads no run");
     // plans/joined-pull-request-no-comment.md: the docs carry the rule, the old one quoted.
-    expect(read("docs/workflow.md")).toContain(
-      "its screenshots attached with `gh pr edit --attach`, and nothing is posted (Javi, 31 October",
+    expect(read("docs/decisions.md").replace(/\s+/g, " ")).toContain(
+      "its screenshots attached with `gh pr edit --attach`, and nothing is posted.** (Javi, 31 October)",
     );
     expect(read("docs/workflow.md")).not.toContain("written again and one comment says");
     expect(read("docs/workflow.md")).toContain(

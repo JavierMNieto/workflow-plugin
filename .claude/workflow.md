@@ -2,6 +2,10 @@
 name: Workflow
 branch: test
 run: checks.yml
+catalogue: plugins/workflow/docs/decisions.md
+ui:
+  - "plugins/workflow/agents/**"
+  - "plugins/workflow/docs/**"
 ---
 
 # The workflow plugin's part
@@ -14,7 +18,9 @@ run: checks.yml
 
 `npm test` for the hooks (`test/hooks.test.ts`), run after each change to
 a script; `claude plugin validate plugins/workflow` after a
-change to an agent file, the manifest or the hooks.
+change to an agent file, the manifest or the hooks;
+`node plugins/workflow/bin/plans check` after a change to
+`docs/decisions.md`.
 
 ## Before the push
 
