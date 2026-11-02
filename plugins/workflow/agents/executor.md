@@ -58,7 +58,8 @@ in the final message and carry on.
 
 ## Before the first edit
 
-1. **Read the plan whole**, its "Decided" section included. A plan whose
+1. **Read the plan whole**, its "Decided" section included. Its "Done
+   when" is what you check before you write "Built". A plan whose
    "Decisions for ${user_config.owner}" has no "Decided" covering a
    decision was asked in its planner's chat and not answered in thirty
    minutes, or its planner's chat is gone ("Asked once"): build that
@@ -168,9 +169,11 @@ or to run a suite; delegating an edit and then checking it yourself;
 pasting a Codex finding into the code, which is a claim to check as any
 subagent's is.
 
-**Every brief has four parts**: the objective in a sentence, what is
-already known or ruled out, the files or pages to read, and the output's
-shape and length (references and a verdict, under three hundred words). A
+**Every brief has four parts**: the four parts of "A brief or a plan is a
+prompt for the agent that reads it": what you want found in a sentence,
+what is known or ruled out, done when (the answer's shape and length:
+references and a verdict, under three hundred words), and the files or
+pages to read. A
 subagent's finding is a claim to check against the code, not a result to
 paste.
 
@@ -197,8 +200,9 @@ paste.
    2. **The Claude review in a fresh context**: the `workflow:reviewer`
       agent with the plan's path and the branch, and the choices you made
       on purpose; it reads the diff (`git diff origin/<branch>...HEAD`)
-      and checks that every requirement of the plan is built, that the
-      tests it lists exist, that nothing outside its scope changed, and
+      and checks that every requirement of the plan is built, that every
+      line of its "Done when" holds as far as reading shows, that nothing
+      outside its scope changed, and
       that every string the diff adds or changes is in the plan's Words
       section,
       only gaps that affect correctness or the plan's requirements.
@@ -699,7 +703,10 @@ to a Claude session left out>
 
 - **The plan gets its "Built, <date>" section** under "Decided": the
   branch and commit (in pull request mode, opened by its landing's line),
-  and every deviation from the plan with its reason,
+  then each line of the plan's "Done when" with how it was checked: the
+  command and what it printed, or what was looked at and what it showed,
+  a line each; a line that does not hold is a deviation; then every
+  deviation from the plan with its reason,
   in a few lines each. When something needs a decision above yours (a
   product or design call, a doc rule that would have to change, a risk
   the plan did not foresee, a part left unbuilt because building it meant
@@ -722,8 +729,8 @@ to a Claude session left out>
   line, a blank line, the header paragraph `Brief for the planner,
   <date>, by <this session's name> from <this checkout's
   path>/plans/<x>.md (commit <sha>). The planner's plan replaces this
-  file.`, then the section's `### What was asked` and `### Where to
-  look` as `## ` headings, their text as written. When a file of that
+  file.`, then the section's `###` headings as `##` headings, their text
+  as written. When a file of that
   name is already there, read it: one that names this plan's path is the
   brief already written by hand, and stands; any other is left as it is
   and the brief is written as the first free `<topic>-<n>.md` from 2,

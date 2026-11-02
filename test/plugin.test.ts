@@ -890,6 +890,68 @@ describe("every string rests on what produced it", () => {
   });
 });
 
+describe("a brief or a plan is a prompt", () => {
+  const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+  const agent = (name: string) => readFileSync(join(plugin, "agents", `${name}.md`), "utf8");
+  // A rule's wording runs across hand-wrapped lines; read it as one line.
+  const flat = (text: string) => text.replace(/\s+/g, " ");
+  const PARTS = ["What was asked", "Decided", "Done when", "Where to look"];
+
+  it("the docs hold the rule and an example brief whose headings are the four parts in order", () => {
+    const docs = readFileSync(join(plugin, "docs", "workflow.md"), "utf8");
+    expect(docs).toContain("**A brief or a plan is a prompt for the agent that reads it**");
+    const rule = docs.slice(docs.indexOf("**A brief or a plan is a prompt"));
+    const example = /For example, the brief that asked for this rule:\n\n```\n([\s\S]*?)\n```/.exec(
+      rule,
+    )![1];
+    const headings = [...example.matchAll(/^## (.+)$/gm)].map((m) => m[1].replace(/,.*/, ""));
+    // Decided is left out of a brief when nothing is settled; the rest are always there.
+    expect(headings).toEqual(PARTS.filter((part) => headings.includes(part)));
+    for (const part of ["What was asked", "Done when", "Where to look"])
+      expect(headings).toContain(part);
+    // No longer than the brief it rewrites (1,917 characters).
+    expect(example.length).toBeLessThanOrEqual(1917);
+  });
+
+  it("the assistant's brief and short plan each hold Done when and no Tests", () => {
+    const text = agent("assistant");
+    const blocks = [...text.matchAll(/```\n(\s*# <Title[\s\S]*?)```/g)].map((m) => m[1]);
+    const brief = blocks.find((b) => b.includes("Brief for the planner"))!;
+    const short = blocks.find((b) => b.includes("Short plan, <date>"))!;
+    for (const block of [brief, short]) {
+      expect(block).toMatch(/^ *## Done when$/m);
+      expect(block).not.toMatch(/^ *## Tests$/m);
+    }
+    const order = (block: string) =>
+      PARTS.map((part) => block.search(new RegExp(`^ *## ${part}`, "m"))).filter((i) => i >= 0);
+    expect(order(brief)).toHaveLength(4);
+    expect(order(brief)).toEqual([...order(brief)].sort((a, b) => a - b));
+  });
+
+  it("the planner's shape names Done when, and neither What the products do nor Tests as a section", () => {
+    const text = agent("planner");
+    const shape = /^## The plan's shape\n[\s\S]*?(?=^## )/m.exec(text)![0];
+    expect(shape).toMatch(/^\d+\. \*\*Done when\*\*/m);
+    expect(shape).not.toContain("What the products do");
+    expect(shape).not.toMatch(/^\d+\. \*\*Tests\*\*/m);
+    expect(text).not.toContain("usual size");
+  });
+
+  it("the executor's Built rule and its four-part rule, and the reviewer's second check, name Done when", () => {
+    const executor = flat(agent("executor"));
+    // Each rule read to its end: the Built bullet to the next bullet, the four-part rule to its last sentence.
+    const built = /\*\*The plan gets its "Built, <date>" section\*\*.*? - \*\*/.exec(executor)![0];
+    expect(built).toContain('"Done when"');
+    const brief = /\*\*Every brief has four parts\*\*.*?not a result to paste\./.exec(executor)![0];
+    expect(brief).toContain("A brief or a plan is a prompt for the agent that reads it");
+    expect(brief).toMatch(/done when/i);
+    expect(executor).toContain('Its "Done when" is what you check before you write "Built".');
+    const reviewer = flat(agent("reviewer"));
+    const second = /2\. \*\*([^*]+)\*\*/.exec(reviewer)![1];
+    expect(second).toContain('"Done when"');
+  });
+});
+
 describe("the audit's tier check", () => {
   it("finds a rule without its tier and passes one with each of the three", () => {
     const text = `# Buttons

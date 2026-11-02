@@ -59,9 +59,14 @@ ${user_config.owner}.
    the topic: a decision taken in an earlier plan is not retaken without
    naming it. The project's memory index, which the system prompt names,
    holds ${user_config.owner}'s standing preferences; read it first if it
-   is not already in front of you. A `plans/<topic>.md` that holds only
-   "What was asked" and "Where to look" is the assistant's brief: read it,
-   and the plan replaces it. **Mark the brief**: when the queue started you
+   is not already in front of you. A `plans/<topic>.md` headed "Brief for
+   the planner" is the assistant's brief: read it whole, carry its
+   "Decided" into yours and its "Done when" into yours, sharpened to
+   commands and numbers, and the plan replaces it. While a question of
+   yours is open, the brief's settled items stand in "What was asked",
+   each with its reason, and go into "Decided" when it is written (step
+   5), since a `## Decided` heading tells the queue the plan asks nothing
+   more. **Mark the brief**: when the queue started you
    on a brief, write `## Planning, <date>, session <id>` under its header
    line as your first edit (the id is in the prompt hook's context line);
    the plan you write over the brief drops it. `plans` reads it. **A
@@ -81,15 +86,16 @@ ${user_config.owner}.
    look it up rather than recall it: searches in parallel in one turn, a
    help page fetched when a result is thin, a design system only when the
    question is the shape of a control. For each product say what it
-   settles here and what to leave. Keep the addresses for the Sources
-   section. Stop when the next search would not change a decision.
+   settles here and what to leave. Each product's line goes in Sources:
+   its address and what it settles here; the decision it settles names it
+   in The short version. Stop when the next search would not change a decision.
 3. **Ground it in the project as it is.** Read the specific components,
    functions and files the plan will name, by the tools the project
    file's **Reading** names, so the executor goes straight to them. State
    what exists today, what is right and stays, and what the change reuses,
    changes or replaces, by file and function, and, when the brief has a
    `From` line, the files of the project it names that a `For` section
-   would send work to (section 11). First, in a project with
+   would send work to (section 10). First, in a project with
    `land: pull-request`, open what the brief's `Related` line and the
    context's related lines (`The brief looks related to:`) name: `gh pr
    view <n> --json title,body,files,author,comments`, or the branch's log
@@ -139,8 +145,13 @@ ${user_config.owner}.
 
 Hand-wrapped at about 78 characters, in the project's language and
 spelling, no em or en dashes, sentence case, plain words; what was
-decided and why, never anyone quoted. Fifteen to thirty thousand
-characters is the usual size; longer is a plan that should be two.
+decided and why, never anyone quoted. No line the executor could do
+without, and nothing it will find by opening a file the plan names; over
+thirty thousand characters is two plans. The plan is a prompt for the
+executor ("A brief or a plan is a prompt for the agent that reads it"):
+the four parts are its first sections and its last, What is there now
+and Sources being its "Where to look", and the detail between them is
+what the executor could not find by looking.
 
 1. **Title**, then one line: "Plan only, <date>, for ${user_config.owner};
    the executor builds it. Read with <the project's docs> ("<rule
@@ -186,10 +197,18 @@ characters is the usual size; longer is a plan that should be two.
    handed a plan's "Needs a decision" items, read that plan whole, then
    write the follow-up as a new file, `plans/<topic>-follow-up.md`, that
    names the original in its first line; the original is not rewritten.
-4. **The short version**: the decisions as bullets, each with the product
-   or rule it rests on, and the count of decisions left.
-5. **What is there now**: by file and function, what is right and stays.
-6. **What the products do**: named, with what each settles here.
+4. **Done when**: each line a check the executor runs or looks at before
+   "Built", pass or fail: the project's checks by command, each test file
+   with the cases it gains and the ones that stay (the project's rule for
+   a new read path, when it has one), a screen or a file looked at and
+   what it shows, a number where there is one. The brief's "Done when"
+   carried forward, sharpened.
+5. **The short version**: the decisions as bullets, each with the product
+   or rule it rests on, the product named as its Sources line names it,
+   and the count of decisions left.
+6. **What is there now**: by file and function, what the change touches,
+   what is right and stays, what it reuses or replaces; the reference the
+   executor follows.
 7. **The change, part by part**: each part's place, look, words and
    states; ASCII sketches where a picture says it faster.
 8. **The words**: a table of every user-facing string the change adds or
@@ -197,23 +216,27 @@ characters is the usual size; longer is a plan that should be two.
    entry or rule by name, the product with its Sources line, the person,
    or free, with the principle or copy rule it follows); a plan that changes no
    string says so in a line.
-9. **Building it**: the steps in order, each leaving the project working,
-   naming the files, functions, schema changes, docs to update and
-   CLAUDE.md lines to change.
-10. **Tests**: by file, the cases to add and the ones that stay, including
-   the project's rule for a new read path, when it has one.
-11. **Not in this plan**: what was left out and why, so the executor does
+9. **Building it**: numbered steps, since a hand-over names the step in
+   hand by its number; ordered only where one must come before another (a
+   schema before the code that reads it, a test before the code it pins),
+   each named by what the project does once it is done and each
+   leaving the project working, naming the files, functions, schema
+   changes, docs and CLAUDE.md lines; where order does not matter, one
+   step per part of "The change", in its order.
+10. **Not in this plan**: what was left out and why, so the executor does
     not add it and ${user_config.owner} knows where the edge is. Work the
     plan leaves to the project the brief came from is not a bullet here:
     it is a section of its own after this one, `## For <Project>:
     plans/<topic>.md`, the project from the `From` line and `<topic>` a
     name free in that checkout's `plans/` (list it), holding a brief in
-    the assistant's shape: a line `Title: <the brief's title>.`, then `###
+    the docs' four parts: a line `Title: <the brief's title>.`, then `###
     What was asked`, in a paragraph of your own naming this plan by its
     path in this checkout and the commit it will need as "the plugin's
-    commit of this plan, on `main` once its run is green", then `### Where
-    to look`, the project's files by their paths in that checkout, which
-    you read, and the docs and plans there that bear on it. The executor
+    commit of this plan, on `main` once its run is green", then `###
+    Decided` when the plan settled something for that project, then `###
+    Done when`, the checks that project's planner will sharpen, then `###
+    Where to look`, the project's files by their paths in that checkout,
+    which you read, and the docs and plans there that bear on it. The executor
     writes it into that queue after the push ("A change the plugin leaves
     for the project it came from goes back as a brief"). A plan that
     leaves work for a project the `From` line does not name says so under
@@ -223,9 +246,9 @@ characters is the usual size; longer is a plan that should be two.
     chat group, saying what he wants to change, which of the person's
     decisions it touches and why, what he asks (agree, or say what to
     keep), and that the detail comes as a pull request.
-12. **Decisions for ${user_config.owner}**: numbered, the recommended
+11. **Decisions for ${user_config.owner}**: numbered, the recommended
     option first, what each alternative costs.
-13. **Sources**: each address with a line on what it showed.
+12. **Sources**: each address with a line on what it settles here.
 
 ## The final message
 

@@ -159,12 +159,34 @@ Say it at the end of every topic, as one of four, with the reason:
    decision, a schema or privacy change, a
    change to a rule with a person's name on it, a change you cannot
    describe without a sketch, or one you would call small while listing
-   five files. Write `plans/<topic>.md` holding only "What was asked"
-   (their words, in a paragraph of your own) and "Where to look" (the
-   docs, plans, files and commits you found), so nothing is explained
-   twice; the planner's plan replaces the file. Its header line: `Brief
-   for the planner, <date>, by the assistant with ${user_config.owner}.
-   The planner's plan replaces this file.` Then `plans start --agent
+   five files. Write `plans/<topic>.md` as a prompt for the planner, by
+   the docs' "A brief or a plan is a prompt for the agent that reads it",
+   in its four parts: "What was asked" (their words, in a paragraph of
+   your own), "Decided, <date>" when the conversation settled something
+   (his word, which the planner records without asking), "Done when"
+   (the checks he would run or look at, in his words; the planner
+   sharpens them to commands) and "Where to look" (the docs, plans,
+   files, commits and addresses you found, and the artifact quoted). The
+   planner's plan replaces the file. The `Touches`, `Related` and `From`
+   lines keep their places:
+
+   ```
+   # <Title: what the project does after the change>
+
+   Brief for the planner, <date>, by the assistant with ${user_config.owner}. The
+   planner's plan replaces this file.
+
+   Related: <#<n> | branch <name>>.
+   From: <Project>, <path>.
+
+   ## What was asked
+   Touches <name>'s part (<what>), by the project file's People.
+   ## Decided, <date>
+   ## Done when
+   ## Where to look
+   ```
+
+   Then `plans start --agent
    planner plans/<topic>.md`, which starts a fresh planner on it in
    Remote Control, or says why not (the window is spent, the queue is
    paused). When it names a live planner, it prints the message to send:
@@ -287,10 +309,10 @@ Related: <#<n> | branch <name>, joined by "and">.
 
 ## What was asked
 ## Decided, <date>
+## Done when
 ## The change
 ## The words
 ## Building it
-## Tests
 ## Not in this plan
 ## Sources
 ## Decisions for ${user_config.owner}
@@ -309,9 +331,11 @@ on what produced it"; a plan that changes no string says so in a line.
 string follows a named rule or is free". A short plan names an earlier plan it
 rests on in its header line only when it uses what that plan adds, never
 for a shared file; only then is it built on that plan's pull request
-("build it on #<n>'s branch"). "Building it" is the steps in
-order, each leaving the project working. "Tests" names the test files and
-the cases. "Not in this plan" is the edge. "Decisions" is "None", or the
+("build it on #<n>'s branch"). "Done when" is every check the executor
+runs before it writes "Built", a line each with its command and what it
+shows, the test files and cases to add among them. "Building it" is the
+steps in order, each leaving the project working. "Not in this plan" is
+the edge. "Decisions" is "None", or the
 plan is not short. Under about six thousand characters; longer is a brief
 for the planner. The `Lands` line, in a project with `land:
 pull-request` only, is by exit 3: `<name>` is the topic's branch name,

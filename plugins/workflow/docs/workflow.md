@@ -44,6 +44,68 @@ The plugin's `settings.json` makes the assistant the default agent of a
 chat opened with no `--agent` flag; the flag overrides it, so the queue's
 starts are unaffected.
 
+**A brief or a plan is a prompt for the agent that reads it**, and is
+written as one. Four parts, in this order, under these headings: *What
+was asked*, the outcome and why, in the owner's words as a paragraph of
+the writer's; *Decided*, what is already settled, each with its reason
+(left out when nothing is); *Done when*, each line a check the reader can
+run or see and that comes back pass or fail, with the command where there
+is one and a number where there is one; *Where to look*, the reference to
+follow by its path, the earlier decisions by their plan or entry, and the
+artifact itself (the message quoted, the log, the address), never a
+description of it. The answer's form is the reader's agent file, so the
+prompt does not repeat it. A line whose removal would cause the reader no
+mistake is cut; what the reader will find by opening the file it is
+pointed at is not copied in. The executor's briefs to its subagents, the
+planner's `For` brief and the plan's own sections are the same four parts
+with the plan's detail between them. (Claude Code's best practices: a
+written definition of done, something that comes back pass or fail, cut
+what the reader would find by looking; its prompt library: describe the
+outcome, give it a way to check its own work, point at a reference, state
+the measurable target, give it the artifact, say how you want the answer;
+Anthropic's prompting best practices: the why, sequential steps only when
+order matters, tell the model what to do. Javi, 2 November.)
+
+For example, the brief that asked for this rule:
+
+```
+# Briefs and plans are written as prompts for the agent that reads them
+
+Brief for the planner, 2 November 2026, by the assistant with Javi.
+The planner's plan replaces this file.
+
+## What was asked
+
+The planner reads every brief and the executor every plan, so each is a
+prompt: Javi wants them written by Anthropic's current prompt guidance,
+and the docs every agent reads written the same way.
+
+## Done when
+
+- The assistant's brief, the short plan and the planner's plan each
+  follow the guidance.
+- One real brief and one real plan, rewritten under the new rules, are
+  shorter and still complete, and two fresh readers given only the
+  rewritten file can say what to do and how to check it is done.
+
+## Where to look
+
+- The guidance:
+  https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview,
+  https://code.claude.com/docs/en/best-practices (cut any line whose
+  removal causes no mistake) and
+  https://code.claude.com/docs/en/prompt-library.md (the outcome, a
+  check, a reference, a measurable target, the artifact, the answer's
+  form).
+- The example: the first project's
+  `plans/audit-duplication-and-reinvention.md`, rewritten on 2 November
+  from 466 to about 250 words by those patterns, its content approved by
+  Javi.
+- What changes: `agents/assistant.md` (the short plan and the brief),
+  `agents/planner.md` (the plan's shape), `agents/executor.md` (where it
+  reads them) and `docs/workflow.md`.
+```
+
 **Reading beside a build**: the planner and the assistant stay in the one
 checkout while the executor builds there. One that finds the tree dirty
 at a session's start (`git status`), or is told a file changed on disk,
@@ -61,7 +123,8 @@ executor, and a dependency on an earlier plan is written into the plan.
 **Which session a topic goes to.** The assistant ends every topic in one
 of four exits: answered; a message for a person the project names, which
 the owner sends; a short plan for the executor; or a brief for the
-planner, which the planner's plan replaces. A change you can describe in a
+planner, which holds the four parts and which the planner's plan
+replaces. A change you can describe in a
 few sentences, inside rules the project already holds, every new string
 resting on one of them or on a product the assistant looked up (at most
 two such strings; more, or products that disagree where the house rules

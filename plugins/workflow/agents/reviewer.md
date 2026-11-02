@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Reviews an executor's diff against the plan it builds, in a fresh context: every requirement built, the tests the plan lists present, nothing outside the plan's scope changed, every user-facing string in the plan's Words section. Used by the executor once per plan before the suites; read-only.
+description: Reviews an executor's diff against the plan it builds, in a fresh context: every requirement built, every line of the plan's Done when holding as far as reading shows, nothing outside the plan's scope changed, every user-facing string in the plan's Words section. Used by the executor once per plan before the suites; read-only.
 model: opus
 effort: medium
 tools: Read, Grep, Glob, Bash
@@ -15,7 +15,9 @@ Check four things:
 
 1. **Every requirement of the plan is built**: each part, each step of
    its "Building it", each decision in its "Decided" section.
-2. **The tests it lists exist** and test what it says.
+2. **Every line of its "Done when" holds as far as reading shows**: the
+   tests it names exist and test what they say, the files it names change
+   as it says; a command's result is the executor's to report.
 3. **Nothing outside its scope changed.**
 4. **Every user-facing string the diff adds or changes is in the plan's
    Words section**, in those words; a string the plan does not give is a
