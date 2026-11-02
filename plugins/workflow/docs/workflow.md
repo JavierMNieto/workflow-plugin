@@ -103,9 +103,10 @@ plan already waits, and a dependency is written into the plan.
 (decisions.md#built-once-written)
 
 **Which session a topic goes to.** The assistant ends every topic in one
-of four exits: answered; a message for a person the project names; a
-short plan for the executor; or a brief for the planner, which holds the
-four parts. A change described in a few sentences, inside rules the
+of four exits: answered; a call for a person the project names, said in
+a line, with a message drafted only when the owner asks; a short plan
+for the executor; or a brief for the planner, which holds the four
+parts. A change described in a few sentences, inside rules the
 project holds, with at most two strings resting on a product looked up
 (any number free), no schema or privacy change and no person's rule
 reversed, is a short plan; anything else is a brief.
@@ -477,10 +478,11 @@ a follow-up plan. A planner the owner opened himself holds nothing.
 
 **The group's message.** A change to another person's part (a rule whose
 tier carries their name, or a thing **People** gives them) is built as
-any plan, and the pull request is where it is discussed; the brief says
-`Touches <name>'s part`, and the plan's "For the group" section holds the
-message in the owner's words, for him to send while it is built. A group
-that has already agreed is written in "Decided". (decisions.md#group-message)
+any plan, and the pull request is where it is discussed; the brief and
+the plan say `Touches <name>'s part`, so the owner knows. No agent drafts
+a message for another person unless the owner asked for one in the
+conversation; asked, it is in his words, ready to paste. A group that has
+already agreed is written in "Decided". (decisions.md#group-message)
 
 **The day's fixes.** With `land: pull-request`, the day's `Lands: fix.`
 plans are one pull request, `Small fixes, <d Month yyyy>`, from

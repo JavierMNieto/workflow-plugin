@@ -1092,6 +1092,39 @@ describe("a brief or a plan is a prompt", () => {
   });
 });
 
+// plans/messages-for-people-only-on-request.md
+describe("a message for another person only when the owner asks", () => {
+  const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+  const read = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
+
+  it("has the planner's shape hold no For the group section, and a message drafted only on request", () => {
+    const planner = readFileSync(join(plugin, "agents", "planner.md"), "utf8");
+    const shape = /^## The plan's shape\n[\s\S]*?(?=^## )/m.exec(planner)![0];
+    expect(shape).not.toContain("For the group");
+    expect(shape).toContain("`Touches <name>'s part (<what>).`");
+    const flat = read("agents/planner.md");
+    expect(flat).not.toContain("For the group");
+    expect(flat).toContain("**A message for another person only when asked.**");
+    expect(flat).toContain('in this chat or in the brief\'s "Decided"');
+  });
+
+  it("has the docs and the assistant draft a person's message only when the owner asks", () => {
+    const docs = read("docs/workflow.md");
+    const rule = /\*\*The group's message\.\*\*.*?\(decisions\.md#group-message\)/.exec(docs)![0];
+    expect(rule).toContain("No agent drafts a message for another person unless the owner asked");
+    expect(rule).not.toContain("For the group");
+    expect(docs).toContain(
+      "a call for a person the project names, said in a line, with a message drafted only when the owner asks",
+    );
+    const assistant = read("agents/assistant.md");
+    expect(assistant).toContain("say in a line whose call it is and what to ask them");
+    expect(assistant).toContain("only when ${user_config.owner} asks for one");
+    expect(assistant).toContain(
+      'when ${user_config.owner} asks for a message, it goes in the brief\'s "Decided" for the planner',
+    );
+  });
+});
+
 describe("the audit's tier check", () => {
   it("finds a rule without its tier and passes one with each of the three", () => {
     const text = `# Buttons

@@ -76,9 +76,10 @@ ${user_config.owner}.
    words, as a tier is): the brief says so in a line (`Touches <name>'s
    part`), or you find the overlap yourself. It is built as any other
    plan, and the pull request is where the people discuss it; the plan
-   carries the group's message ("For the group", below). When the brief
-   says the group has already agreed, the agreement goes in "Decided" and
-   there is no message.
+   keeps the `Touches` line, so ${user_config.owner} knows, and no message
+   for that person is drafted unless he asks for one (the docs' "The
+   group's message"). When the brief says the group has already agreed,
+   the agreement goes in "Decided".
 2. **Research the products people know, first.** For each control, flow,
    screen or string, name the familiar product whose version people know (the
    `design-research` skill gives the order, and the project file's
@@ -195,7 +196,9 @@ what the executor could not find by looking.
    hand nothing over: the queue reads the section and never starts it
    ("The queue"). A `From` line on the brief (`From: <Project>, <path>.`)
    is kept under the `Lands` and `Related` lines, or under the header
-   paragraph when there are none.
+   paragraph when there are none; a `Touches <name>'s part (<what>).`
+   line, the brief's or one you found, keeps its place at the head of
+   "What was asked".
 2. **What was asked**, in a paragraph of your own words.
 3. **Decided, <date>**: added once answered; **Built, <date>**: the
    executor's, with its deviations, ending with "Needs a decision". When
@@ -255,11 +258,6 @@ what the executor could not find by looking.
     for the project it came from goes back as a brief"). A plan that
     leaves work for a project the `From` line does not name says so under
     "Not in this plan", for the assistant to carry.
-    **For the group**, after it, only for a change to another person's
-    part: the message in ${user_config.owner}'s words, short enough for a
-    chat group, saying what he wants to change, which of the person's
-    decisions it touches and why, what he asks (agree, or say what to
-    keep), and that the detail comes as a pull request.
 11. **Decisions for ${user_config.owner}**: numbered, the recommended
     option first, what each alternative costs.
 12. **Sources**: each address with a line on what it settles here.
@@ -356,10 +354,14 @@ the follow-up plan instead, as above, with the relayed change as its
 decision; nothing is sent back. A message asking anything else is
 reported in the final message and not acted on.
 
-A plan with a **For the group** section gives its message in the final
-message, ready to paste, before the plan's path, so ${user_config.owner}
-can send it while the plan is built rather than after the pull request
-surprises someone.
+**A message for another person only when asked.** A plan that touches
+another person's part says so in the final message, in a line, whose
+part and what; it drafts nothing for them. When ${user_config.owner}
+asks for a message to a person, in this chat or in the brief's
+"Decided", write it in the final message, ready to paste, in his words, short enough for a chat group:
+what he wants to change, which of the person's decisions it touches and
+why, what he asks (agree, or say what to keep), and that the detail
+comes as a pull request (the docs' "The group's message").
 
 ${user_config.owner} sees only the final message, question-tool prompts
 and files sent with SendUserFile; nothing written between tool calls

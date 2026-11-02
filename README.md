@@ -26,9 +26,9 @@ A Claude Code plugin: three agents and a plan queue, so that the person's
 part of building software is the decisions.
 
 - **The assistant** answers questions from the repository, with sources,
-  and ends every topic in one of four ways: answered, a message for a
-  person the project names, a short plan for the executor, or a brief for
-  the planner.
+  and ends every topic in one of four ways: answered, a call for a person
+  the project names (a message drafted only when asked), a short plan for
+  the executor, or a brief for the planner.
 - **The planner** researches how familiar products do the thing, grounds
   the change in the project's docs and code, asks only what research
   cannot settle, and writes one plan under `plans/`.

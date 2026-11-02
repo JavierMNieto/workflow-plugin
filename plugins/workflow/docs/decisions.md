@@ -45,10 +45,15 @@ on the machine that planned them.
   question about order costs the owner a round for nothing; a dependency
   belongs in the plan, where the executor reads it.
 - `which-session` **The assistant ends every topic in one of four exits:
-  answered, a message, a short plan or a brief.** (per Anthropic's best
-  practices, 27 October) A diff you can describe in a sentence needs no
-  plan; Shape Up keeps a small batch and a big batch apart, each with
-  one way in.
+  answered, a person's call, a short plan or a brief.** (per Anthropic's
+  best practices, 27 October; the second exit Javi's, 2 November) A diff
+  you can describe in a sentence needs no plan; Shape Up keeps a small
+  batch and a big batch apart, each with one way in. The person's call is
+  said in a line, its message drafted only on request, as
+  `group-message`. plans/messages-for-people-only-on-request.md.
+  - ~~The assistant ends every topic in one of four exits: answered, a
+    message, a short plan or a brief.~~ (per Anthropic's best practices,
+    27 October)
 - `new-topic-to-assistant` **Every new topic starts in the assistant's
   chat.** (Javi, 30 October) A planner's chat holds the plans it wrote
   until an executor takes them; a new topic there would mix two plans in
@@ -336,9 +341,15 @@ on the machine that planned them.
   plans/owner-questions-plain-and-once.md, plans/asking-window-ends.md,
   plans/asking-plan-held-by-path.md, plans/asking-plan-guarded.md.
 - `group-message` **A change to another person's part is built as any
-  plan, with a message for the group the owner sends.** (Javi, 28
-  October) The speed: nothing lands until a person merges, so the plan
-  is not held for the group's answer. plans/land-by-pull-request.md.
+  plan, marked `Touches <name>'s part`; no agent drafts a message for
+  another person unless the owner asks for one.** (Javi, 2 November) He
+  rarely, if ever, sent the messages the planner drafted; the pull
+  request is where the people discuss it, and nothing lands until a
+  person merges, so the plan is not held for their answer.
+  plans/land-by-pull-request.md,
+  plans/messages-for-people-only-on-request.md.
+  - ~~A change to another person's part is built as any plan, with a
+    message for the group the owner sends.~~ (Javi, 28 October)
 - `days-fixes` **The day's fixes are one pull request, `Small fixes, <d
   Month yyyy>`, never two in a day.** (Javi, 30 October) A daily pull
   request for the small fixes rather than a message for the group, which
