@@ -82,9 +82,10 @@ when", in a plan's decisions where they state a behavior, and in the
 agents' messages to the owner. "**When** I connect Google from the
 account page, **then** a toast at the bottom says "Google is connected"
 and goes after a few seconds." Each scenario in a plan's "Done when"
-names the test that checks it or says it is looked at on screen, and the
-executor writes one test per scenario where a test fits; a check by
-command (a test, a lint, a grep) stays a command.
+names the test that checks it or says it is looked at on screen, and for
+one looked at on screen the executor names the screenshot that shows it,
+which the reviewer reads; the executor writes one test per scenario where a test fits; a
+check by command (a test, a lint, a grep) stays a command.
 (decisions.md#behavior-as-scenario)
 
 **Reading beside a build**: the planner and the assistant stay in the
@@ -506,7 +507,8 @@ on. (decisions.md#second-model)
 **The plan review reads the screenshots too.** The executor's brief to the
 reviewer names each screenshot and the catalogue files the Words table's
 kinds name, and the review says what on screen is unlike those rules;
-nothing without screenshots or a catalogue.
+nothing without screenshots or a catalogue. A scenario's screenshot is
+read for its "then" ("A behavior is written as a scenario").
 (decisions.md#screens-reviewed)
 
 **The turn audit** (`scripts/turn-audit.mjs`): once per turn, a session

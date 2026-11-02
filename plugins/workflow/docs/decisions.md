@@ -28,8 +28,10 @@ on the machine that planned them.
   scenario, When <what they do>, then <what they see>, one per line, each
   in a plan's Done when naming its test.** (Javi, 2 November) As OpenSpec's
   and Kiro's acceptance scenarios: a line the owner reads as what he will
-  see, and the executor turns into one test.
-  plans/behavior-as-when-then.md.
+  see, and the executor turns into one test. A scenario looked at on
+  screen has the screenshot that shows it, which the plan review reads
+  (Javi, 2 November). plans/behavior-as-when-then.md,
+  plans/behavior-as-when-then-follow-up-2.md.
 - `reading-beside-a-build` **The planner and the assistant read beside a
   build, from the project's branch when the tree is dirty.** (Javi, 27
   October) One checkout serves every agent, so a plan written while an

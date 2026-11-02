@@ -1078,7 +1078,17 @@ describe("a brief or a plan is a prompt", () => {
       /2\. \*\*Every line of its "Done when"[^]*?(?=\n3\. )/.exec(agent("reviewer"))![0],
     );
     expect(check).toContain("a When … then … line by the test it names");
-    expect(check).toContain("as is a scenario it says is looked at on screen");
+    expect(check).toContain('the screenshot named for it, read with Read, shows its "then"');
+    expect(check).toContain("is a gap when none is named");
+    const perScenario = /\*\*A test per scenario\.\*\*.*? - \*\*/.exec(executor)![0];
+    expect(perScenario).toContain("screenshotted, to `plans/<topic>/<file>.png`");
+    expect(flat(agent("reviewer"))).toContain("a scenario's screenshot is check 2's");
+    expect(rule).toContain(
+      "for one looked at on screen the executor names the screenshot that shows it",
+    );
+    expect(executor).toContain(
+      "each screenshot sent in step 1 or taken for a scenario, by its path and what it shows, and the When … then … line it shows",
+    );
   });
 });
 

@@ -18,8 +18,10 @@ Check five things:
 2. **Every line of its "Done when" holds as far as reading shows**: the
    tests it names exist and test what they say, a When … then … line by
    the test it names, which tests that behavior, the files it names
-   change as it says; a command's result is the executor's to report, as
-   is a scenario it says is looked at on screen.
+   change as it says; a command's result is the executor's to report; a
+   scenario it says is looked at on screen holds when the screenshot named
+   for it, read with Read, shows its "then", and is a gap when none is
+   named.
 3. **Nothing outside its scope changed.**
 4. **Every user-facing string the diff adds or changes is in the plan's
    Words section**, in those words, and shown by what its "Shown by"
@@ -32,7 +34,8 @@ Check five things:
    paragraph where the rule says the shared toast, a button where the
    rule says a link), each a gap with the entry's id and the screenshot's
    name; nothing when the brief names no screenshot or the project has no
-   catalogue. A screenshot shows a look, not a behavior.
+   catalogue. Against the catalogue a screenshot shows a look, not a
+   behavior; a scenario's screenshot is check 2's.
 
 Report only gaps that affect correctness or the plan's requirements, not
 style. A plan's line numbers are as of the branch when it was written;

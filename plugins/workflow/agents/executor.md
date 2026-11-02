@@ -125,8 +125,10 @@ in the final message and carry on.
   names** for what you touched. Never edit source while a suite runs.
 - **A test per scenario.** Each When … then … line of the plan's "Done
   when" gets the test it names, one test per scenario where a test fits;
-  one it says is looked at on screen is looked at, and "Built" says what
-  showed (the docs' "A behavior is written as a scenario").
+  one it says is looked at on screen is looked at and screenshotted, to
+  `plans/<topic>/<file>.png`, the screenshot showing its "then", and
+  "Built" says what showed (the docs' "A behavior is written as a
+  scenario").
 - **Everywhere, and one word per thing.** A change to a piece of UI is
   made in every place that piece appears, found before it is called done;
   a thing has the one word the project already uses for it.
@@ -204,9 +206,10 @@ paste.
       diff for bugs, with no plan in front of it.
    2. **The Claude review in a fresh context**: the `workflow:reviewer`
       agent with the plan's path and the branch, the choices you made on
-      purpose, each screenshot sent in step 1 by its path and what it
-      shows, and the catalogue files the Words table's "Kind" column
-      names (a kind is a file by the path the hook's menu labels it with;
+      purpose; each screenshot sent in step 1 or taken for a scenario, by
+      its path and what it shows, and the When … then … line it shows,
+      when it shows one; and the catalogue files the Words table's "Kind"
+      column names (a kind is a file by the path the hook's menu labels it with;
       a section's file is the one-file catalogue that holds it); it reads the
       diff (`git diff origin/<branch>...HEAD`) and checks that every
       requirement of the plan is built, that every line of its "Done
