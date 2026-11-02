@@ -6,6 +6,8 @@ catalogue: plugins/workflow/docs/decisions.md
 ui:
   - "plugins/workflow/agents/**"
   - "plugins/workflow/docs/**"
+  - "plugins/workflow/scripts/**"
+  - "plugins/workflow/skills/**"
 ---
 
 # The workflow plugin's part
