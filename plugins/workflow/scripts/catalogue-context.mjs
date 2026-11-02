@@ -11,7 +11,8 @@
 // that mean the control is being drawn ("delete", "ConfirmButton", "<Tabs",
 // "toast"). An entry is a bold list item with its tier, and may open with an
 // id in backticks; the project's catalogue overrides an inherited entry of
-// the same id. Three things are matched, all deterministic:
+// the same id. Three things are matched deterministically, and a fourth by a
+// small model:
 //
 //   1. the edited file's path against every file's `paths` globs (the
 //      project's own one-file catalogue with no `paths` governs every `ui`
@@ -21,24 +22,39 @@
 //   3. the text being written (a Write's content, an Edit's new_string, a
 //      tool call's inputs) against every file's `signals`, which is how a
 //      delete button in a brand-new file still meets the rules for
-//      destructive actions.
+//      destructive actions,
+//   4. and, for an edit under `ui` whose text draws a control or carries
+//      words a person could read, a small model's naming of the catalogue's
+//      files (a directory) or `## ` sections (one file) the text touches
+//      (plans/catch-inconsistent-ui-at-build.md): `claude -p --model haiku`
+//      with no tools, no MCP servers and no hooks, one call per distinct text a session,
+//      sixty a session at most, twenty seconds each, a line per attempt in
+//      `catalogue-kinds.log` in the plugin's data directory. About 1.5k
+//      tokens and seven seconds a call as measured on 2 November
+//      (`total_cost_usd` 0.0003, `duration_api_ms` 872, wall 7.1 s, Haiku);
+//      no `claude`, a failure or a timeout leaves the first three alone.
 //
 // It prints the rules a person decided first, each once per session, and its
-// instruction once per session, then how many more there are and where. No model call, nothing blocked: the
-// agent reads it as context. It prints nothing for a file outside the
+// instruction once per session, then how many more there are and where.
+// Nothing blocked: the agent reads it as context. It prints nothing for a file outside the
 // project's `ui` paths, a call outside its `tools`, or nothing matching.
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { catalogueFiles, globToRegExp, paragraphs, tierOf } from "./turn-audit.mjs";
 
 export { catalogueFiles, paragraphs };
+import { data } from "./plan-queue.mjs";
 import { matches, owner, project } from "./project.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const MAX_RULES = 8; // rules listed in full
 const MAX_FILES = 5; // catalogue files pointed at
 const MAX_NAME_HITS = 6; // a name's word is specific when it names at most this many rules
+const MAX_CALLS = 60; // model calls a session at most
+const KINDS_TEXT = 4000; // characters of the text the model reads
 
 /** The frontmatter's lists: {paths: [...], signals: [...]}. */
 export function frontmatter(text) {
@@ -77,6 +93,27 @@ export function readCatalogue(locations) {
       const text = readFileSync(full, "utf8");
       const { paths, signals } = frontmatter(text);
       const cite = name.replace(/\.md$/, "");
+      // The title and each line's `## ` section, in one pass that skips the
+      // frontmatter and fenced examples, as `paragraphs` does.
+      const lines = text.split("\n");
+      let title = "";
+      const sections = [];
+      let current = "";
+      let fence = "";
+      let front = lines[0] === "---";
+      lines.forEach((l, i) => {
+        if (front) {
+          if (i > 0 && l === "---") front = false;
+        } else {
+          const open = /^ {0,3}(`{3,}|~{3,})/.exec(l);
+          if (open && (!fence || open[1][0] === fence[0])) fence = fence ? "" : open[1];
+          else if (!fence && /^# /.test(l) && !title) title = l.slice(2).trim();
+          else if (!fence && /^## /.test(l)) current = l.slice(3).trim();
+        }
+        sections[i] = current;
+      });
+      title ||= name;
+      const sectionAt = (index) => sections[index] || "";
       const entries = [];
       // Each rule as its first paragraph, its continuation lines joined, so a
       // rule whose bold text wraps is read as the audit reads it.
@@ -90,12 +127,14 @@ export function readCatalogue(locations) {
             tag: m.tag,
             key: `${label || cite}#${m.id || `${cite}:${line}`}`,
             cite: m.id ? `${cite}#${m.id}` : "",
+            section: sectionAt(line - 1),
           });
       }
       files.push({
         name,
         label: path.endsWith(".md") ? label : label ? `${label}/${name}` : name,
         own,
+        title,
         single: path.endsWith(".md"),
         paths,
         globs: paths.map(globToRegExp),
@@ -154,6 +193,121 @@ export function draws(text) {
   return /<[A-Za-z][\w.]*(\s|>|\/)/.test(text);
 }
 
+/** Whether the text says something a person could read: it draws a control, or carries three words in a row. */
+export function reads(text) {
+  return draws(text) || /\b[A-Za-z][a-z']+(?: [a-z][a-z']+){2,}/.test(text);
+}
+
+/**
+ * **The kinds a small model names** (plans/catch-inconsistent-ui-at-build.md):
+ * the parts of the catalogue a model may name, `{name, line, alias}`: a
+ * directory catalogue's files but the README, `<label>: <title>`, labelled
+ * as the hook labels them, the file's own name an alias when no other
+ * file shares it (an answer may give `toasts.md` for `docs/ui/toasts.md`); a one-file
+ * catalogue's `## ` sections that hold an entry, `<heading>: <its first
+ * entry's statement>`. The inherited catalogues' files are among them.
+ */
+export function menuOf(files) {
+  const menu = [];
+  for (const f of files) {
+    if (f.single) {
+      const seen = new Set();
+      for (const e of f.entries) {
+        if (!e.section || seen.has(e.section)) continue;
+        seen.add(e.section);
+        const rule = e.rule.length > 80 ? `${e.rule.slice(0, 77)}...` : e.rule;
+        menu.push({ name: e.section, line: `${e.section}: ${rule}` });
+      }
+    } else if (!/(^|\/)README\.md$/i.test(f.name) && f.entries.length) {
+      const shared = files.filter((x) => !x.single && x.name === f.name).length > 1;
+      menu.push({ name: f.label, alias: shared ? "" : f.name, line: `${f.label}: ${f.title}` });
+    }
+  }
+  return menu;
+}
+
+const KINDS_SYSTEM =
+  "You name which parts of a design catalogue an edit to a user interface touches: the part whose rules govern what the edit draws or says, such as a message after an action, a confirmation, an empty state, an error, a button. Answer with names from the list only, one per line, the most likely first, or the word none.";
+
+/** The model call, as the hook makes it: `claude -p` on haiku, no tools, no hooks, no session kept, out of the project. */
+function askClaude(prompt) {
+  const out = execFileSync(
+    "claude",
+    [
+      "-p",
+      "--model",
+      "haiku",
+      "--output-format",
+      "json",
+      "--disallowedTools",
+      "*",
+      "--max-turns",
+      "1",
+      "--no-session-persistence",
+      "--strict-mcp-config",
+      "--settings",
+      '{"disableAllHooks":true}',
+      "--system-prompt",
+      KINDS_SYSTEM,
+    ],
+    {
+      input: prompt,
+      cwd: tmpdir(),
+      encoding: "utf8",
+      timeout: Number(process.env.WORKFLOW_KINDS_TIMEOUT_MS) || 20000,
+      stdio: ["pipe", "pipe", "ignore"],
+    },
+  );
+  return JSON.parse(out);
+}
+
+/**
+ * The menu's names a model finds in `text`, in its answer's order, read
+ * leniently (an answer that chatters before the names still names them);
+ * `[]` for `none` or no name. `{names, cost}`, or `{names: null, reason}`
+ * when the call failed, timed out or found no `claude`.
+ */
+export function kindsFor(text, menu, ask = askClaude) {
+  if (!menu.length) return { names: [], cost: null };
+  const prompt = `The catalogue's parts:\n${menu.map((m) => m.line).join("\n")}\n\nThe edit writes:\n${text.slice(0, KINDS_TEXT)}`;
+  let answer;
+  try {
+    answer = ask(prompt);
+  } catch (e) {
+    const reason = e.code === "ENOENT" ? "no claude" : e.signal ? "timeout" : "failed";
+    return { names: null, reason };
+  }
+  if (!answer || answer.is_error || typeof answer.result !== "string")
+    return { names: null, reason: "no answer" };
+  const result = answer.result;
+  // Each name where it stands, longest first, so a name inside a longer one
+  // the answer gave ("Errors" in "Errors in forms") is not taken for it.
+  const spans = [];
+  const found = menu
+    .flatMap((m) =>
+      [m.name, ...(m.alias ? [m.alias, m.alias.replace(/\.md$/, "")] : [])].map((said) => ({
+        name: m.name,
+        said,
+      })),
+    )
+    .sort((a, b) => b.said.length - a.said.length)
+    .map(({ name, said }) => {
+      const re = new RegExp(`(?<![\\w./-])${escapeRe(said)}(?![\\w-]|\\.md\\b)`, "gi");
+      for (const hit of result.matchAll(re)) {
+        const end = hit.index + said.length;
+        if (spans.some(([a, b]) => hit.index >= a && end <= b)) continue;
+        spans.push([hit.index, end]);
+        return { name, at: hit.index };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.at - b.at)
+    .map((m) => m.name)
+    .filter((name, i, all) => all.indexOf(name) === i);
+  return { names: found, cost: answer.total_cost_usd ?? null };
+}
+
 function nothingCovers(catalogue, who) {
   return [
     `No recorded design decision covers what you are writing here (nothing in ${catalogue} matches this file, its name, or the text).`,
@@ -189,13 +343,14 @@ export function flatten(value) {
  * for none. `ui` is the project file's globs as regular expressions,
  * `catalogue` its name as the lines say it, `who` the owner, `shown` the
  * keys of the entries this session has already been shown in full, which
- * are counted instead and to which the ones printed now are added.
+ * are counted instead and to which the ones printed now are added, `kinds`
+ * the catalogue's files or sections a small model named for the text.
  */
 export function contextFor(
   rel,
   text,
   files,
-  { ui = [], catalogue = "", who = "the owner", shown = new Set() } = {},
+  { ui = [], catalogue = "", who = "the owner", shown = new Set(), kinds = [] } = {},
 ) {
   const call = rel === "";
   if (!call && !ui.some((p) => p.test(rel))) return "";
@@ -225,9 +380,19 @@ export function contextFor(
   // governs every `ui` path, which `rel` is already inside by here; a
   // directory's files are found by their own `paths` as before.
   const governs = (f) => f.globs.some((g) => g.test(rel)) || (f.own && f.single && !f.paths.length);
+  const named = new Set(kinds.map((k) => k.toLowerCase()));
   const found = files
     .map((f) => {
       const byPath = !call && governs(f);
+      // A file the model named whole, or the sections of it it named.
+      const kindFile = !f.single && named.has(f.label.toLowerCase());
+      const kindSections = [
+        ...new Set(f.entries.map((e) => e.section).filter((x) => x && named.has(x.toLowerCase()))),
+      ];
+      const kindEntries = kindFile
+        ? f.entries
+        : f.entries.filter((e) => kindSections.includes(e.section));
+      const kindWhy = kindFile ? f.title : kindSections[0];
       const signal = f.signals.find((s) => s.test(text));
       // Inside a file that governs this path, any word of the name ranks its
       // rules ("calculator" within chat.md); across files only a specific one does.
@@ -235,20 +400,25 @@ export function contextFor(
         (byPath ? anyWords : words).some((w) => new RegExp(`\\b${w}`, "i").test(e.rule));
       const signalHit = (e) => signal && new RegExp(`\\b${stem(signal.source)}`, "i").test(e.rule);
       const hits = f.entries.filter((e) => nameHit(e) || signalHit(e));
-      return { f, byPath, signal, hits, rank: signal ? 0 : byPath ? 1 : hits.length ? 2 : 3 };
+      // A file the model named is found beside a path match, and first among them.
+      const rank = signal ? 0 : kindEntries.length ? 1 : byPath ? 1.5 : hits.length ? 2 : 3;
+      return { f, byPath, signal, hits, kindEntries, kindWhy, rank };
     })
     .filter((x) => x.rank < 3)
     .sort((a, b) => a.rank - b.rank || Number(b.f.own) - Number(a.f.own))
     .slice(0, MAX_FILES);
-  for (const { f, byPath, signal, hits } of found) {
+  for (const { f, byPath, signal, hits, kindEntries, kindWhy } of found) {
     hits.forEach(take);
+    kindEntries.forEach(take);
     const why = signal
       ? `the text you are writing looks like ${signal.source.replace(/\\b|\\/g, "")}`
-      : byPath
-        ? "it governs this file"
-        : "its rules name this control";
+      : kindEntries.length
+        ? `the text you are writing reads as ${kindWhy}`
+        : byPath
+          ? "it governs this file"
+          : "its rules name this control";
     pointers.push(`${f.label} (${f.entries.length} rules; ${why})`);
-    if (byPath && !hits.length) f.entries.forEach(take);
+    if (byPath && !hits.length && !kindEntries.length) f.entries.forEach(take);
   }
   if (!pointers.length) return !call && draws(text) ? nothingCovers(catalogue, who) : "";
   const lines = [
@@ -302,6 +472,49 @@ export function locations(proj, dir = root) {
   });
 }
 
+/**
+ * The names for this text: the session's answer for it, or one call while
+ * the session has calls left, every attempt a line in the log.
+ */
+function kindsOnce(rel, text, files, state, session) {
+  const hash = createHash("sha1").update(text).digest("hex");
+  const started = Date.now();
+  let names = [];
+  let what;
+  let cost = null;
+  if (state.answers[hash]) {
+    names = state.answers[hash];
+    what = "cached";
+  } else if (state.calls >= MAX_CALLS) {
+    what = "budget";
+  } else {
+    state.calls++;
+    const got = kindsFor(text, menuOf(files));
+    if (got.names === null) {
+      // A failure is the session's answer for this text too, so it is not
+      // asked again; the deterministic context stands.
+      state.answers[hash] = [];
+      what = `not run: ${got.reason}`;
+    } else {
+      names = got.names;
+      cost = got.cost;
+      state.answers[hash] = names;
+      what = names.length ? names.join(",") : "none";
+    }
+  }
+  try {
+    const dir = data();
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      join(dir, "catalogue-kinds.log"),
+      `${new Date().toISOString()} ${session} ${rel} ${Date.now() - started} ${cost ?? "-"} ${what}\n`,
+    );
+  } catch {
+    // No log: the context is the same.
+  }
+  return names;
+}
+
 function main() {
   const proj = project(root);
   if (!proj.found || (!proj.catalogue && !proj.inherits.length)) return;
@@ -338,24 +551,34 @@ function main() {
     return;
   }
   const statePath = shownPath(input.session_id);
-  let shown = new Set();
+  // `{shown, calls, answers}`; an array is an older session's `shown`.
+  let state = { shown: [], calls: 0, answers: {} };
   try {
-    if (statePath) shown = new Set(JSON.parse(readFileSync(statePath, "utf8")));
+    if (statePath) {
+      const read = JSON.parse(readFileSync(statePath, "utf8"));
+      state = Array.isArray(read) ? { ...state, shown: read } : { ...state, ...read };
+    }
   } catch {
     // First time this session.
   }
+  const shown = new Set(state.shown);
+  const ui = proj.ui.map(globToRegExp);
+  let kinds = [];
+  if (rel && statePath && ui.some((p) => p.test(rel)) && reads(text))
+    kinds = kindsOnce(rel, text, files, state, input.session_id);
   const context = contextFor(rel, text, files, {
-    ui: proj.ui.map(globToRegExp),
+    ui,
     catalogue: proj.catalogue || proj.inherits.at(-1),
     who: owner(),
     shown,
+    kinds,
   });
-  if (!context) return;
   try {
-    if (statePath) writeFileSync(statePath, JSON.stringify([...shown]));
+    if (statePath) writeFileSync(statePath, JSON.stringify({ ...state, shown: [...shown] }));
   } catch {
-    // No state: the next call shows them again, as before.
+    // No state: the next call shows them again, and asks again, as before.
   }
+  if (!context) return;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: context },

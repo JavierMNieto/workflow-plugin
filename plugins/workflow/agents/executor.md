@@ -81,7 +81,8 @@ in the final message and carry on.
    is looked up by the `design-research` skill and recorded as the
    product's; any other is free, written by the catalogue's everywhere
    rules and the project's copy rules, with its row in the plan's Words
-   section saying `free: <the rule it follows>`, and named in "Built". A
+   section saying `free: <the rule it follows>`, its "Kind" and "Shown by"
+   filled as the planner's are, and named in "Built". A
    string where the research leaves a choice the house rules do not
    settle is asked once, by "Asked in plain words". Where the plan is silent on something only
    ${user_config.owner} can decide, ask once with the question tool, by
@@ -198,13 +199,17 @@ paste.
       started while a suite or a build runs. It reads the plan's committed
       diff for bugs, with no plan in front of it.
    2. **The Claude review in a fresh context**: the `workflow:reviewer`
-      agent with the plan's path and the branch, and the choices you made
-      on purpose; it reads the diff (`git diff origin/<branch>...HEAD`)
-      and checks that every requirement of the plan is built, that every
-      line of its "Done when" holds as far as reading shows, that nothing
-      outside its scope changed, and
-      that every string the diff adds or changes is in the plan's Words
-      section,
+      agent with the plan's path and the branch, the choices you made on
+      purpose, each screenshot sent in step 1 by its path and what it
+      shows, and the catalogue files the Words table's "Kind" column
+      names (a kind is a file by the path the hook's menu labels it with;
+      a section's file is the one-file catalogue that holds it); it reads the
+      diff (`git diff origin/<branch>...HEAD`) and checks that every
+      requirement of the plan is built, that every line of its "Done
+      when" holds as far as reading shows, that nothing outside its scope
+      changed, that every string the diff adds or changes is in the
+      plan's Words section and shown by what its "Shown by" names, and
+      what in the screenshots is unlike those catalogue files' rules,
       only gaps that affect correctness or the plan's requirements.
    3. **`/code-review medium`** (the `code-review` skill), for bugs, with
       its own verification pass; it is the third review, not one of the

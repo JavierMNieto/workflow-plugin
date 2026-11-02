@@ -108,7 +108,8 @@ ${user_config.owner}.
    thing, one mechanism for one kind of thing, nothing made up. Prefer one
    mechanism that does three jobs to three mechanisms. Write every
    user-facing string out in the plan's Words section, each with where it
-   appears and what produced it ("A string rests on what produced it"), so
+   appears, its kind, what shows it and what produced it ("A string rests
+   on what produced it"), so
    the executor types nothing of its own and ${user_config.owner}'s why has
    its answer before he asks. Draft the catalogue
    entries the executor will add, when the project has a catalogue.
@@ -216,10 +217,14 @@ what the executor could not find by looking.
 7. **The change, part by part**: each part's place, look, words and
    states; ASCII sketches where a picture says it faster.
 8. **The words**: a table of every user-facing string the change adds or
-   changes, in full, with where it appears and what it rests on (the
-   entry or rule by name, the product with its Sources line, the person,
-   or free, with the principle or copy rule it follows); a plan that changes no
-   string says so in a line.
+   changes, five columns, `| String | Where | Kind | Shown by | Rests on |`:
+   the string in full; where it appears; its kind, the catalogue file or
+   `## ` section that governs it as the edit-time hook's menu names it
+   (`none` in a project with no catalogue); what shows it, the component
+   or element (`Toast`, `<p>`, a button's label, a dialog's title); and
+   what it rests on (the entry or rule by name, the product with its
+   Sources line, the person, or free, with the principle or copy rule it
+   follows). A plan that changes no string says so in a line.
 9. **Building it**: numbered steps, since a hand-over names the step in
    hand by its number; ordered only where one must come before another (a
    schema before the code that reads it, a test before the code it pins),

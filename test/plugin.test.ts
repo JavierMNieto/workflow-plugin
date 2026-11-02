@@ -2081,6 +2081,13 @@ describe("the hooks manifest", () => {
     );
     expect(manifest.description).toContain("the plain-words check of every question");
   });
+  // plans/catch-inconsistent-ui-at-build.md: room for the small model's one call.
+  it("gives the catalogue hook thirty seconds, for its model call", () => {
+    const entry = manifest.hooks.PreToolUse.flatMap((e: { hooks: object[] }) => e.hooks).find(
+      (h: { command: string }) => h.command.includes("catalogue-context.mjs"),
+    );
+    expect(entry.timeout).toBe(30);
+  });
   it("runs the queue's tool hook on the question tool, for the window's time", () => {
     const tool = manifest.hooks.PreToolUse.find((entry: { hooks: { command: string }[] }) =>
       entry.hooks.some((h) => h.command.endsWith('plan-queue.mjs" tool')),

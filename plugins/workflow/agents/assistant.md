@@ -112,7 +112,7 @@ Say it at the end of every topic, as one of four, with the reason:
    the catalogue's everywhere rules, and no rule with a person's name on it is
    reversed; no schema change, no new read path, no new word for a thing,
    no decision nobody has taken; every new or changed string, in the
-   plan's Words section, rests on an entry or house rule that produces
+   plan's Words section with its kind and what shows it, rests on an entry or house rule that produces
    it, or on a product you looked up by the `design-research` skill
    (searches in parallel, one turn; at most two such strings in one
    plan); a string no product people know has a version of is free,
@@ -325,8 +325,11 @@ conversation settled, each with its reason. "The change" names every file
 and function and the rule each touched part already has (a part with none
 is exit 4, not a short plan, unless it is a free detail, which names the
 everywhere rule it is built by). "The words" holds every user-facing string,
-in full, with where it appears and what produced it, by "A string rests
-on what produced it"; a plan that changes no string says so in a line.
+in full, in the planner's five columns (`| String | Where | Kind | Shown
+by | Rests on |`: where it appears, the catalogue file or section that
+governs it, the component or element that shows it, and what produced it),
+by "A string rests on what produced it"; a plan that changes no string
+says so in a line.
 "Sources" is the address of each product looked up, or "None: every
 string follows a named rule or is free". A short plan names an earlier plan it
 rests on in its header line only when it uses what that plan adds, never

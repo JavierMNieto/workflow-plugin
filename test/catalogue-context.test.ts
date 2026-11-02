@@ -1,9 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { nameWords } from "../plugins/workflow/scripts/catalogue-context.mjs";
+import { kindsFor, menuOf, nameWords } from "../plugins/workflow/scripts/catalogue-context.mjs";
 
 /**
  * **The catalogue's hook** (`catalogue-context.mjs`, docs/workflow.md,
@@ -16,12 +24,42 @@ const context = new URL("../plugins/workflow/scripts/catalogue-context.mjs", imp
 
 let repo: string;
 
+/**
+ * A fake `claude` for the hook's model call (plans/catch-inconsistent-ui-at-build.md):
+ * it appends a line to `FAKE_MARKER` when run, sleeps `FAKE_SLEEP` seconds,
+ * exits `FAKE_EXIT`, and answers `FAKE_ANSWER` (`none` unless a case says).
+ */
+const fakeBin = mkdtempSync(join(tmpdir(), "catalogue-fake-claude-"));
+writeFileSync(
+  join(fakeBin, "claude"),
+  `#!/bin/sh
+cat > /dev/null
+[ -n "$FAKE_MARKER" ] && echo run >> "$FAKE_MARKER"
+[ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
+[ -n "$FAKE_EXIT" ] && exit "$FAKE_EXIT"
+printf '{"result":"%s","total_cost_usd":0.0003}' "\${FAKE_ANSWER:-none}"
+`,
+);
+chmodSync(join(fakeBin, "claude"), 0o755);
+const dataDir = mkdtempSync(join(tmpdir(), "catalogue-data-"));
+afterAll(() => {
+  rmSync(fakeBin, { recursive: true, force: true });
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
 /** The hook as Claude Code runs it: an input with no tool named is an Edit's. */
 function run(script: string, args: string[], input: object, env: Record<string, string> = {}) {
   return execFileSync("node", [script, ...args], {
     input: JSON.stringify({ tool_name: "Edit", ...input }),
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_PLUGIN_OPTION_OWNER: "Javi", ...env },
+    env: {
+      ...process.env,
+      PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
+      WORKFLOW_DATA: dataDir,
+      CLAUDE_PROJECT_DIR: repo,
+      CLAUDE_PLUGIN_OPTION_OWNER: "Javi",
+      ...env,
+    },
   });
 }
 
@@ -417,6 +455,261 @@ describe("a one-file catalogue with no paths", () => {
       expect(second).not.toContain("A rule with a person's name is their call");
     } finally {
       rmSync(join(tmpdir(), `workflow-catalogue-${session}.json`), { force: true });
+    }
+  });
+});
+
+/**
+ * **The kinds a small model names** (plans/catch-inconsistent-ui-at-build.md):
+ * the Account case replayed, a settings page writing a confirmation as a
+ * paragraph where the catalogue says the shared toast, caught though no path
+ * or keyword reaches the toast rule; every call bounded and logged.
+ */
+describe("the kinds a small model names", () => {
+  let dir: string;
+  let marker: string;
+  const log = () => {
+    try {
+      return readFileSync(join(dataDir, "catalogue-kinds.log"), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const calls = () =>
+    existsSync(marker) ? readFileSync(marker, "utf8").split("\n").length - 1 : 0;
+  let n = 0;
+  const session = () => `kinds-${process.pid}-${++n}`;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "catalogue-kinds-"));
+    marker = join(dir, "called");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    mkdirSync(join(dir, "docs", "ui"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "workflow.md"),
+      '---\nname: Kinds\ncatalogue: docs/ui\nui:\n  - "src/**"\n---\n',
+    );
+    writeFileSync(
+      join(dir, "docs", "ui", "settings.md"),
+      '---\npaths:\n  - "src/settings/**"\n---\n\n# The settings page\n\n- **Settings are grouped under a heading per service.** (Javi, 1 November)\n',
+    );
+    writeFileSync(
+      join(dir, "docs", "ui", "toasts.md"),
+      "# Confirmations and messages after an action\n\n- **A confirmation after an action is the shared toast.** (Javi, 30 October)\n",
+    );
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const edit = (
+    text: string,
+    env: Record<string, string> = {},
+    id = session(),
+    file = "src/settings/Account.tsx",
+  ) => {
+    const out = run(
+      context,
+      [],
+      { session_id: id, tool_input: { file_path: join(dir, file), new_string: text } },
+      { CLAUDE_PROJECT_DIR: dir, FAKE_MARKER: marker, ...env },
+    );
+    rmSync(join(tmpdir(), `workflow-catalogue-${id}.json`), { force: true });
+    return out ? (JSON.parse(out).hookSpecificOutput.additionalContext as string) : "";
+  };
+  const reset = () => {
+    rmSync(marker, { force: true });
+    rmSync(join(dataDir, "catalogue-kinds.log"), { force: true });
+  };
+
+  it("replays the Account case: the toast rule is loaded and listed first", () => {
+    reset();
+    const ctx = edit("<p>Google is connected</p>", { FAKE_ANSWER: "toasts.md" });
+    expect(ctx).toContain(
+      "toasts.md (1 rules; the text you are writing reads as Confirmations and messages after an action)",
+    );
+    expect(ctx).toContain("settings.md (1 rules; it governs this file)");
+    expect(ctx.indexOf("the shared toast")).toBeLessThan(ctx.indexOf("grouped under a heading"));
+    expect(calls()).toBe(1);
+    expect(log()).toMatch(/ src\/settings\/Account\.tsx \d+ 0\.0003 docs\/ui\/toasts\.md\n$/);
+  });
+
+  it("lists only the path's rules when the model answers none", () => {
+    reset();
+    const ctx = edit("<p>Google is connected</p>");
+    expect(ctx).toContain("settings.md");
+    expect(ctx).not.toContain("toasts.md");
+    expect(log()).toMatch(/ none\n$/);
+  });
+
+  it("makes no call for a text that neither draws nor reads, or in a project with no catalogue", () => {
+    reset();
+    edit("const n = 1;", { FAKE_ANSWER: "toasts.md" });
+    expect(calls()).toBe(0);
+    const bare = mkdtempSync(join(tmpdir(), "catalogue-bare-"));
+    try {
+      mkdirSync(join(bare, ".claude"), { recursive: true });
+      writeFileSync(
+        join(bare, ".claude", "workflow.md"),
+        '---\nname: Bare\nui:\n  - "src/**"\n---\n',
+      );
+      run(
+        context,
+        [],
+        {
+          session_id: session(),
+          tool_input: {
+            file_path: join(bare, "src/a.tsx"),
+            new_string: "<p>Google is connected</p>",
+          },
+        },
+        { CLAUDE_PROJECT_DIR: bare, FAKE_MARKER: marker },
+      );
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+    expect(calls()).toBe(0);
+  });
+
+  it("leaves the context as it is and logs one line when the call fails or times out", () => {
+    const plain = (reset(), edit("<p>Google is connected</p>"));
+    for (const env of [{ FAKE_EXIT: "1" }, { FAKE_SLEEP: "2", WORKFLOW_KINDS_TIMEOUT_MS: "200" }]) {
+      reset();
+      expect(edit("<p>Google is connected</p>", { FAKE_ANSWER: "toasts.md", ...env })).toBe(plain);
+      const lines = log().trim().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/ not run: (failed|timeout)$/);
+    }
+  });
+
+  it("asks once for the same text in a session, and not past sixty calls", () => {
+    reset();
+    const id = `kinds-twice-${process.pid}`;
+    const state = join(tmpdir(), `workflow-catalogue-${id}.json`);
+    try {
+      for (let i = 0; i < 2; i++)
+        run(
+          context,
+          [],
+          {
+            session_id: id,
+            tool_input: {
+              file_path: join(dir, "src/settings/Account.tsx"),
+              new_string: "<p>Google is connected</p>",
+            },
+          },
+          { CLAUDE_PROJECT_DIR: dir, FAKE_MARKER: marker, FAKE_ANSWER: "toasts.md" },
+        );
+      expect(calls()).toBe(1);
+      expect(log()).toMatch(/ cached\n$/);
+      reset();
+      writeFileSync(state, JSON.stringify({ shown: [], calls: 60, answers: {} }));
+      run(
+        context,
+        [],
+        {
+          session_id: id,
+          tool_input: {
+            file_path: join(dir, "src/settings/Account.tsx"),
+            new_string: "<p>Saved</p>",
+          },
+        },
+        { CLAUDE_PROJECT_DIR: dir, FAKE_MARKER: marker },
+      );
+      expect(calls()).toBe(0);
+      expect(log()).toMatch(/ budget\n$/);
+    } finally {
+      rmSync(state, { force: true });
+    }
+  });
+
+  it("names files by their label, the bare name an alias only when no other file shares it", () => {
+    const file = (label: string) => ({
+      single: false,
+      name: "toasts.md",
+      label,
+      title: "Toasts",
+      entries: [{}],
+    });
+    expect(menuOf([file("docs/ui/toasts.md")])).toEqual([
+      { name: "docs/ui/toasts.md", alias: "toasts.md", line: "docs/ui/toasts.md: Toasts" },
+    ]);
+    expect(
+      menuOf([file("../shared/toasts.md"), file("docs/ui/toasts.md")]).map((m) => m.alias),
+    ).toEqual(["", ""]);
+  });
+
+  it("takes the longest name the answer gave, and a file by its bare stem", () => {
+    const menu = [
+      { name: "Errors", line: "Errors: x" },
+      { name: "Errors in forms", line: "Errors in forms: y" },
+      { name: "docs/ui/feedback.md", alias: "feedback.md", line: "docs/ui/feedback.md: z" },
+    ];
+    const ask = (result: string) => () => ({ result });
+    expect(kindsFor("t", menu, ask("Errors in forms")).names).toEqual(["Errors in forms"]);
+    expect(kindsFor("t", menu, ask("feedback")).names).toEqual(["docs/ui/feedback.md"]);
+    expect(kindsFor("t", menu, ask("none")).names).toEqual([]);
+    expect(
+      kindsFor("t", menu, () => {
+        throw Object.assign(new Error("x"), { code: "ENOENT" });
+      }),
+    ).toEqual({ names: null, reason: "no claude" });
+  });
+
+  it("does not ask again for a text whose call failed", () => {
+    reset();
+    const id = `kinds-failed-${process.pid}`;
+    const input = {
+      session_id: id,
+      tool_input: {
+        file_path: join(dir, "src/settings/Account.tsx"),
+        new_string: "<p>Google is connected</p>",
+      },
+    };
+    try {
+      for (let i = 0; i < 2; i++)
+        run(context, [], input, { CLAUDE_PROJECT_DIR: dir, FAKE_MARKER: marker, FAKE_EXIT: "1" });
+      expect(calls()).toBe(1);
+      expect(log()).toMatch(/ cached\n$/);
+    } finally {
+      rmSync(join(tmpdir(), `workflow-catalogue-${id}.json`), { force: true });
+    }
+  });
+
+  it("reads a chattering answer for the names in it", () => {
+    reset();
+    const ctx = edit("<p>Google is connected</p>", { FAKE_ANSWER: "Looking at this... toasts.md" });
+    expect(ctx).toContain("toasts.md (1 rules; the text you are writing reads as");
+  });
+
+  it("offers a one-file catalogue's sections, and loads only the named one", () => {
+    const one = mkdtempSync(join(tmpdir(), "catalogue-sections-"));
+    try {
+      mkdirSync(join(one, ".claude"), { recursive: true });
+      writeFileSync(
+        join(one, ".claude", "workflow.md"),
+        '---\nname: One\ncatalogue: decisions.md\nui:\n  - "src/**"\n---\n',
+      );
+      writeFileSync(
+        join(one, "decisions.md"),
+        "---\n# a comment, not the title\n---\n\n# Decisions\n\n## Messages\n\n```\n## Not a section\n```\n\n- **A confirmation after an action is the shared toast.** (Javi, 30 October)\n\n## Buttons\n\n- **A destructive button is red.** (Javi, 30 October)\n",
+      );
+      const id = session();
+      const out = run(
+        context,
+        [],
+        {
+          session_id: id,
+          tool_input: {
+            file_path: join(one, "src/a.tsx"),
+            new_string: "<p>Google is connected</p>",
+          },
+        },
+        { CLAUDE_PROJECT_DIR: one, FAKE_ANSWER: "Messages" },
+      );
+      rmSync(join(tmpdir(), `workflow-catalogue-${id}.json`), { force: true });
+      const ctx = JSON.parse(out).hookSpecificOutput.additionalContext as string;
+      expect(ctx).toContain("decisions.md (2 rules; the text you are writing reads as Messages)");
+      expect(ctx).toContain("the shared toast");
+      expect(ctx).not.toContain("destructive button is red");
+    } finally {
+      rmSync(one, { recursive: true, force: true });
     }
   });
 });

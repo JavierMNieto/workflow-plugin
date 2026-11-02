@@ -329,7 +329,9 @@ principle it follows. Only a string that carries a decision is researched;
 only a new screen or flow is asked about first, any other control after
 the research, when it leaves a choice the house rules do not settle. The
 executor types nothing outside "The words", and the plan review checks the
-diff against it. (decisions.md#string-rests-on-source)
+diff against it. Each string's row gives its kind, the catalogue file or
+section that governs it, and what shows it, and the plan review checks the
+diff shows it so. (decisions.md#string-rests-on-source)
 
 **A rule whose reason is gone is put to the owner, not followed**: keep,
 change or retire, by the question tool, the rule standing until he
@@ -346,8 +348,13 @@ rules, loaded always; a catalogue file's `paths` and `signals` (a one-file
 catalogue with no `paths` governs every `ui` path), which
 `scripts/catalogue-context.mjs` matches before an edit or a `tools` call,
 each entry, and the hook's instruction, shown once per session and again
-after a compaction; and the `design-research` skill, when nothing covers a
-thing. (decisions.md#found-three-ways)
+after a compaction; and, for an edit whose text draws a control or carries
+words a person could read, a small model's naming of the catalogue's files
+or sections it touches, loaded beside them (one call per distinct text,
+about 1.5k tokens and seven seconds a call, sixty a session, twenty
+seconds each, a log line per call; none without a catalogue); and the
+`design-research` skill, when nothing covers a thing.
+(decisions.md#found-three-ways)
 
 **The audit's checks**: a `ui` path changed or a `tools` call made with no
 entry added or changed in the catalogue, answered by the entry or a
@@ -482,6 +489,12 @@ throwaway worktree and writes bugs only to
 per plan, under a timeout; the executor checks each finding and lists its
 verdict in "Built". It never gates: when it cannot run, the build goes
 on. (decisions.md#second-model)
+
+**The plan review reads the screenshots too.** The executor's brief to the
+reviewer names each screenshot and the catalogue files the Words table's
+kinds name, and the review says what on screen is unlike those rules;
+nothing without screenshots or a catalogue.
+(decisions.md#screens-reviewed)
 
 **The turn audit** (`scripts/turn-audit.mjs`): once per turn, a session
 that changed more than one file says at its Stop why each was needed,

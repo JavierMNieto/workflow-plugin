@@ -226,6 +226,10 @@ on the machine that planned them.
   answer exists before he asks why; since 30 October only a string that
   carries a decision is researched and recorded.
   plans/every-word-researched.md, plans/question-only-for-a-new-screen.md.
+  2 November: each string's row gives its kind and what shows it, as
+  Polaris's and Primer's lint rules name the component to use in place of
+  a raw element, and the plan review checks the diff.
+  plans/catch-inconsistent-ui-at-build.md.
 - `reason-gone-ask` **A rule whose reason is gone is put to the owner,
   not followed.** (Javi, 27 October) A deleted component or a fixed bug
   leaves a rule that looks binding and is not; only the owner retires it.
@@ -242,6 +246,10 @@ on the machine that planned them.
   2 November: a one-file catalogue with no `paths` governs every `ui`
   path, so the list is kept once; the instruction is shown once a
   session, as the rules are. plans/catalogue-hook-and-audit.md.
+  2 November: a small model names the catalogue's parts an edit touches,
+  since a rule in a file the path and the keywords never reach is a rule
+  the executor breaks; bounded as every loop over model calls is.
+  plans/catch-inconsistent-ui-at-build.md.
 - `audit-checks` **The audit's checks are refused once each, and the
   second stop passes.** (Javi, 27 October) A check that refuses forever
   loops; once is enough to make the agent look.
@@ -346,6 +354,13 @@ on the machine that planned them.
   gates.** (Javi, 27 October) A model that did not write the code finds
   what the writer's reviews share a blind spot for; a review that cannot
   run must not stop the build. plans/project-setup-interview.md.
+- `screens-reviewed` **The plan review reads the executor's screenshots
+  against the catalogue entries for the kinds on screen.** (Javi, 2
+  November) A rule can hold in the code and still fail on the screen;
+  Chromatic's UI Review puts the rendered change before a reviewer who
+  did not make it; the plan review is already a fresh context per plan,
+  so it gains the screenshots rather than a fourth review.
+  plans/catch-inconsistent-ui-at-build.md.
 - `turn-audit` **The turn audit asks once per turn why each file was
   needed and where the decision went.** (Javi, 27 October) A turn that
   changed what a person sees and recorded nothing is how a catalogue
