@@ -1818,7 +1818,7 @@ export function plannerPrompt(path) {
  * (`executor.md`, "After"), which a start beside an open chat prints.
  */
 export function followUpsMessage(path) {
-  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items, then tick the to-do item.`;
+  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items.`;
 }
 
 /**

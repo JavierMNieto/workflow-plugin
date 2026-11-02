@@ -783,24 +783,18 @@ to a Claude session left out>
   plan, and what they answer is built before the session ends (or the item
   is marked asked and left). The **assistant** and **planner** items are
   handed to the assistant ("Handed to the assistant" in the docs), never
-  to ${user_config.owner} to paste. First
-  add one item to ${user_config.owner}'s to-do page when the memory note
-  `todo-page.md` names one (ArtifactData `set`, doc_id `follow-ups-<plan
-  file name without .md>`): text `Follow-ups from plans/<x>.md`, note `<n>
-  for the assistant, <m> for the planner. Open an assistant chat and say
-  "do the follow-ups on my to-do page".`, project the project file's
-  `name` in lower case, done false, createdAt now, source `executor`. Then
+  to ${user_config.owner} to paste.
   `ListAgents`: if this project's assistant chat, named `<the project file's
   name> Assistant`, is on this machine (its kind
   is not Remote Control, so the plan can be read where it runs), send one
   of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
   decision", the items marked assistant and planner. Write a short plan
-  for the assistant items and a brief for the planner items, then tick the
-  to-do item.` With none on this machine, start one: `plans start --agent
-  assistant plans/<x>.md`, which starts `<Project> Assistant n
+  for the assistant items and a brief for the planner items.` With none
+  on this machine, start one: `plans start --agent assistant
+  plans/<x>.md`, which starts `<Project> Assistant n
   (<machine>)` on the plan's items in Remote Control, or says why not
   (paused, the window, a chat it found open, which you then message); the
-  final message says which. Several plans get one item and one message each. The final
+  final message says which. Several plans get one message each. The final
   message says in one line which happened. Do not list the items in full
   in the message; the plan holds them.
 - **${user_config.owner} has no terminal** when they use the agents

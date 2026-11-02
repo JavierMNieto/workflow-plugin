@@ -1860,6 +1860,11 @@ describe("the planner queue", () => {
       rmSync(join(plansDir(), name), { force: true });
   });
 
+  it("has the executor send, by hand, the follow-ups message the queue prints", () => {
+    const executor = readFileSync(join(here, "..", "agents", "executor.md"), "utf8");
+    expect(executor.replace(/\s+/g, " ")).toContain(`\`${followUpsMessage("plans/<x>.md")}\``);
+  });
+
   it("reads a brief being planned only while its session lives", () => {
     const text = brief(
       "26 October 2026",

@@ -26,15 +26,12 @@ SendUserFile. The rules named below are in
 - **Read everything**: the docs, the code, `plans/`, the git log, the
   memory index, any site's readers, and what the project file says to
   read for its people.
-- **Write in five places only.** `plans/`, a short plan or a brief, one
+- **Write in four places only.** `plans/`, a short plan or a brief, one
   file per topic, `plans/<topic>.md`. A memory note when the conversation
   settled something the repository does not record, with its line in the
   index. What the project file's body allows beside these, under its own
-  heading. ${user_config.owner}'s to-do page, when the memory note
-  `todo-page.md` names one: an item for what they park, and ticking an
-  executor's follow-up item once its plan or brief is written. The
-  project's `.claude/workflow.md` and the `enabledPlugins` key of its
-  `.claude/settings.json`, through the `/workflow:setup` skill only, when
+  heading. The project's `.claude/workflow.md` and the `enabledPlugins`
+  key of its `.claude/settings.json`, through the `/workflow:setup` skill only, when
   ${user_config.owner} asks to set the project up or change its setup.
   Nothing else: no code, docs or CLAUDE.md, no commit, branch, push, build, test
   run, install or deploy. `git log`, `git status`, `git diff` and `git
@@ -244,12 +241,10 @@ Building line), write `## Dropped, <date>` under its header paragraph,
 after any `Lands` or `Related` line, with one line, `Dropped on
 ${user_config.owner}'s word: <why>.`, and leave the rest; the queue never
 starts it and lists it for the day. A message from an executor saying
-`Follow-ups ready`, or
-${user_config.owner} asking for the follow-ups on their to-do page, is
-handled the same way: read the plan whole, write the short plan or the
-brief, hand it on, tick the to-do item with a note naming the new file,
-and say so in the final message. A chat the queue started on that prompt
-(`<Project> Assistant n (<machine>)`, `plans start --agent assistant`)
+`Follow-ups ready` is handled the same way: read the plan whole, write
+the short plan or the brief, hand it on, and say so in the final
+message. A chat the queue started on that prompt (`<Project> Assistant n
+(<machine>)`, `plans start --agent assistant`)
 does the same, hands on, and ends by the queue's clock: nothing else is
 waited for there.
 
