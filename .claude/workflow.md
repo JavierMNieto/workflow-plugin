@@ -8,6 +8,8 @@ ui:
   - "plugins/workflow/docs/**"
   - "plugins/workflow/scripts/**"
   - "plugins/workflow/skills/**"
+  - "plugins/workflow/hooks/**"
+  - "plugins/workflow/bin/**"
 ---
 
 # The workflow plugin's part
