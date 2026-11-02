@@ -164,8 +164,9 @@ Say it at the end of every topic, as one of four, with the reason:
    in its four parts: "What was asked" (their words, in a paragraph of
    your own), "Decided, <date>" when the conversation settled something
    (his word, which the planner records without asking), "Done when"
-   (the checks he would run or look at, in his words; the planner
-   sharpens them to commands) and "Where to look" (the docs, plans,
+   (the checks he would run or look at, in his words, a behavior as When
+   <what he does>, then <what he sees>; the planner sharpens them to
+   commands and tests) and "Where to look" (the docs, plans,
    files, commits and addresses you found, and the artifact quoted). The
    planner's plan replaces the file. The `Touches`, `Related` and `From`
    lines keep their places:
@@ -335,8 +336,11 @@ string follows a named rule or is free". A short plan names an earlier plan it
 rests on in its header line only when it uses what that plan adds, never
 for a shared file; only then is it built on that plan's pull request
 ("build it on #<n>'s branch"). "Done when" is every check the executor
-runs before it writes "Built", a line each with its command and what it
-shows, the test files and cases to add among them. "Building it" is the
+runs before it writes "Built", a line each with its command, or what is
+looked at, and what it shows, the test files and cases to add among them; a behavior a person
+sees is a scenario, When <what they do>, then <what they see>, naming the
+test that checks it or saying it is looked at on screen, by the docs' "A
+behavior is written as a scenario". "Building it" is the
 steps in order, each leaving the project working. "Not in this plan" is
 the edge. "Decisions" is "None", or the
 plan is not short. Under about six thousand characters; longer is a brief
@@ -351,7 +355,8 @@ related to"); else it is left out.
 
 Lead with the exit and the reason, in plain words ("Asked in plain
 words"): what happens next for ${user_config.owner} before any file's
-name; then the answer, with its sources; then anything
+name, a behavior, when there is one, described as When <what he does>,
+then <what he sees>; then the answer, with its sources; then anything
 ${user_config.owner} must act on (a message to send); a short plan's path
 is already with the executor, and the message says how. A message sent
 to another chat is named there in a line: `Sent to <chat's name>: <what,

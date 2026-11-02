@@ -907,6 +907,7 @@ describe("the handbook holds every rule the plugin cites", () => {
   // The names the agent files, the scripts, the skills and the tests cite in
   // quotation marks, collected by hand on 2 November (plans/docs-as-a-prompt.md).
   const NAMES = [
+    "A behavior is written as a scenario",
     "A brief or a plan is a prompt for the agent that reads it",
     "A change one person started is anyone's to go on with",
     "A change the plugin leaves for the project it came from goes back as a brief",
@@ -1034,6 +1035,44 @@ describe("a brief or a plan is a prompt", () => {
     const reviewer = flat(agent("reviewer"));
     const second = /2\. \*\*([^*]+)\*\*/.exec(reviewer)![1];
     expect(second).toContain('"Done when"');
+  });
+
+  // plans/behavior-as-when-then.md: a behavior a person sees is When … then ….
+  it("the docs and the three agents write a behavior as When … then …, the example brief too", () => {
+    const docs = flat(readFileSync(join(plugin, "docs", "workflow.md"), "utf8"));
+    const rule =
+      /\*\*A behavior is written as a scenario\*\*.*?\(decisions\.md#behavior-as-scenario\)/.exec(
+        docs,
+      )![0];
+    expect(rule).toContain("When <what the person does>, then <what they see>");
+    expect(rule).toMatch(/"\*\*When\*\* I connect Google[^"]*, \*\*then\*\* a toast/);
+    expect(rule).toContain("names the test that checks it");
+    const plain = /\*\*Asked in plain words\.\*\*.*?\(decisions\.md#asked-in-plain-words\)/.exec(
+      docs,
+    )![0];
+    expect(plain).toContain("A behavior is described as When … then …");
+    const example = /For example, the brief that asked for this rule: ```(.*?)```/.exec(docs)![1];
+    const done = example.slice(
+      example.indexOf("## Done when"),
+      example.indexOf("## Where to look"),
+    );
+    expect(done).toMatch(/- When [^,]+, then /);
+    const assistant = flat(agent("assistant"));
+    expect(assistant).toMatch(
+      /"Done when" \(the checks he would run[^)]*When <what he does>, then <what he sees>/,
+    );
+    expect(assistant).toMatch(
+      /the test files and cases to add among them; a behavior a person sees is a scenario/,
+    );
+    expect(assistant).toMatch(/## The final message [^#]*When <what he does>, then <what he sees>/);
+    const planner = flat(agent("planner"));
+    expect(planner).toMatch(/4\. \*\*Done when\*\*[^*]*When <what they do>, then <what they see>/);
+    expect(planner).toMatch(/Lead in plain words.{0,220}When <what he does>, then <what he sees>/);
+    const executor = flat(agent("executor"));
+    expect(executor).toContain("**A test per scenario.**");
+    expect(executor).toMatch(
+      /\*\*The final message\*\* leads in plain words.{0,220}When <what he does>, then <what he sees>/,
+    );
   });
 });
 

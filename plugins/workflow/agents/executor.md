@@ -123,6 +123,10 @@ in the final message and carry on.
   **Reading** says otherwise.
 - **While working, only the tests the project file's While working
   names** for what you touched. Never edit source while a suite runs.
+- **A test per scenario.** Each When … then … line of the plan's "Done
+  when" gets the test it names, one test per scenario where a test fits;
+  one it says is looked at on screen is looked at, and "Built" says what
+  showed (the docs' "A behavior is written as a scenario").
 - **Everywhere, and one word per thing.** A change to a piece of UI is
   made in every place that piece appears, found before it is called done;
   a thing has the one word the project already uses for it.
@@ -757,7 +761,9 @@ to a Claude session left out>
   record (what is pushed, what waits for ${user_config.owner}) goes in a
   memory note, with a line in the index.
 - **The final message** leads in plain words ("Asked in plain words"):
-  what the project now does that it did not, in a few short sentences, and
+  what the project now does that it did not, in a few short sentences, a
+  behavior, when there is one, described as When <what he does>, then
+  <what he sees>, and
   what waits on ${user_config.owner}, the decisions taken for him among
   them, so he can reverse one through the assistant's chat; then the
   record: what is pushed, the deviations, the suite counts in a short

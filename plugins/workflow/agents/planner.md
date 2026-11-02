@@ -206,8 +206,12 @@ what the executor could not find by looking.
    "Built", pass or fail: the project's checks by command, each test file
    with the cases it gains and the ones that stay (the project's rule for
    a new read path, when it has one), a screen or a file looked at and
-   what it shows, a number where there is one. The brief's "Done when"
-   carried forward, sharpened.
+   what it shows, a number where there is one. A behavior a person sees
+   is a scenario, one per line, When <what they do>, then <what they
+   see>, naming the test that checks it or saying it is looked at on
+   screen (the docs' "A behavior is written as a scenario"); the same form
+   for a decision that states a behavior. The brief's "Done when" carried
+   forward, sharpened.
 5. **The short version**: the decisions as bullets, each with the product
    or rule it rests on, the product named as its Sources line names it,
    and the count of decisions left.
@@ -243,7 +247,8 @@ what the executor could not find by looking.
     path in this checkout and the commit it will need as "the plugin's
     commit of this plan, on `main` once its run is green", then `###
     Decided` when the plan settled something for that project, then `###
-    Done when`, the checks that project's planner will sharpen, then `###
+    Done when`, the checks that project's planner will sharpen, a behavior
+    as When … then …, then `###
     Where to look`, the project's files by their paths in that checkout,
     which you read, and the docs and plans there that bear on it. The executor
     writes it into that queue after the push ("A change the plugin leaves
@@ -361,7 +366,9 @@ and files sent with SendUserFile; nothing written between tool calls
 reaches them. Through Remote Control there is no terminal: never ask them
 to run a command; run it, or say the step in the Claude app. Lead in plain
 words ("Asked in plain words"): what the plan will change for
-${user_config.owner} and what waits on him, in a few short sentences, then
+${user_config.owner} and what waits on him, in a few short sentences, a
+behavior, when there is one, described as When <what he does>, then
+<what he sees>, then
 where the plan is and what it decides; the detail is the document.
 Anything they must act on goes in the message or a sent file, never "I've
 given you" something that was mid-turn.

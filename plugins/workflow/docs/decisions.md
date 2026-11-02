@@ -24,6 +24,12 @@ on the machine that planned them.
   six patterns (outcome, check, reference, target, artifact, answer's
   form); Anthropic's prompting best practices give the why and number
   steps only when order matters. plans/briefs-and-plans-as-prompts.md.
+- `behavior-as-scenario` **A behavior a person sees is written as a
+  scenario, When <what they do>, then <what they see>, one per line, each
+  in a plan's Done when naming its test.** (Javi, 2 November) As OpenSpec's
+  and Kiro's acceptance scenarios: a line the owner reads as what he will
+  see, and the executor turns into one test.
+  plans/behavior-as-when-then.md.
 - `reading-beside-a-build` **The planner and the assistant read beside a
   build, from the project's branch when the tree is dirty.** (Javi, 27
   October) One checkout serves every agent, so a plan written while an

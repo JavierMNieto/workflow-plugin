@@ -54,8 +54,9 @@ and the docs every agent reads written the same way.
 - The assistant's brief, the short plan and the planner's plan each
   follow the guidance.
 - One real brief and one real plan, rewritten under the new rules, are
-  shorter and still complete, and two fresh readers given only the
-  rewritten file can say what to do and how to check it is done.
+  shorter and still complete.
+- When two fresh readers are given only a rewritten file, then each
+  says what to do and how to check it is done.
 
 ## Where to look
 
@@ -74,6 +75,17 @@ and the docs every agent reads written the same way.
   `agents/planner.md` (the plan's shape), `agents/executor.md` (where it
   reads them) and `docs/workflow.md`.
 ```
+
+**A behavior is written as a scenario**, When <what the person does>,
+then <what they see>, one per line: in a brief's and a plan's "Done
+when", in a plan's decisions where they state a behavior, and in the
+agents' messages to the owner. "**When** I connect Google from the
+account page, **then** a toast at the bottom says "Google is connected"
+and goes after a few seconds." Each scenario in a plan's "Done when"
+names the test that checks it or says it is looked at on screen, and the
+executor writes one test per scenario where a test fits; a check by
+command (a test, a lint, a grep) stays a command.
+(decisions.md#behavior-as-scenario)
 
 **Reading beside a build**: the planner and the assistant stay in the
 checkout while the executor builds there; one that finds the tree dirty
@@ -135,7 +147,8 @@ or two; each label is what he gets, each description what it costs; the
 recommended option first and marked; one decision per question, up to four
 a call. `scripts/plain-words.mjs` refuses a question that names code or is
 one sentence. Every final message leads the same way: what happened for
-him and what waits on him, then the record. Not this: header `Connect`,
+him and what waits on him, then the record. A behavior is described as
+When … then …, what he does and what he sees. Not this: header `Connect`,
 question `Should the connect script keep the terminal open after the
 hand-over, or exit on Ctrl+C?`, options `Keep open` / `Exit`. But this:
 header `Hand-over`, question `This is about what a reader sees after they
