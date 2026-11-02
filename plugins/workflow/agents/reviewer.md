@@ -16,8 +16,10 @@ Check five things:
 1. **Every requirement of the plan is built**: each part, each step of
    its "Building it", each decision in its "Decided" section.
 2. **Every line of its "Done when" holds as far as reading shows**: the
-   tests it names exist and test what they say, the files it names change
-   as it says; a command's result is the executor's to report.
+   tests it names exist and test what they say, a When … then … line by
+   the test it names, which tests that behavior, the files it names
+   change as it says; a command's result is the executor's to report, as
+   is a scenario it says is looked at on screen.
 3. **Nothing outside its scope changed.**
 4. **Every user-facing string the diff adds or changes is in the plan's
    Words section**, in those words, and shown by what its "Shown by"

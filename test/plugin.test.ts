@@ -1038,7 +1038,7 @@ describe("a brief or a plan is a prompt", () => {
   });
 
   // plans/behavior-as-when-then.md: a behavior a person sees is When … then ….
-  it("the docs and the three agents write a behavior as When … then …, the example brief too", () => {
+  it("the docs and the agents that write or check a Done when hold When … then …, the example brief too", () => {
     const docs = flat(readFileSync(join(plugin, "docs", "workflow.md"), "utf8"));
     const rule =
       /\*\*A behavior is written as a scenario\*\*.*?\(decisions\.md#behavior-as-scenario\)/.exec(
@@ -1073,6 +1073,12 @@ describe("a brief or a plan is a prompt", () => {
     expect(executor).toMatch(
       /\*\*The final message\*\* leads in plain words.{0,220}When <what he does>, then <what he sees>/,
     );
+    // The reviewer checks the scenarios rather than writing them: its check 2, to check 3.
+    const check = flat(
+      /2\. \*\*Every line of its "Done when"[^]*?(?=\n3\. )/.exec(agent("reviewer"))![0],
+    );
+    expect(check).toContain("a When … then … line by the test it names");
+    expect(check).toContain("as is a scenario it says is looked at on screen");
   });
 });
 
