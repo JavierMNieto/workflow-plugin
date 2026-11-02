@@ -4,7 +4,7 @@ branch: test
 run: checks.yml
 catalogue: plugins/workflow/docs/decisions.md
 ui:
-  - "plugins/**"
+  - "plugins/workflow/**"
   - "INSTALL.md"
   - "README.md"
   - ".claude-plugin/**"
