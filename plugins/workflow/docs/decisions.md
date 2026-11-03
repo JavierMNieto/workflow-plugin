@@ -418,7 +418,12 @@ on the machine that planned them.
   tar`, or updates when the clone has moved on; deleting the copy took
   the scripts from every chat still running on it, and a `--plugin-dir`
   root is a source checkout. Tried by a test on a throwaway clone.
-  plans/install-fix-safe.md.
+  plans/install-fix-safe.md. 3 November, later: the fallback for a
+  missing check decides as the check does, in the hook's shell and in
+  `plans`, from the copy's own path; a copy that the install record does
+  not name is an older version and gets no command; the yes option says
+  what the line's fix does, and the recheck looks at the copy the fix
+  changed. plans/install-fix-every-path.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the

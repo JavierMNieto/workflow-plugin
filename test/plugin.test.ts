@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -2263,8 +2264,44 @@ describe("the install check", () => {
     const root = join(tmp, "cache", "workflow", "workflow", version);
     cpSync(plugin, root, { recursive: true });
     for (const path of remove) rmSync(join(root, path), { recursive: true, force: true });
+    writeFileSync(
+      join(tmp, "installed_plugins.json"),
+      JSON.stringify(
+        {
+          version: 2,
+          plugins: { "workflow@workflow": [{ scope: "user", installPath: root, version }] },
+        },
+        null,
+        2,
+      ),
+    );
     return { tmp, clone, root, version };
   };
+  /** The record names another version directory: the copy is an older one. */
+  const older = (tmp: string) =>
+    writeFileSync(
+      join(tmp, "installed_plugins.json"),
+      JSON.stringify(
+        {
+          version: 2,
+          plugins: {
+            "workflow@workflow": [
+              {
+                scope: "user",
+                installPath: join(tmp, "cache", "workflow", "workflow", "ffffffffffff"),
+                version: "ffffffffffff",
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  const OLDER = "This copy is an older version that new chats do not load: start a new chat.";
+  const FOLDER =
+    "This copy is loaded from a folder, not the plugins cache: put them back in that folder, " +
+    "then start a new chat.";
   const broken = ["hooks/hooks.json", "scripts/project.mjs", "skills"];
   const brokenList =
     "hooks/hooks.json, scripts/project.mjs, skills/change/SKILL.md, " +
@@ -2374,35 +2411,98 @@ describe("the install check", () => {
     expect(run.stdout).toBe("");
     expect(run.stderr).toBe(`${text}\n`);
   });
-  it("When a copy lacks the check itself, then the manifest and plans say the fallback", () => {
-    const { root, version } = cache("scripts/install-check.mjs");
-    const home = dir("workflow-home-");
-    const fallback =
-      "The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, " +
-      `and maybe more. The fix: git -C "${join(home, ".claude", "plugins", "marketplaces", "workflow")}" ` +
-      `archive ${version}:plugins/workflow | tar -x -C "${root}", then start a new chat.`;
-    const env = { ...process.env, HOME: home, CLAUDE_PLUGIN_ROOT: root };
-    const hook = spawnSync("sh", ["-c", manifestCommand()], { encoding: "utf8", env });
-    expect(hook.status).toBe(0);
-    expect(hook.stdout).toBe(`${fallback}\n`);
-    const cwd = dir("workflow-plans-");
-    execFileSync("git", ["init", "-q"], { cwd });
-    const run = spawnSync("node", [join(root, "bin", "plans")], { cwd, encoding: "utf8", env });
+  it("When the copy is an older version than the installed one, then the line names no command", () => {
+    const { tmp, root } = cache(...broken);
+    older(tmp);
+    const text = check(root);
+    expect(text).toBe(head(root, brokenList) + OLDER);
+    const run = plans(root);
     expect(run.status).toBe(1);
     expect(run.stdout).toBe("");
-    expect(run.stderr).toBe(`${fallback}\n`);
+    expect(run.stderr).toBe(`${text}\n`);
   });
-  it("gives one fallback in the manifest and plans, the root read as one", () => {
-    const one = (text: string, root: string) => text.split(root).join("<root>");
-    const a = copy("scripts/install-check.mjs");
-    const b = copy("scripts/install-check.mjs");
-    const hook = spawnSync("sh", ["-c", manifestCommand()], {
+  it("When a folder above the cache is a symlink, then the installed copy is still the installed one", () => {
+    const { tmp, clone, root, version } = cache(...broken);
+    const link = `${tmp}-link`;
+    symlinkSync(tmp, link);
+    made.push(link);
+    const linked = join(link, "cache", "workflow", "workflow", version);
+    writeFileSync(
+      join(tmp, "installed_plugins.json"),
+      JSON.stringify(
+        {
+          version: 2,
+          plugins: { "workflow@workflow": [{ scope: "user", installPath: linked, version }] },
+        },
+        null,
+        2,
+      ),
+    );
+    // Node resolves the script's path, so the check reads the real root.
+    const run = spawnSync("node", [join(linked, "scripts", "install-check.mjs")], {
       encoding: "utf8",
-      env: { ...process.env, CLAUDE_PLUGIN_ROOT: a },
-    }).stdout;
-    const run = plans(b).stderr;
-    expect(fixIn(hook)).toMatch(/ archive workflow:plugins\/workflow \| tar /);
-    expect(one(run, b)).toBe(one(hook, a));
+    });
+    expect(JSON.parse(run.stdout).systemMessage).toBe(
+      head(root, brokenList) +
+        `The fix: git -C "${clone}" archive ${version}:plugins/workflow | tar -x -C "${root}", ` +
+        "then start a new chat.",
+    );
+    const one = cache("scripts/install-check.mjs", "skills");
+    const oneLink = `${one.tmp}-link`;
+    symlinkSync(one.tmp, oneLink);
+    made.push(oneLink);
+    const oneLinked = join(oneLink, "cache", "workflow", "workflow", one.version);
+    writeFileSync(
+      join(one.tmp, "installed_plugins.json"),
+      JSON.stringify({ plugins: { "workflow@workflow": [{ installPath: oneLinked }] } }, null, 2),
+    );
+    const cwd = dir("workflow-plans-");
+    execFileSync("git", ["init", "-q"], { cwd });
+    const plansRun = spawnSync("node", [join(oneLinked, "bin", "plans")], {
+      cwd,
+      encoding: "utf8",
+    });
+    expect(plansRun.stderr).toContain("The fix: git -C");
+  });
+  it("When one file is missing, then the line says it is", () => {
+    const root = copy("settings.json");
+    expect(check(root)).toContain(`1 of its ${FILES.length} files is missing from ${root}`);
+  });
+  it("When a copy lacks the check itself, then the manifest and plans decide as the check does", () => {
+    const first =
+      "The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, " +
+      "and maybe more. ";
+    const atCommit = cache("scripts/install-check.mjs");
+    const movedOn = cache("scripts/install-check.mjs");
+    writeFileSync(join(movedOn.clone, "later.txt"), "later\n");
+    gitIn(movedOn.clone, "add", "-A");
+    gitIn(movedOn.clone, "commit", "-q", "-m", "two");
+    const old = cache("scripts/install-check.mjs");
+    older(old.tmp);
+    const folder = copy("scripts/install-check.mjs");
+    const layouts: [string, string][] = [
+      [
+        atCommit.root,
+        `The fix: git -C "${atCommit.clone}" archive ${atCommit.version}:plugins/workflow | ` +
+          `tar -x -C "${atCommit.root}", then start a new chat.`,
+      ],
+      [movedOn.root, "The fix: claude plugin update workflow@workflow, then start a new chat."],
+      [old.root, OLDER],
+      [folder, FOLDER],
+    ];
+    for (const [root, last] of layouts) {
+      const fallback = `${first}${last}\n`;
+      const env = { ...process.env, HOME: dir("workflow-home-"), CLAUDE_PLUGIN_ROOT: root };
+      const hook = spawnSync("sh", ["-c", manifestCommand()], { encoding: "utf8", env });
+      expect(hook.status, root).toBe(0);
+      expect(hook.stdout, root).toBe(fallback);
+      const cwd = dir("workflow-plans-");
+      execFileSync("git", ["init", "-q"], { cwd });
+      const run = spawnSync("node", [join(root, "bin", "plans")], { cwd, encoding: "utf8", env });
+      expect(run.status, root).toBe(1);
+      expect(run.stdout, root).toBe("");
+      expect(run.stderr, root).toBe(fallback);
+    }
   });
   it("says what the agents do with the line in the same words in all four", () => {
     const paragraph = (agent: string) =>

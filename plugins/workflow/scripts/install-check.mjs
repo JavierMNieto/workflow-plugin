@@ -6,7 +6,7 @@
 // importing `node:` modules only, since any other file may be the missing one
 // (docs/workflow.md, "Installing"; decisions.md#install-checks-itself).
 import { execFileSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,20 +56,30 @@ export function missing(root = join(here, "..")) {
   });
 }
 
+const FOLDER =
+  "This copy is loaded from a folder, not the plugins cache: put them back in that folder, " +
+  "then start a new chat.";
+const OLDER = "This copy is an older version that new chats do not load: start a new chat.";
+
 /**
- * The fix for a copy at `root`, or null when the copy is not in a plugins
- * cache (`--plugin-dir`, a checkout: its root is a source, and nothing is
- * run on it). The cache path is read as `statusline.mjs`'s `data()` reads it.
- * With the marketplace's clone at the copy's own commit, the files are put
- * back from it in place, deleting nothing, so chats running on the copy work
- * again at their next hook; else the newer version is installed beside it.
- * The plugin's path in the repository is `plugins/<plugin>`, as
- * `marketplace.json`'s `source` (`./plugins/workflow`) has it.
+ * The line's last sentence for a copy at `root`, decided four ways in this
+ * order. A root outside `<plugins>/cache/<marketplace>/<plugin>/<version>`
+ * (`--plugin-dir`, a checkout: its root is a source) gets no command. A root
+ * the install record beside the cache does not name is an older version,
+ * which new chats do not load, and gets no command. With the marketplace's
+ * clone at the copy's own commit, the files are put back from it in place,
+ * deleting nothing, so chats running on the copy work again at their next
+ * hook; else the newer version is installed beside it. The cache path is read
+ * as `statusline.mjs`'s `data()` reads it, and the plugin's path in the
+ * repository is `plugins/<plugin>`, as `marketplace.json`'s `source`
+ * (`./plugins/workflow`) has it. `bin/plans` and the manifest's shell decide
+ * the same way when this file is the one missing; a test holds the three.
  */
 export function fix(root) {
   const cached = /^(.*)[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
-  if (!cached) return null;
+  if (!cached) return FOLDER;
   const [, plugins, marketplace, plugin, version] = cached;
+  if (!installed(plugins, root)) return OLDER;
   const clone = join(plugins, "marketplaces", marketplace);
   let head = "";
   try {
@@ -81,22 +91,53 @@ export function fix(root) {
   } catch {
     // No clone, or no git: the update form.
   }
-  return head && head.startsWith(version)
-    ? `git -C "${clone}" archive ${version}:plugins/${plugin} | tar -x -C "${root}"`
-    : `claude plugin update ${plugin}@${marketplace}`;
+  const command =
+    head && head.startsWith(version)
+      ? `git -C "${clone}" archive ${version}:plugins/${plugin} | tar -x -C "${root}"`
+      : `claude plugin update ${plugin}@${marketplace}`;
+  return `The fix: ${command}, then start a new chat.`;
 }
 
-/** The line said when files are missing (plans/install-fix-safe.md, The words, row 1). */
+/**
+ * Whether the record beside the cache holds `root` as a path, matched as text
+ * (the root as its JSON string), as the manifest's shell matches it with
+ * `grep -F`; true with no record, so a plugins directory without one goes on
+ * to the clone.
+ */
+function installed(plugins, root) {
+  let record;
+  try {
+    record = readFileSync(join(plugins, "installed_plugins.json"), "utf8");
+  } catch {
+    return true;
+  }
+  if (record.includes(JSON.stringify(root))) return true;
+  // Node gives this script its path with symlinks resolved, and the record
+  // keeps the path as Claude Code wrote it: a folder above the cache that is a
+  // symlink is the same copy, read both ways.
+  try {
+    const real = realpathSync(root);
+    const paths = [...record.matchAll(/"installPath":\s*("(?:[^"\\]|\\.)*")/g)].map((m) =>
+      JSON.parse(m[1]),
+    );
+    return paths.some((path) => {
+      try {
+        return realpathSync(path) === real;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** The line said when files are missing (plans/install-fix-every-path.md, The words, row 1). */
 export function message(root, gone) {
-  const command = fix(root);
   return (
     `The workflow plugin's installed copy is incomplete: ${gone.length} of its ${FILES.length} ` +
-    `files are missing from ${root}, and what is missing does not run in this chat. ` +
-    `Missing: ${gone.join(", ")}. ` +
-    (command
-      ? `The fix: ${command}, then start a new chat.`
-      : "This copy is loaded from a folder, not the plugins cache: put them back in that folder, " +
-        "then start a new chat.")
+    `files ${gone.length === 1 ? "is" : "are"} missing from ${root}, and what is missing does not run in this chat. ` +
+    `Missing: ${gone.join(", ")}. ${fix(root)}`
   );
 }
 

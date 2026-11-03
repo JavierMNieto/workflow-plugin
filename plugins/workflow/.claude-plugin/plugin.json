@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/install-check.mjs\" || echo \"The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, and maybe more. The fix: git -C \\\"$HOME/.claude/plugins/marketplaces/workflow\\\" archive $(basename \"${CLAUDE_PLUGIN_ROOT}\"):plugins/workflow | tar -x -C \\\"${CLAUDE_PLUGIN_ROOT}\\\", then start a new chat.\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/install-check.mjs\" || { r=\"${CLAUDE_PLUGIN_ROOT}\"; p=\"${r%/cache/*}\"; t=\"${r#\"$p/cache/\"}\"; f=\"This copy is loaded from a folder, not the plugins cache: put them back in that folder, then start a new chat.\"; case \"$t\" in */*/*/*) ;; ?*/?*/?*) m=\"${t%%/*}\"; u=\"${t#*/}\"; g=\"${u%%/*}\"; v=\"${u#*/}\"; if [ -f \"$p/installed_plugins.json\" ] && ! grep -qF \"\\\"$r\\\"\" \"$p/installed_plugins.json\"; then f=\"This copy is an older version that new chats do not load: start a new chat.\"; else case \"$(git -C \"$p/marketplaces/$m\" rev-parse HEAD 2>/dev/null)\" in \"$v\"*) f=\"The fix: git -C \\\"$p/marketplaces/$m\\\" archive $v:plugins/$g | tar -x -C \\\"$r\\\", then start a new chat.\";; *) f=\"The fix: claude plugin update $g@$m, then start a new chat.\";; esac; fi;; esac; echo \"The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, and maybe more. $f\"; }",
             "timeout": 5
           }
         ]

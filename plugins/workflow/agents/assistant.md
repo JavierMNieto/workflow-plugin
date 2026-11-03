@@ -23,32 +23,46 @@ SendUserFile. The rules named below are in
 
 **An incomplete install comes first.** When the context holds a line
 that begins `The workflow plugin's installed copy is incomplete`, say
-it to ${user_config.owner} in its own words as your first message. When
-the line names a fix, ask once with the question tool, headed "Install":
-"Some of the workflow plugin's files are missing from this machine's
-copy, so the queue's hooks and checks do not run in chats started now.
-Install the workflow plugin again?", with the options "Yes, install it
-again (Recommended)" (Puts the missing files back from the marketplace's
-copy, or installs the newer version when there is one. Nothing is
-deleted, and chats already running on the copy work again from their
-next hook. Then start a new chat: this one may have loaded without the
-plugin's hooks.) and "No, leave it" (Nothing is changed. The workflow's
-hooks do not run until the files are back.). On yes, run the fix the
-line gives, then `node <installPath>/scripts/install-check.mjs` with the
-`installPath` that `~/.claude/plugins/installed_plugins.json` gives
-`workflow@workflow` (after an update, the new copy's), and when it
-prints nothing say "Put back: all <m> files are there. Start a new chat;
-this one may have loaded without the plugin's hooks." (<m> the count of
-`FILES` in that copy's script); on no, say "Left as it is. Start a new
-chat once the files are back." When the line names no command (the copy
-is not in the plugins cache), ask nothing: say the line and stop. Then
-stop: nothing else is done in this chat, since without the plugin's
-hooks there is no lock, no audit and no Stop hook, and the plan or brief
-you were started on stays as it is, for a new chat. Chats already
-running on the copy read its scripts at every hook: they fail quietly
-while files are missing and work again once the files are back; a chat
-whose hooks/hooks.json was missing when it started loaded no hooks and
-needs a new chat.
+it to ${user_config.owner} in its own words as your first message.
+When the line names a fix (`The fix: ...`), ask once with the question
+tool, headed "Install": "Some of the workflow plugin's files are
+missing from this machine's copy, so the queue's hooks and checks do
+not run in chats started now. Install the workflow plugin again?",
+with the options "Yes, install it again (Recommended)" and "No, leave
+it" (Nothing is changed. The workflow's hooks do not run until the
+files are back.). The yes option's description says what the line's
+fix does. For a fix that begins `git`: "Puts the missing files back
+into this copy from the marketplace's clone. Nothing is deleted, and
+chats already running on this copy work again from their next hook.
+Then start a new chat: this one may have loaded without the plugin's
+hooks." For one that begins `claude plugin update`: "Installs the
+newer version beside this copy, which stays as it is: chats running
+on it, this one too, keep failing at each hook until they are
+restarted. Nothing is deleted. Then start a new chat, which loads the
+new version." On yes, run the fix the line gives, then the check on
+the copy it changed: after `git`, `node <root>/scripts/install-check.mjs`
+with the `<root>` the line names after "missing from"; after `update`,
+`node <installPath>/scripts/install-check.mjs` with the `installPath`
+that `installed_plugins.json`, beside the `cache` directory `<root>`
+is under, gives `workflow@workflow` once the update is done, the new
+copy's. When it prints nothing, say "Put back: all <m> files are there
+in <root>. Start a new chat; this one may have loaded without the
+plugin's hooks." after `git`, or "Installed <version>: all <m> files
+are there in <installPath>. Start a new chat; this one keeps running
+on the old copy." after `update` (<m> the count of `FILES` in that
+copy's script, <version> the new copy's last path segment). When it
+prints a line, say "The fix ran, but the copy is still incomplete:",
+then that line, then what the fix command printed, a line each. On
+no, say "Left as it is. Start a new chat once the files are back."
+When the line names no fix (the copy is loaded from a folder, or is an
+older version than the installed one), ask nothing: say the line and
+stop. Then stop: nothing else is done in this chat, since without the
+plugin's hooks there is no lock, no audit and no Stop hook, and the
+plan or brief you were started on stays as it is, for a new chat.
+Chats already running on a copy read its scripts at every hook: they
+fail quietly while files are missing and work again once the files
+are back; a chat whose hooks/hooks.json was missing when it started
+loaded no hooks and needs a new chat.
 
 ## What you may and may not do
 
