@@ -157,7 +157,12 @@ in the final message and carry on.
    take the line out when you write "Built". `plans` reads it. From this
    line the plan is yours: the planner that wrote it may no longer change
    it, and a change ${user_config.owner} wants reaches you as a follow-up
-   plan or a brief through the assistant.
+   plan or a brief through the assistant. A plan with an `Issue: #<n>.`
+   line is built only once it has its `## Ready` section (`plans` lists it
+   as planned until then, and the tool hook refuses the Building line);
+   read the section as the last word where it differs from "Decided", and
+   with the Building line set the issue's label, `plans gh issue edit <n>
+   --remove-label "status: ready" --add-label "status: building"`.
 
 ## Building
 
@@ -323,7 +328,12 @@ topic is ready; a fix in the day's fixes pull request; a fix wanted on
 the site at once pushed straight to the branch. Where this file says
 "push", it means that landing. The merge is the people's: never `gh pr
 merge`, never `gh pr ready` without `--undo`, and the branch itself is
-pushed only for a `Lands: fix, now.` plan, as a fast-forward.
+pushed only for a `Lands: fix, now.` plan, as a fast-forward. Every
+write to GitHub but the push, `gh pr create`, `gh pr edit` and `gh pr
+ready --undo` among them, runs as `plans gh` in a project whose file has
+an **Issues** heading, so the pull request is the project's app's (the
+docs, "The queue speaks on GitHub as the project's own app"); the push
+stays on `GH_TOKEN`.
 
 - **The `Lands` line**, under the plan's header paragraph, is one of
   `Lands: fix.`, `Lands: fix, now.`, `Lands: topic <name>, waiting.` and
@@ -390,9 +400,10 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
     `origin/<branch>` or the head it is stacked on): the plan's squash goes
     back to it and no further.
 - **At a batch's start**, `git fetch --prune`; then each open pull
-  request of this queue (opened by this account, `gh pr list --author
-  @me`, whose number or head branch a plan in this checkout's `plans/`
-  names) whose base is a branch whose pull request has merged is
+  request of this queue (`gh pr list`, one a plan in this checkout's
+  `plans/` names as its own: the pull request its "Built" opened or
+  joined, or the branch of its `Lands` topic; a `Related` line names
+  another's) whose base is a branch whose pull request has merged is
   retargeted, `gh pr edit <n> --base <branch>`, and `origin/<branch>`
   merged into its head and pushed, the refresh's way, so its diff shows
   its own change and not the squashed one's again; then a local branch is
@@ -401,9 +412,10 @@ pushed only for a `Lands: fix, now.` plan, as a fast-forward.
   whose pull request was closed unmerged, or that holds commits past it,
   stays, named in the final message.
 - **Then a conflicting pull request is refreshed**, each open pull
-  request of this queue (opened by this account, `gh pr list --author
-  @me`, whose number or head branch a plan in this checkout's `plans/`
-  names) that GitHub reports as conflicting (`gh pr view <n> --json
+  request of this queue (`gh pr list`, one a plan in this checkout's
+  `plans/` names as its own: the pull request its "Built" opened or
+  joined, or the branch of its `Lands` topic; a `Related` line names
+  another's) that GitHub reports as conflicting (`gh pr view <n> --json
   mergeable,baseRefName,headRefName,headRefOid`, `mergeable`
   `CONFLICTING`; one still `UNKNOWN` is asked again once the others are
   done, and named in the final message if it stays so), a pull request
@@ -599,6 +611,7 @@ titles of the commits under `Also` aside, which are kept as their
 authors wrote them; the whole of it, screenshots aside, fits one screen:
 
 ```
+For #<n>.                                     <- plans with an Issue line only
 Builds on #<n>; merge that first.             <- stacked plans only
 Related: #<n>.                                <- plans with a Related line only
 
@@ -638,11 +651,15 @@ to a Claude session left out>
 
 - **Related**: the plans' `Related` lines as written (`Related: #31.`,
   `Related: #31 and branch <name>.`), each item kept, one line, right
-  after `Builds on`, or first; GitHub links it and writes a backlink on
+  after `For` and `Builds on`, or first; GitHub links it and writes a backlink on
   the other pull request's timeline, so its people see it where they
   read. With no line, nothing. You never look for related work yourself,
   since the plan's author did, and never comment on another person's pull
   request (${user_config.owner}, 30 October).
+- **For**: `For #<n>.`, the issue of each plan of the topic with an
+  `Issue` line, one line, first. No closing keyword: GitHub ignores one
+  on a pull request to a branch that is not the default, and the `#<n>`
+  writes the cross-reference on the issue's timeline.
 - **New, Changed, Retired**: the catalogue's diff. Every catalogue entry
   the topic's commits add, replace or retire, and every "Decided" item of
   the topic's plans that has no entry (a doc rule, a project-file line),

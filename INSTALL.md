@@ -21,7 +21,9 @@ ask only the questions below, and end with the message in step 6.
 - Run `gh auth status`. Signed in or not, go on: the install reads a
   public repository. When it is not signed in, or `gh` is missing, keep
   one line for the end: pushing from a chat needs GitHub access, and
-  `gh auth login` gives it.
+  `gh auth login` gives it. A project whose topics become GitHub issues
+  also needs its GitHub App's id and private key, `WORKFLOW_APP_ID` and
+  `WORKFLOW_APP_KEY`, set where `GH_TOKEN` is; `/workflow:setup` asks.
 
 ## 2. Ask the person's first name
 

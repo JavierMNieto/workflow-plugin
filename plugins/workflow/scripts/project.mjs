@@ -472,6 +472,8 @@ export const QUEUE_IGNORES = [
   // An assistant chat's start writes `assistant.started`; it has no deferral.
   ".claude/assistant.*",
   ".claude/worktrees/",
+  // The project's app's token (plans/plans-as-github-issues.md, part 1).
+  ".claude/app-token.*",
 ];
 
 /**

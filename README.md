@@ -35,6 +35,9 @@ part of building software is the decisions.
 - **The executor** builds plans in order on a branch of its own, has the
   diff reviewed three ways, runs the project's checks and suites, pushes,
   and reads the run.
+- **Issues**, where a project turns them on: a topic the people discuss
+  is a GitHub issue the project's own app writes, the plan behind it, and
+  it is built once the issue is labelled `status: ready`.
 
 The queue between them lives in the plan files themselves, carried by
 hooks: one executor at a time, bounded by the subscription's usage, with

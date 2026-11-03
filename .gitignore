@@ -4,6 +4,7 @@ node_modules/
 .claude/asking.*
 .claude/assistant.*
 .claude/worktrees/
+.claude/app-token.*
 .claude/settings.local.json
 *.log
 plans/

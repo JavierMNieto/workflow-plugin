@@ -27,6 +27,7 @@ export const FILES = [
   "hooks/hooks.json",
   "scripts/catalogue-context.mjs",
   "scripts/codex-review.sh",
+  "scripts/github-app.mjs",
   "scripts/install-check.mjs",
   "scripts/plain-words.mjs",
   "scripts/plan-queue.d.mts",

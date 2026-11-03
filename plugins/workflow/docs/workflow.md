@@ -239,9 +239,10 @@ stacked on it; one that only changes the same file is not.**
 conflicting pull request at a batch's start included, pushed to its own
 head branch only. (decisions.md#merge-never-force)
 
-**The executor refreshes only its own person's pull requests, with the
-checks alone**: those its account opened (`gh pr list --author @me`) that
-a plan in its `plans/` names. (decisions.md#refresh-only-your-own)
+**The executor refreshes only the queue's own pull requests, with the
+checks alone**: those a plan in its `plans/` names as its own, the pull
+request its "Built" opened or joined or its `Lands` topic's branch, never
+one a `Related` line names. (decisions.md#refresh-only-your-own)
 
 **A topic's pull request opens as a draft and stays one until its owner
 has reviewed it himself**: he marks it ready on GitHub, the one act that
@@ -264,9 +265,12 @@ every chat, a subagent included; `plans check` lints it. (decisions.md#deny-key)
 **Before the push** (screenshots, checks, suites, in order), **After the
 push** (what to watch), **Reading** (which tools read code and docs),
 **Products** (the product people know for each kind of thing, which
-`design-research` follows first) and **People** (whose calls are theirs,
-and what each decides); the body may also name the tools that publish
-under the owner's name, which no agent calls. (decisions.md#body-headings)
+`design-research` follows first), **People** (whose calls are theirs,
+and what each decides) and **Issues** (`Detail:`, a skill or command that
+turns a plan into an address an issue links, and `Check:`, a command that
+fails on what may not leave the repository; its presence turns issues on);
+the body may also name the tools that publish under the owner's name,
+which no agent calls. (decisions.md#body-headings)
 
 **A project is set up in a short interview**, `/workflow:setup`, asked
 once with its kind's defaults (`kinds.md`), each thing's cost said; run
@@ -390,8 +394,9 @@ Built` (its commit, and a `Pull request #<n>`, `Pushed straight to
 written by the plan's author on the owner's word with one line of why, is
 dropped: never ready, never started, refused by path, out of the asking
 deferral; `## Building, <date>, session <id>`, the executor's while that
-session lives; `## Handing over`, resumed first; else a `Plan only` or
-`Short plan` header dated 24 October 2026 or later is ready. In pull
+session lives; `## Handing over`, resumed first; an `Issue: #<n>.` line
+with no `## Ready, <date>` is planned, waiting on GitHub; else a `Plan
+only` or `Short plan` header dated 24 October 2026 or later is ready. In pull
 request mode `plans` names what each brief and plan looks related to, and
 the author answers with a `Related` line.
 (decisions.md#plan-state-in-file, decisions.md#related-line)
@@ -483,6 +488,23 @@ the plan say `Touches <name>'s part`, so the owner knows. No agent drafts
 a message for another person unless the owner asked for one in the
 conversation; asked, it is in his words, ready to paste. A group that has
 already agreed is written in "Decided". (decisions.md#group-message)
+
+**A topic the people discuss is a GitHub issue**: one sentence of what
+should be true, the decisions and what is left out under it, the plan
+behind it as a collapsed comment or the project's Detail address, never
+the body; anyone opens one, the assistant writes them on the owner's
+word, the planner adds the plan's overview, the executor writes `For
+#<n>` on the pull request. (decisions.md#issue-is-the-overview)
+
+**The queue speaks on GitHub as the project's own app**, through `plans
+gh`, pull requests included; the push alone is the person's token.
+(decisions.md#project-app)
+
+**A plan with an issue waits for Ready**: `plans` lists it as planned,
+nobody starts it, and the label `status: ready` or the owner's word
+writes the section, comments folded by whose call each is; the issue's
+stage is one `status:` label, `planning`, `planned`, `ready`, `building`.
+(decisions.md#ready-before-built)
 
 **The day's fixes.** With `land: pull-request`, the day's `Lands: fix.`
 plans are one pull request, `Small fixes, <d Month yyyy>`, from
@@ -588,7 +610,9 @@ and Commit statuses read), carried in by the devcontainer's
 `"containerEnv": { "GH_TOKEN": "${localEnv:GH_TOKEN}" }`, which the setup
 writes, with `gh auth setup-git --hostname github.com` from the
 dotfiles; its value is in no file, and `gh auth status` says when it
-expires. (decisions.md#push-token)
+expires. A project with issues carries its app's id and private key the
+same way, `WORKFLOW_APP_ID` and `WORKFLOW_APP_KEY` (the PEM's text),
+from which `plans gh` mints the app's token. (decisions.md#push-token)
 
 **Screenshots on a pull request** go up through `gh pr create --attach`
 and `gh pr edit --attach`, which need gh 2.99 or newer (from GitHub's apt

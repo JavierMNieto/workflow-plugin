@@ -141,10 +141,16 @@ on the machine that planned them.
   may enforce in its settings; a squash merge keeps the merge commit off
   the branch, and another person's commits on it stay as they are.
   plans/refresh-by-merge.md.
-- `refresh-only-your-own` **The executor refreshes only its own person's
-  pull requests, with the checks alone.** (Javi, 30 October) Another
-  person's pull request is refreshed by their own executor; the suites
-  run in the pull request's CI on the push. plans/refresh-only-your-own.md.
+- `refresh-only-your-own` **The executor refreshes only the queue's own
+  pull requests, those its plans name as their own, with the checks
+  alone.** (Javi, 3
+  November) The pull requests open as the project's app, so who opened
+  one no longer tells them apart, and the checkout's plans name the
+  queue's own; another person's pull request is refreshed by their own
+  executor, and the suites run in the pull request's CI on the push.
+  plans/refresh-only-your-own.md, plans/plans-as-github-issues.md.
+  - ~~The executor refreshes only its own person's pull requests, with
+    the checks alone.~~ (Javi, 30 October)
 - `draft-until-reviewed` **A topic's pull request opens as a draft and
   stays one until its owner has reviewed it himself.** (Javi, 30 October)
   No pull request asks anyone else's time until he has reviewed it;
@@ -350,6 +356,28 @@ on the machine that planned them.
   plans/messages-for-people-only-on-request.md.
   - ~~A change to another person's part is built as any plan, with a
     message for the group the owner sends.~~ (Javi, 28 October)
+- `issue-is-the-overview` **A topic the people discuss is a GitHub
+  issue, one sentence of what should be true with the detail under it
+  and the plan behind it.** (Javi, 3 November) People comment where
+  they already read; GitHub's bug template leads with one line, Shape
+  Up's pitch is posted for comments with the detail kept out, and
+  Linear keeps a document apart from the description.
+  plans/plans-as-github-issues.md.
+- `project-app` **The queue writes issues, comments, labels and pull
+  requests as the project's own GitHub App, never under a person's
+  name.** (Javi, 3 November) A write under his name needed his yes each
+  time; an app is nobody's name, as Copilot's and Claude's apps post as
+  `[bot]`, its token is minted on the machine, so no workflow and no
+  runner; who opened a pull request need not be told apart, since the
+  checkout's plans name the queue's own. plans/plans-as-github-issues.md.
+- `ready-before-built` **A plan with an issue is built once the issue
+  is labelled ready, or the owner says so, its comments folded by whose
+  call each is; the issue's stage is one `status:` label.** (Javi, 3
+  November) Shape Up's bet is taken at the table after the comments; a
+  person's comment on their own part is their call already
+  (`decision-has-a-name`), and the rest is his; a `status:` group is
+  how projects label stages on GitHub, which has no standard of its
+  own, and the words are the queue's. plans/plans-as-github-issues.md.
 - `days-fixes` **The day's fixes are one pull request, `Small fixes, <d
   Month yyyy>`, never two in a day.** (Javi, 30 October) A daily pull
   request for the small fixes rather than a message for the group, which

@@ -63,6 +63,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { fileURLToPath } from "node:url";
 import { agentsChoice, shellWrites, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
+import { installationToken, repoOfRemote } from "./github-app.mjs";
 import {
   PROJECT_FILE,
   QUEUE_KINDS,
@@ -148,6 +149,8 @@ const files = {
   usage: () => process.env.WORKFLOW_USAGE_FILE || join(data(), "usage.json"),
   starts: () => process.env.WORKFLOW_STARTS_LOG || join(data(), "starts.log"),
   state: (sessionId) => join(tmpdir(), `workflow-queue-${sessionId || "unknown"}.json`),
+  // The project's app's installation token and its end (plans/plans-as-github-issues.md).
+  appToken: () => join(root, ".claude", "app-token.json"),
 };
 
 /** What `plans` says, and `plans start` refuses with, in a project with no project file. */
@@ -193,6 +196,13 @@ function sectionAfter(text, heading) {
   const next = rest.slice(1).search(/^## /m);
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
+
+/**
+ * The states a plan still asking its owner can be in: a planned plan
+ * (plans/plans-as-github-issues.md) asks as a ready one does, and its
+ * question's window is recorded the same way (/code-review).
+ */
+const ASKS_STATES = ["ready", "planned"];
 
 /** The queue's own status lines, dated, never a plan's "## Building it" section. */
 const STATUS_HEADING = /^## (?:Planning, |Building, |Resumed, |Handing over\b)/;
@@ -306,6 +316,46 @@ export function fromOf(text = "") {
 }
 
 /**
+ * **The GitHub issue a brief or a plan is the plan behind**, its `Issue:
+ * #<n>.` line (plans/plans-as-github-issues.md, part 3): read as `fromOf`
+ * reads `From`, from the text before the first `## `, past the status
+ * sections and outside a fenced block; the number, 0 with none.
+ */
+export function issueOf(text = "") {
+  const lines = withoutStatus(text).split("\n");
+  const end = lines.findIndex((line) => /^## /.test(line));
+  const head = withoutFences((end < 0 ? lines : lines.slice(0, end)).join("\n"));
+  return Number(/^Issue:[ \t]+#(\d+)\.?[ \t]*$/m.exec(head)?.[1] || 0);
+}
+
+/**
+ * **A plan's `## Ready, <date>` section** (plans/plans-as-github-issues.md,
+ * part 3), outside a fenced block: `{ readyDay, by, lines }`, `by` "github"
+ * for `Ready on GitHub, <d Month>.`, "owner" for `Ready on <owner>'s word, <d
+ * Month>.`, "" for another first line, and `lines` the decisions the comments
+ * made, one per line; null with none.
+ */
+export function readyOf(text = "") {
+  if (!/^## Ready, /m.test(text)) return null;
+  const prose = withoutFences(text);
+  const heading = new RegExp(`^## Ready, (${DAY})[ \\t]*$`, "m").exec(prose);
+  if (!heading) return null;
+  const body = prose.slice(heading.index + heading[0].length);
+  const end = body.search(/^## /m);
+  const lines = (end < 0 ? body : body.slice(0, end))
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const first = lines[0] || "";
+  const by = /^Ready on GitHub\b/.test(first)
+    ? "github"
+    : /^Ready on [^\n]*['\u2019]s word\b/.test(first)
+      ? "owner"
+      : "";
+  return { readyDay: heading[1], by, lines: by ? lines.slice(1) : lines };
+}
+
+/**
  * **The briefs a plan carries to the project it came from**, its `## For
  * <Project>: plans/<topic>.md` sections outside fenced blocks
  * (plans/project-follow-ups-reach-the-project.md, part 4): `[{ project, file
@@ -406,6 +456,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
       date: day ? parseDay(day) : 0,
       mtime,
       relatedTo: relatedOf(text),
+      issue: issueOf(text),
     };
     if (dropped) return { ...base, state: "dropped", ...dropped };
     const planning = /^## Planning, ([^,\n]+), session ([^\s,]+)/m.exec(text);
@@ -423,6 +474,7 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
     relatedTo: relatedOf(text),
     from: fromOf(text),
     carries: carriesOf(text),
+    issue: issueOf(text),
   };
   // Dropped before built: nobody writes both, and the drop is the last word.
   if (dropped) return { ...plan, state: "dropped", ...dropped };
@@ -479,6 +531,9 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
   const asks =
     /^## Decisions for [^\n]*\n[\s\S]*?^\d+\./m.test(sectionAfter(text, /^## Decisions for /m)) &&
     !/^## Decided/m.test(text);
+  // **A plan with an issue waits for Ready** (plans/plans-as-github-issues.md,
+  // part 3): planned until the label or the owner's word writes the section.
+  if (plan.issue && !readyOf(text)) return { ...plan, state: "planned", stale, asks };
   return { ...plan, state: "ready", stale, asks };
 }
 
@@ -860,13 +915,14 @@ export function sessionsOf(
  */
 function standingOf(plan, live, { self = "", ...options } = {}) {
   if (!plan) return "gone";
-  if (plan.state === "ready" && plan.asks) {
+  if (ASKS_STATES.includes(plan.state) && plan.asks) {
     // "Asked once": the planner's own while its question is under thirty minutes old.
     const asking = "askingIn" in plan ? plan.askingIn : askingIn(plan, live, options);
     if (!asking) return "unanswered, the executor decides";
     return `asks ${owner()}${asking.row.sessionId === self ? " here" : ""} until ${hhmm(asking.until)}`;
   }
   if (plan.state === "ready") return "ready, for the executor";
+  if (plan.state === "planned") return `planned, waiting on GitHub (#${plan.issue})`;
   if (plan.state === "handed") return "handed over";
   if (plan.state === "building")
     return `building, ${live?.find((row) => row.sessionId === plan.session)?.name || String(plan.session).slice(0, 8)}`;
@@ -1065,7 +1121,9 @@ export function marksReady(command) {
     ...["env", "command", "exec", "nohup", "sudo", "xargs"],
   ]);
   return parts.some((words) => {
-    const call = words.slice(words.findIndex((w) => !skipped.has(w) && !/^[A-Za-z_]\w*=/.test(w)));
+    let call = words.slice(words.findIndex((w) => !skipped.has(w) && !/^[A-Za-z_]\w*=/.test(w)));
+    // `plans gh` is `gh` as the project's app (plans/plans-as-github-issues.md, part 1).
+    if (call[0]?.split("/").pop() === "plans" && call[1] === "gh") call = call.slice(1);
     if (call.length < 3 || call[0].split("/").pop() !== "gh") return false;
     if (call[1] === "api") return call.some((w) => w.includes("markPullRequestReadyForReview"));
     return call[1] === "pr" && call[2] === "ready" && !call.some((w) => /^--undo(=|$)/.test(w));
@@ -1224,7 +1282,7 @@ function hhmm(at) {
  * (`mtime`), since the planner writes the plan and then asks. Null otherwise.
  */
 export function askingIn(plan, live, { stateFor = readState, now = Date.now() } = {}) {
-  if (!plan || plan.state !== "ready" || !plan.asks || !live) return null;
+  if (!plan || !ASKS_STATES.includes(plan.state) || !plan.asks || !live) return null;
   for (const row of live) {
     const state = withPlans(stateFor(row.sessionId));
     if (!isSession("planner", row, state, null)) continue;
@@ -1298,7 +1356,14 @@ export function buildingAdded(before = "", after = "") {
  */
 export function heldFromBuilding(path, text, live, { mtime = 0, ...options } = {}) {
   const state = stateOf(text.replace(BUILDING_WHOLE, ""), { mtime });
+  // **A planned plan waits for Ready** (plans/plans-as-github-issues.md, part 3).
+  if (state?.state === "planned") return { planned: true, issue: state.issue };
   return state ? askingIn({ path, ...state }, live, options) : null;
+}
+
+/** The refusal of a Building line on a plan `heldFromBuilding` holds, in the start's words. */
+export function holdWords(path, held) {
+  return held.planned ? plannedWords({ path, issue: held.issue }) : stillAskingWords(path, held);
 }
 
 /** The refusal of a Building line on a plan still asking, its time the one `plans` prints. */
@@ -2315,6 +2380,11 @@ export function agentEffort(agent, dir = join(here, "..", "agents")) {
   }
 }
 
+/** `plans start`'s refusal of a planned plan's path (plans/plans-as-github-issues.md, part 3). */
+export function plannedWords(plan) {
+  return `${plan.path} is planned and waits on GitHub (#${plan.issue}): it is built once the issue is labelled status: ready, or ${owner()} says so in the assistant's chat, which writes its "Ready" section.`;
+}
+
 /** `plans start`'s refusal of a dropped plan's path. */
 export function droppedWords(plan) {
   return `${plan.path} is dropped${plan.droppedDay ? ` (${plan.droppedDay})` : ""}: nothing to build.`;
@@ -2358,6 +2428,10 @@ function startHere(
     // named by path it is refused whole, with nothing started; a timer drops it below.
     const dropped = plans.filter((p) => p.state === "dropped" && paths.includes(p.path));
     if (dropped.length && !timer) return dropped.map(droppedWords).join("\n");
+    // **A planned plan waits for Ready**, refused by path the same way; the
+    // default pick and a timer take only ready and handed plans.
+    const planned = plans.filter((p) => p.state === "planned" && paths.includes(p.path));
+    if (planned.length && !timer) return planned.map(plannedWords).join("\n");
     const held = plans.filter((p) => p.askingIn && paths.includes(p.path));
     // Refused whole, so nothing is half started; a deferred start, which
     // nobody is watching, starts the rest and leaves the held ones to the queue.
@@ -2848,6 +2922,13 @@ export function list({ all = false, live, related = true, readers = null } = {})
     (p) =>
       `${p.kind}, ${p.day.replace(/ \d{4}$/, "")}, in ${p.askingIn.row.name || "a planner"} [${String(p.askingIn.row.sessionId).slice(0, 8)}], ${statusOf(p.askingIn.row)}, the executor decides at ${hhmm(p.askingIn.until)}`,
   );
+  // **A plan with an issue waits for Ready** (plans/plans-as-github-issues.md,
+  // part 3): its issue, and the day it was planned.
+  group(
+    "Planned, waiting on GitHub",
+    plans.filter((p) => p.state === "planned" && !p.askingIn),
+    (p) => `#${p.issue}, since ${p.day.replace(/ \d{4}$/, "")}`,
+  );
   // **Where each lands**, in the pull request mode, before the build, and
   // what its author marked it related to.
   group(
@@ -3178,7 +3259,10 @@ export function ownOf(plans = []) {
     if (plan.state === "built") {
       if (plan.pr) own.set(plan.pr, plan.path);
       for (const name of [plan.topic, plan.lands?.name]) if (name) own.set(name, plan.path);
-    } else if (["ready", "handed", "building"].includes(plan.state) && plan.lands?.name) {
+    } else if (
+      ["ready", "planned", "handed", "building"].includes(plan.state) &&
+      plan.lands?.name
+    ) {
       own.set(plan.lands.name, plan.path);
     }
   }
@@ -3689,7 +3773,7 @@ export function plannerContext(state, live = null, textOf = planText, options = 
     const yours = `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps the chat alive, and the plan with it for thirty minutes).`;
     // **Asked once**: the plan's question holds it for thirty minutes.
     const plan = { path, ...stateOf(text, { mtime: mtimeOf(path) }) };
-    if (plan.state !== "ready" || !plan.asks) return yours;
+    if (!ASKS_STATES.includes(plan.state) || !plan.asks) return yours;
     const asking = askingIn(plan, live, options);
     return asking
       ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`
@@ -3832,7 +3916,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       const opened = [];
       for (const path of new Set([state.brief, ...state.plans].filter(Boolean))) {
         const plan = { path, ...stateOf(planText(path), { mtime: mtimeOf(path) }) };
-        if (plan.state !== "ready" || !plan.asks) continue;
+        if (!ASKS_STATES.includes(plan.state) || !plan.asks) continue;
         // A plan whose window ran out is the executor's: a question about
         // another plan does not hold it again.
         const at = windowOpened(state, plan);
@@ -4056,9 +4140,12 @@ function buildingRefusal(input, statePath) {
   // **A dropped plan is nobody's to build** (plans/dropped-plan-state.md), whoever named it.
   const dropped = droppedOf(before);
   if (dropped) return droppedWords({ path, ...dropped });
+  // A planned plan is refused from its text alone, before the sessions are read (/code-review).
+  const planned = heldFromBuilding(path, after, null, { mtime: mtimeOf(path) });
+  if (planned?.planned) return holdWords(path, planned);
   const live = liveSessions({ timeout: 4000 });
   const asking = heldFromBuilding(path, after, live, { mtime: mtimeOf(path) });
-  if (asking) return stillAskingWords(path, asking);
+  if (asking) return holdWords(path, asking);
   // Judged with the sessions in hand, the plan is not judged again by the
   // shell's check; unjudged (no sessions read), the next shell command's
   // check reads them again (Codex, 28 October).
@@ -4202,7 +4289,7 @@ function hook(mode, input) {
             continue;
           }
           writeFileSync(plan.file, plan.text.replace(own, ""));
-          said.push(`${stillAskingWords(plan.path, asking)} Its Building line was taken out.`);
+          said.push(`${holdWords(plan.path, asking)} Its Building line was taken out.`);
         }
       }
       if (String(taken) !== String(state.taken || []))
@@ -4540,6 +4627,89 @@ export function chatCommand(args = [], project = proj(), dir = root) {
   ];
 }
 
+/** `plans gh`'s refusal with no app here (plans/plans-as-github-issues.md, part 1). */
+export function noAppWords(repo = "") {
+  return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set.`;
+}
+
+/**
+ * The repository `plans gh` acts on: the origin's address, else `gh repo
+ * view` when `ask`; "" when neither says.
+ */
+function repoHere(run = spawnSync, env = process.env, ask = true) {
+  const remote = run("git", ["remote", "get-url", "origin"], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 4000,
+  });
+  const named = remote.status === 0 ? repoOfRemote(remote.stdout) : null;
+  if (named || !ask) return named || "";
+  const viewed = run(
+    env.WORKFLOW_GH || "gh",
+    ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+    { cwd: root, encoding: "utf8", timeout: 10_000 },
+  );
+  return viewed.status === 0 ? String(viewed.stdout).trim() : "";
+}
+
+/**
+ * **`plans gh <args...>`: `gh` as the project's own GitHub App**
+ * (plans/plans-as-github-issues.md, part 1): `gh` run with `GH_TOKEN` set to
+ * the app's installation token, its output the terminal's, so the token is
+ * never printed. `gh pr ready` without `--undo` is refused as the tool hook
+ * refuses it; with no app's id or key here, one line says what to register
+ * and nothing runs. `{ said, status }`, `said` the refusal or "".
+ */
+export async function ghCommand(
+  args = [],
+  {
+    env = process.env,
+    fetch = globalThis.fetch,
+    run = spawnSync,
+    repo = null,
+    now = Date.now(),
+    cacheFile = files.appToken(),
+  } = {},
+) {
+  const quoted = ["gh", ...args].map((word) => `'${String(word).replace(/'/g, "'\\''")}'`);
+  if (marksReady(quoted.join(" "))) return { said: READY_REFUSED, status: 1 };
+  if (!env.WORKFLOW_APP_ID || !env.WORKFLOW_APP_KEY)
+    return { said: noAppWords(repo ?? repoHere(run, env, false)), status: 1 };
+  const name = repo ?? repoHere(run, env);
+  const [owner, repository] = name.split("/");
+  if (!owner || !repository)
+    return {
+      said: "The project's Claude could not tell which GitHub repository this is: the origin names none, and gh repo view said nothing.",
+      status: 1,
+    };
+  let token;
+  try {
+    token = await installationToken({
+      owner,
+      repo: repository,
+      id: env.WORKFLOW_APP_ID,
+      key: env.WORKFLOW_APP_KEY,
+      cacheFile,
+      fetch,
+      now,
+    });
+  } catch (error) {
+    return {
+      said: `The project's Claude could not get a token from GitHub: ${error.message}.`,
+      status: 1,
+    };
+  }
+  // Where it was run, so gh finds the branch and the relative paths it is given (/code-review).
+  const done = run(env.WORKFLOW_GH || "gh", args, {
+    cwd: process.cwd(),
+    stdio: "inherit",
+    env: { ...env, GH_TOKEN: token },
+  });
+  if (done.error)
+    return { said: `The project's Claude could not run gh: ${done.error.message}.`, status: 1 };
+  return { said: "", status: done.status ?? 1 };
+}
+
 const USAGE = `plans                 the queue: briefs, asking, ready, building, built
 plans --all           with the older plans listed by path
 plans start [path...] start an executor on the waiting plans, or these
@@ -4550,7 +4720,8 @@ plans end [id...] [--now]  end this queue's finished chats, or these; --now ends
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
 plans check           lint the catalogues and the deny key the project file names
-plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits`;
+plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits
+plans gh <args...>    gh as the project's own GitHub App (WORKFLOW_APP_ID, WORKFLOW_APP_KEY)`;
 
 export function main(args = process.argv.slice(2)) {
   const [mode, ...rest] = args;
@@ -4584,6 +4755,12 @@ export function main(args = process.argv.slice(2)) {
       process.exitCode = done.status ?? 1;
     }
     return;
+  }
+  if (mode === "gh") {
+    return ghCommand(rest).then(({ said, status }) => {
+      if (said) process.stderr.write(`${said}\n`);
+      process.exitCode = status;
+    });
   }
   if (mode === "end") {
     const at = rest.indexOf("--timer");

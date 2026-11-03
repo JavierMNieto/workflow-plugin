@@ -1,7 +1,8 @@
 // The design catalogue's hooks (docs/contributing.md):
 // the edit-time context and the once-per-turn audit, run as the real scripts
 // against a throwaway git repository.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createVerify, generateKeyPairSync } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -28,6 +29,7 @@ import {
 } from "../plugins/workflow/scripts/turn-audit.mjs";
 import {
   allowedWhileLocked,
+  ghCommand,
   marksReady,
   agentEffort,
   canStart,
@@ -62,6 +64,8 @@ import {
   relatedOf,
   relatedWork,
   fromOf,
+  issueOf,
+  readyOf,
   carriesOf,
   carryOf,
   planTaken,
@@ -88,6 +92,7 @@ import {
   withoutStatus,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
+import { appJwt, repoOfRemote } from "../plugins/workflow/scripts/github-app.mjs";
 
 const here = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
 const audit = join(here, "turn-audit.mjs");
@@ -758,6 +763,38 @@ describe("plan-queue", () => {
       expect(withoutStatus(`${header("24 October 2026")}## Building it\n\n1. A step.\n`)).toContain(
         "1. A step.",
       );
+    });
+
+    // plans/plans-as-github-issues.md, part 3: a plan with an issue waits for Ready.
+    it("reads a plan with an Issue line and no Ready as planned, and with one as ready", () => {
+      const planned = `${header("3 November 2026")}Lands: topic t, ready.\nIssue: #12.\n\n## What was asked\n`;
+      expect(stateOf(planned)).toMatchObject({ state: "planned", issue: 12 });
+      expect(issueOf(planned)).toBe(12);
+      const ready = `${planned}\n## Ready, 4 November 2026\n\nReady on GitHub, 4 November.\nKeep the order on the phone (Henry, 4 November, comment on #12)\n`;
+      expect(stateOf(ready)).toMatchObject({ state: "ready", issue: 12 });
+      expect(readyOf(ready)).toEqual({
+        readyDay: "4 November 2026",
+        by: "github",
+        lines: ["Keep the order on the phone (Henry, 4 November, comment on #12)"],
+      });
+      expect(
+        readyOf(`${planned}\n## Ready, 4 November 2026\n\nReady on Javi's word, 4 November.\n`),
+      ).toMatchObject({ by: "owner", lines: [] });
+      // A brief carries its issue to the plan.
+      expect(
+        stateOf("# B\n\nBrief for the planner, 3 November 2026.\n\nIssue: #12.\n"),
+      ).toMatchObject({ state: "brief", issue: 12 });
+      // In a fenced example it is no line, and a Ready in a fence no section.
+      const fenced = `${header("3 November 2026")}\`\`\`\nIssue: #12.\n\`\`\`\n\n## What was asked\n`;
+      expect(issueOf(fenced)).toBe(0);
+      expect(stateOf(fenced)).toMatchObject({ state: "ready", issue: 0 });
+      expect(stateOf(`${planned}\n\`\`\`\n## Ready, 4 November 2026\n\`\`\`\n`)).toMatchObject({
+        state: "planned",
+      });
+      // Built, building and dropped are read before planned.
+      expect(stateOf(`${planned}\n## Built, 5 November 2026\n\nCommit 1234abcd.\n`)).toMatchObject({
+        state: "built",
+      });
     });
   });
 
@@ -1641,7 +1678,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/worktrees/\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/worktrees/\n.claude/app-token.*\n",
       );
       g(clone, "commit", "-q", "-am", "two kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -1675,7 +1712,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n",
       );
       g(clone, "commit", "-q", "-am", "three kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -4533,6 +4570,12 @@ describe("asked once", () => {
     expect(askingIn(ready("plans/asks.md"), [row], options(5, { brief: "plans/x.md" }))).toBeNull();
     expect(askingIn(ready("plans/asks.md"), [row], options(31))).toBeNull();
     expect(askingIn(ready("plans/asks.md"), [row], options(null))).toBeNull();
+    // A planned plan (plans/plans-as-github-issues.md) asks as a ready one does (/code-review).
+    const planned = stateOf(asks.replace("builds it.\n", "builds it.\n\nIssue: #12.\n"));
+    expect(planned).toMatchObject({ state: "planned", asks: true });
+    expect(askingIn({ path: "plans/asks.md", ...planned }, [row], options(5))).toMatchObject({
+      until: now + 25 * MIN,
+    });
     // A built or building plan; an owner's interactive planner, which the queue gave nothing.
     expect(
       askingIn({ path: "plans/asks.md", state: "building", asks: true }, [row], options(5)),
@@ -4982,6 +5025,48 @@ describe("asked once", () => {
       }
     });
 
+    // plans/plans-as-github-issues.md, part 3: a planned plan waits for Ready.
+    it("a planned plan is skipped by the default pick, refused by path and listed with its issue", () => {
+      const file = join(dir, "plans", "planned.md");
+      const planned = `${head.replace("# ", "# Planned ")}\nIssue: #12.\n\n## What was asked\n`;
+      writeFileSync(file, planned);
+      const words =
+        'plans/planned.md is planned and waits on GitHub (#12): it is built once the issue is labelled status: ready, or Javi says so in the assistant\'s chat, which writes its "Ready" section.';
+      try {
+        expect(start()).not.toContain("plans/planned.md");
+        expect(start("plans/planned.md").trim()).toBe(words);
+        expect(start("plans/plain.md", "plans/planned.md")).not.toContain("Would run");
+        const out = queue(["list"]);
+        expect(out).toMatch(
+          /\nPlanned, waiting on GitHub\n {2}plans\/planned\.md +#12, since \d+ [A-Z][a-z]+\n/,
+        );
+        expect(out.slice(out.indexOf("Ready, oldest first"))).not.toContain("plans/planned.md");
+        // An executor's Building line on it is refused, with the start's words.
+        const building = queue(["tool"], {
+          session_id: ids.exec,
+          agent_type: "workflow:executor",
+          tool_name: "Write",
+          tool_input: {
+            file_path: file,
+            content: planned.replace(
+              "\n## What was asked",
+              `\n## Building, 3 November 2026, session ${ids.exec}\n\n## What was asked`,
+            ),
+          },
+        });
+        expect(JSON.parse(building).hookSpecificOutput.permissionDecisionReason).toBe(words);
+        // Ready on GitHub: it is a plan like any other.
+        writeFileSync(
+          file,
+          `${planned}\n## Ready, 4 November 2026\n\nReady on GitHub, 4 November.\n`,
+        );
+        expect(start("plans/planned.md")).toContain("Would run");
+      } finally {
+        rmSync(file, { force: true });
+        rmSync(stateFile(ids.exec), { force: true });
+      }
+    });
+
     it("a timer whose plans were cleared leaves a newer deferral standing", () => {
       const newer = { until: Date.now() + 30 * MIN, why: "w", paths: ["plans/b.md"], pid: 1 };
       writeFileSync(deferredFile(), JSON.stringify(newer));
@@ -5361,5 +5446,172 @@ describe("asked once", () => {
       ).reason;
       expect(gone).toContain("plans/asks.md (decisions unanswered");
     });
+  });
+});
+
+// plans/plans-as-github-issues.md, part 1: the queue writes on GitHub as the project's own app.
+describe("github-app", () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+
+  it("signs a JWT with RS256, issued by the app's id, ending ten minutes out", () => {
+    const now = Date.UTC(2026, 10, 3, 12);
+    const jwt = appJwt("123", pem, now);
+    const [head, body, signature] = jwt.split(".");
+    expect(JSON.parse(Buffer.from(head, "base64url").toString())).toEqual({
+      alg: "RS256",
+      typ: "JWT",
+    });
+    const claims = JSON.parse(Buffer.from(body, "base64url").toString());
+    expect(claims).toEqual({ iat: now / 1000 - 60, exp: now / 1000 + 600, iss: "123" });
+    expect(
+      createVerify("RSA-SHA256")
+        .update(`${head}.${body}`)
+        .verify(publicKey, signature, "base64url"),
+    ).toBe(true);
+    // A key whose line ends came as `\n` escapes signs the same.
+    expect(appJwt("123", pem.replace(/\n/g, "\\n"), now)).toBe(jwt);
+  });
+
+  it("reads the repository from a GitHub remote, https or ssh", () => {
+    expect(repoOfRemote("https://github.com/o/r.git\n")).toBe("o/r");
+    expect(repoOfRemote("git@github.com:o/r")).toBe("o/r");
+    expect(repoOfRemote("https://example.org/o/r.git")).toBeNull();
+  });
+});
+
+describe("plans gh", () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const env = { PATH: process.env.PATH || "", WORKFLOW_APP_ID: "123", WORKFLOW_APP_KEY: pem };
+  const now = Date.UTC(2026, 10, 3, 12);
+  /** GitHub, as far as the token goes: the calls counted, each token an hour long from `now`. */
+  const github = () => {
+    const calls: string[] = [];
+    const fetch = async (url: string, init: { method: string }) => {
+      calls.push(`${init.method} ${new URL(url).pathname}`);
+      const body = url.endsWith("/installation")
+        ? { id: 77 }
+        : { token: `t${calls.length}`, expires_at: new Date(now + 3600_000).toISOString() };
+      return { ok: true, status: 200, json: async () => body };
+    };
+    return { calls, fetch };
+  };
+  /** `gh`, as far as its calls go: their words and the token each was given. */
+  const gh = () => {
+    const runs: { args: string[]; token?: string }[] = [];
+    const run = (_bin: string, args: string[], options: { env?: Record<string, string> }) => {
+      runs.push({ args, token: options.env?.GH_TOKEN });
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    return { runs, run };
+  };
+  const cache = () => join(mkdtempSync(join(tmpdir(), "app-token-")), "app-token.json");
+
+  it("with no app here, says what to register and runs nothing", async () => {
+    const { runs, run } = gh();
+    const { calls, fetch } = github();
+    const done = await ghCommand(["issue", "list"], {
+      env: { PATH: env.PATH },
+      run,
+      fetch,
+      repo: "o/r",
+      cacheFile: cache(),
+    });
+    expect(done).toEqual({
+      said: "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set.",
+      status: 1,
+    });
+    expect(runs).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses gh pr ready as the hook does, and allows --undo", async () => {
+    const { runs, run } = gh();
+    const { fetch } = github();
+    const options = { env, run, fetch, repo: "o/r", now, cacheFile: cache() };
+    const refused = await ghCommand(["pr", "ready", "12"], options);
+    expect(refused.status).toBe(1);
+    expect(refused.said).toContain("never an agent's");
+    expect(runs).toEqual([]);
+    expect(await ghCommand(["pr", "ready", "--undo", "12"], options)).toEqual({
+      said: "",
+      status: 0,
+    });
+    expect(runs).toEqual([{ args: ["pr", "ready", "--undo", "12"], token: "t2" }]);
+    // The tool hook reads `plans gh` as `gh`.
+    expect(marksReady("plans gh pr ready 12")).toBe(true);
+    expect(marksReady("plans gh pr ready --undo 12")).toBe(false);
+  });
+
+  it("mints the token once and reuses it until five minutes before it ends", async () => {
+    const { runs, run } = gh();
+    const { calls, fetch } = github();
+    const cacheFile = cache();
+    const at = (minutes: number) => ({
+      env,
+      run,
+      fetch,
+      repo: "o/r",
+      cacheFile,
+      now: now + minutes * 60_000,
+    });
+    await ghCommand(["issue", "list"], at(0));
+    await ghCommand(["issue", "list"], at(30));
+    await ghCommand(["issue", "list"], at(54));
+    expect(calls).toEqual([
+      "GET /repos/o/r/installation",
+      "POST /app/installations/77/access_tokens",
+    ]);
+    await ghCommand(["issue", "list"], at(56));
+    expect(calls).toHaveLength(4);
+    expect(runs.map((one) => one.token)).toEqual(["t2", "t2", "t2", "t4"]);
+    // Another repository's token is never reused.
+    await ghCommand(["issue", "list"], { ...at(57), repo: "o/other" });
+    expect(calls).toHaveLength(6);
+  });
+
+  it("says GitHub's answer when no token can be minted", async () => {
+    const { runs, run } = gh();
+    const fetch = async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ message: "Not Found" }),
+    });
+    const done = await ghCommand(["issue", "list"], {
+      env,
+      run,
+      fetch,
+      repo: "o/r",
+      now,
+      cacheFile: cache(),
+    });
+    expect(done).toEqual({
+      said: "The project's Claude could not get a token from GitHub: GET /repos/o/r/installation answered 404: Not Found.",
+      status: 1,
+    });
+    expect(runs).toEqual([]);
+  });
+
+  it("says so when gh cannot be run", async () => {
+    const { fetch } = github();
+    const run = () => ({ status: null, error: new Error("spawnSync gh ENOENT") });
+    expect(
+      await ghCommand(["issue", "list"], { env, run, fetch, repo: "o/r", now, cacheFile: cache() }),
+    ).toEqual({ said: "The project's Claude could not run gh: spawnSync gh ENOENT.", status: 1 });
+  });
+
+  it("as a command, prints the refusal and starts no gh", () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "gh-ran-")), "ran");
+    const fake = join(mkdtempSync(join(tmpdir(), "fake-gh-")), "gh");
+    writeFileSync(fake, `#!/bin/sh\ntouch ${marker}\n`);
+    chmodSync(fake, 0o755);
+    const done = spawnSync("node", [join(here, "plan-queue.mjs"), "gh", "issue", "list"], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH || "", WORKFLOW_ROOT: repo, WORKFLOW_GH: fake },
+    });
+    expect(done.status).toBe(1);
+    expect(done.stderr).toMatch(/^The project's Claude has no GitHub App here: /);
+    expect(existsSync(marker)).toBe(false);
   });
 });

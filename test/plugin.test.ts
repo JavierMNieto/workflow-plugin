@@ -166,6 +166,7 @@ catalogue: docs/patterns
       ...QUEUE_KINDS.map((kind) => `.claude/${kind}.*`),
       ".claude/assistant.*",
       ".claude/worktrees/",
+      ".claude/app-token.*",
     ]);
     // The names plan-queue.mjs writes there: its literal files and one per kind.
     const source = readFileSync(join(scripts, "plan-queue.mjs"), "utf8");
@@ -199,7 +200,7 @@ catalogue: docs/patterns
     gitIn(root)("init", "-q");
     writeFileSync(join(root, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
     expect(ignoreQueueFiles(root)).toBe(
-      "Added .claude/asking.*, .claude/assistant.*, .claude/worktrees/ to .git/info/exclude.",
+      "Added .claude/asking.*, .claude/assistant.*, .claude/worktrees/, .claude/app-token.* to .git/info/exclude.",
     );
     expect(ignoreQueueFiles(root)).toBe("");
     writeFileSync(join(root, ".gitignore"), "!.claude/**\n");
@@ -218,7 +219,7 @@ catalogue: docs/patterns
     writeFileSync(join(root, ".gitignore"), ".claude/worktrees\n");
     init(root);
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n",
+      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n",
     );
   });
 
@@ -237,7 +238,7 @@ catalogue: docs/patterns
     expect(project(root).found).toBe(true);
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/worktrees/\n",
+      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/worktrees/\n.claude/app-token.*\n",
     );
     expect(text).toContain(
       "# deny:                  MCP tools an agent here may never call, by agent (regular expressions)",
@@ -1827,8 +1828,10 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
       .exec(read("agents/executor.md"))![0]
       .replace(/\s+/g, " ");
+    // plans/plans-as-github-issues.md: the pull requests open as the project's
+    // app, so the plans' naming, never a Related line's, tells the queue's own.
     const own =
-      "each open pull request of this queue (opened by this account, `gh pr list --author @me`, whose number or head branch a plan in this checkout's `plans/` names)";
+      "each open pull request of this queue (`gh pr list`, one a plan in this checkout's `plans/` names as its own: the pull request its \"Built\" opened or joined, or the branch of its `Lands` topic; a `Related` line names another's)";
     const start = mode.slice(mode.indexOf("**At a batch's start**"));
     const refresh = mode.slice(mode.indexOf("**Then a conflicting pull request is refreshed**"));
     expect(start.slice(0, start.indexOf("**Then a conflicting"))).toContain(own);
@@ -1838,7 +1841,7 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     );
     expect(mode).not.toContain("checks and suites run again");
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
-      "The executor refreshes only its own person's pull requests, with the checks alone",
+      "The executor refreshes only the queue's own pull requests, with the checks alone**: those a plan in its `plans/` names as its own",
     );
   });
 

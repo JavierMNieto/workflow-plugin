@@ -176,6 +176,27 @@ A line already there is left alone. Without a `.devcontainer/`, write
 nothing: the host's shell has to carry the variable to the chats, which
 the final message says. Never a token's value in any file.
 
+In a project that lands by pull request (`land: pull-request`), one
+question more, header `Issues`: "Should topics here become GitHub issues
+that the project's Claude writes and the people comment on?", with the
+options `Yes, topics become issues` (Writes an Issues heading in the
+project file and the app's two variables beside GH_TOKEN; you register a
+GitHub App once, on GitHub) and `No, not here` (Nothing changes; plans
+stay in plans/ alone). Yes writes the heading at the end of the project
+file's body:
+
+```
+## Issues
+
+Topics here are GitHub issues the project's Claude writes (the workflow
+docs, "A topic the people discuss is a GitHub issue").
+```
+
+with a `Detail:` or `Check:` line only when the person names one, and
+`"WORKFLOW_APP_ID": "${localEnv:WORKFLOW_APP_ID}"` and
+`"WORKFLOW_APP_KEY": "${localEnv:WORKFLOW_APP_KEY}"` into the same
+`containerEnv`, the same way as `GH_TOKEN`.
+
 ## 7. Say what is on and what it costs
 
 One line each, from the counts you can take (each plugin's `skills/` and
@@ -196,6 +217,10 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `GitHub: no gh in this container; the dotfiles install it and wire it to git when GH_TOKEN is set.`,
     when `gh` is absent.
   - `GitHub: no .devcontainer here; GH_TOKEN must be in the shell that starts the queue's chats.`
+- With an Issues heading, one `GitHub App:` line:
+  - `GitHub App: WORKFLOW_APP_ID and WORKFLOW_APP_KEY reach this container.`,
+    when both are set in this shell.
+  - `GitHub App: not set; plans gh says what to register.`
 
 Then: `/context in a chat here shows the numbers.`
 

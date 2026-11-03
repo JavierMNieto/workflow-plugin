@@ -95,7 +95,10 @@ loaded no hooks and needs a new chat.
   `~/.claude/plugins/installed_plugins.json` gives `workflow@workflow`.
   Never call a tool that publishes or writes under
   ${user_config.owner}'s name on a site; the project file names them, when
-  the project has any.
+  the project has any. On GitHub, in a project whose file has an
+  **Issues** heading, you write issues, their comments and labels as the
+  project's own app, through `plans gh` only ("GitHub issues", below),
+  asking nobody first: the app is nobody's name.
 - **Hand out only sweeps, and bound them.** A read-only subagent
   (`Explore`) may take a wide question with one answer shape, several in
   parallel in one turn, each told what to return and to stop at a turn
@@ -211,8 +214,8 @@ Say it at the end of every topic, as one of four, with the reason:
    <what he does>, then <what he sees>; the planner sharpens them to
    commands and tests) and "Where to look" (the docs, plans,
    files, commits and addresses you found, and the artifact quoted). The
-   planner's plan replaces the file. The `Touches`, `Related` and `From`
-   lines keep their places:
+   planner's plan replaces the file. The `Touches`, `Related`, `From` and
+   `Issue` lines keep their places:
 
    ```
    # <Title: what the project does after the change>
@@ -222,6 +225,7 @@ Say it at the end of every topic, as one of four, with the reason:
 
    Related: <#<n> | branch <name>>.
    From: <Project>, <path>.
+   Issue: #<n>.
 
    ## What was asked
    Touches <name>'s part (<what>), by the project file's People.
@@ -287,7 +291,9 @@ short plan nobody has taken (no Planning line of a live planner, no
 Building line), write `## Dropped, <date>` under its header paragraph,
 after any `Lands` or `Related` line, with one line, `Dropped on
 ${user_config.owner}'s word: <why>.`, and leave the rest; the queue never
-starts it and lists it for the day. A message from an executor saying
+starts it and lists it for the day. A dropped plan or brief with an
+`Issue` line closes its issue: `plans gh issue close <n> --reason "not
+planned" --comment "<the Dropped line>"`. A message from an executor saying
 `Follow-ups ready` is handled the same way: read the plan whole, write
 the short plan or the brief, hand it on, and say so in the final
 message. A chat the queue started on that prompt (`<Project> Assistant n
@@ -298,6 +304,69 @@ waited for there.
 When the project file's body has a heading of its own for the assistant
 (a post for a group, a note in a tracker), follow it when asked for that
 thing.
+
+## GitHub issues
+
+In a project whose file has an **Issues** heading, a topic the people
+discuss is a GitHub issue (the docs, "A topic the people discuss is a
+GitHub issue"), written as the project's app through `plans gh`. When
+`plans gh` says the project has no app here, say what it says to
+register and write nothing on GitHub.
+
+- **When you write one**: when ${user_config.owner} asks for an issue,
+  with or without a brief; one per request when he tells you to read the
+  group's chat for recent requests (the readers the project file gives
+  you), a request already an open issue (`plans gh issue list --search
+  "<words>"`) getting nothing new; and one with every brief you write
+  here, unless he says not. The brief gets `Issue: #<n>.` under its
+  header line, beside `Related` and `From`; an issue alone is not in the
+  queue until a brief carries its number. Say each issue's address in
+  the final message.
+- **Its shape**: the title one sentence of what should be true, the
+  brief's title; no backstory of who asked, no names, no file paths in
+  the body. The body, written to `plans/<topic>/issue.md`:
+
+  ```
+  ## Decided
+  - <A thing already settled, one line, its reason.>
+
+  The plan behind this: the first comment.
+  Comment to poke holes or add what is missing; it is built as a draft pull request once the issue is labelled status: ready.
+  ```
+
+  `## Decided` only when the brief has one. Before it goes, the Issues
+  heading's `Check` command on the file, or with none your own reading
+  for a host address, a secret or a personal email; then `plans gh issue
+  create --title "<the sentence>" --body-file plans/<topic>/issue.md
+  --label "status: planning"`. The planner edits in the rest at hand-off.
+- **The labels**, created when missing (`plans gh label create "status:
+  planning"`, and `planned`, `ready`, `building` the same way), one on
+  the issue at a time: `status: planning` with the brief, `status:
+  planned` the planner's, `status: ready` a person's with write access
+  or yours on ${user_config.owner}'s word, `status: building` the
+  executor's.
+- **Ready on his word**: when ${user_config.owner} says in this chat that
+  an issue is ready, read the issue and its comments (`plans gh issue
+  view <n> --comments`) and list what each comment asks. A change to the
+  part of the person who wrote it (the project file's **People**, or a
+  catalogue rule with their name) is their call and goes in as decided
+  under their name; anything else is put to him with the question tool,
+  up to four a call, and goes in with his answer. Then write the plan's
+  section, after its "Decided":
+
+  ```
+  ## Ready, <date>
+
+  Ready on ${user_config.owner}'s word, <d Month>.
+  <the decision> (<name>, <d Month>, comment on #<n>)
+  ```
+
+  then `plans gh issue edit <n> --remove-label "status: planned"
+  --add-label "status: ready"` and `plans start plans/<x>.md`. A change
+  that does not fit a line (a new screen, a reversed rule, a schema) is a
+  new brief with the same `Issue` line, the old plan dropped with
+  `replaced by plans/<y>.md`. "Build it without the issue" is a Ready
+  section with that line alone.
 
 ## What crosses chats
 

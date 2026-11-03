@@ -79,7 +79,9 @@ loaded no hooks and needs a new chat.
 - **Read freely**: the docs, the code, the web, and any site's readers.
   Never call a tool that publishes or writes under ${user_config.owner}'s
   name on a site; the project file names them, when the project has any.
-  Never put a secret in a plan or a message.
+  Never put a secret in a plan or a message. The one write outside
+  `plans/`: a plan with an `Issue` line edits its issue at hand-off as the
+  project's own app, through `plans gh` ("The final message").
 - **Hand out only sweeps, and bound them.** A read-only subagent
   (`Explore`) may take a wide question with one answer shape, several in
   parallel in one turn, each told what to return and to stop at a turn
@@ -143,7 +145,10 @@ loaded no hooks and needs a new chat.
    `land: pull-request`, open what the brief's `Related` line and the
    context's related lines (`The brief looks related to:`) name: `gh pr
    view <n> --json title,body,files,author,comments`, or the branch's log
-   (`git log origin/<branch>..origin/<name>`).
+   (`git log origin/<branch>..origin/<name>`). A brief with an `Issue:
+   #<n>.` line has its issue read the same way, with its comments
+   (`plans gh issue view <n> --comments`), and a comment's point is
+   answered in the plan where it bears.
 4. **Make the calls yourself, and ground each one.** ${user_config.owner}
    wants fewer rounds of changing a thing once it is built, so a plan
    decides, and names for every decision the product followed or the rule
@@ -239,7 +244,8 @@ what the executor could not find by looking.
    hand nothing over: the queue reads the section and never starts it
    ("The queue"). A `From` line on the brief (`From: <Project>, <path>.`)
    is kept under the `Lands` and `Related` lines, or under the header
-   paragraph when there are none; a `Touches <name>'s part (<what>).`
+   paragraph when there are none, and an `Issue: #<n>.` line beside it the
+   same way; a `Touches <name>'s part (<what>).`
    line, the brief's or one you found, keeps its place at the head of
    "What was asked".
 2. **What was asked**, in a paragraph of your own words.
@@ -307,8 +313,43 @@ what the executor could not find by looking.
 
 ## The final message
 
-When the plan is written and its decisions recorded, hand it to the
-executor ("The queue"): run `plans`; if it names a live executor, send
+When the plan is written and its decisions recorded, a plan with an
+`Issue` line is put behind its issue first, as the project's app (the
+docs, "A topic the people discuss is a GitHub issue"): the issue's body
+written to `plans/<topic>/issue.md`, an issue a person opened by hand
+keeping its title and its words above the headings, in this order and
+nothing else:
+
+```
+## Decided
+- <A thing already settled, one line, its reason; the plan's Decided.>
+
+## What will be built
+- <A decision, one line, with the product or rule it rests on; The short version.>
+
+## Not in this
+- <The plan's Not in this plan, one line each.>
+
+The plan behind this: <the Detail address, or "the first comment">.
+Comment to poke holes or add what is missing; it is built as a draft pull request once the issue is labelled status: ready.
+```
+
+No backstory of who asked above the headings. Both files pass the
+project file's **Issues** heading's `Check` command first, or with none
+your own reading for a host address, a secret or a personal email. Then
+`plans gh issue edit <n> --body-file plans/<topic>/issue.md
+--remove-label "status: planning" --add-label "status: planned"`, and
+the plan whole, its status sections cut, as the issue's first comment
+from the app: `<details><summary>The whole plan</summary>`, a blank
+line, the plan, a blank line, `</details>`, written to
+`plans/<topic>/plan-comment.md` and posted with `plans gh issue comment
+<n> --body-file`, or `--edit-last` when the plan changes; or, where the
+Issues heading names a `Detail` step, that step run and the address it
+prints in the body's "The plan behind this" line, with no comment. Such
+a plan is not started: `plans` lists it as planned, and it is built once
+the issue is labelled `status: ready` or ${user_config.owner} says so in
+the assistant's chat. Say the issue's address in the final message.
+Otherwise hand it to the executor ("The queue"): run `plans`; if it names a live executor, send
 that session one message with `SendMessage`, `Plan ready:
 plans/<topic>.md. Build it when you are free, in queue order; nothing to
 answer.`; otherwise run `plans start plans/<topic>.md`. Say in the final
