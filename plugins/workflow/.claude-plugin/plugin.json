@@ -4,6 +4,20 @@
   "author": { "name": "Javier Nieto" },
   "repository": "https://github.com/JavierMNieto/workflow-plugin",
   "license": "MIT",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/install-check.mjs\" || echo \"The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, and maybe more. Install it again: rm -r \\\"${CLAUDE_PLUGIN_ROOT}\\\" && claude plugin install workflow@workflow, then start a new chat.\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
   "userConfig": {
     "owner": {
       "type": "string",

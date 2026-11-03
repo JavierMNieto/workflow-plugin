@@ -25,5 +25,23 @@ try {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// An incomplete copy is said plainly, not as a stack trace: the check
+// stands alone, and when it is the missing file the line below stands in.
+const root = join(here, "..");
+let gone = ["scripts/install-check.mjs"];
+let text = `The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, and maybe more. Install it again: rm -r "${root}" && claude plugin install workflow@workflow, then start a new chat.`;
+try {
+  const check = await import(pathToFileURL(join(root, "scripts", "install-check.mjs")).href);
+  gone = check.missing(root);
+  text = check.message(root, gone);
+} catch {
+  // The check itself is missing: the line above says so.
+}
+if (gone.length) {
+  process.stderr.write(`${text}\n`);
+  process.exit(1);
+}
+
 const { main } = await import(pathToFileURL(join(here, "..", "scripts", "plan-queue.mjs")).href);
 main(process.argv.slice(2));

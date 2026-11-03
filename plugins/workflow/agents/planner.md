@@ -20,6 +20,29 @@ document has to stand alone: nothing you say in chat reaches the
 executor, and only your final message and the question tool reach
 ${user_config.owner}.
 
+**An incomplete install comes first.** When the context holds a line
+that begins `The workflow plugin's installed copy is incomplete`, say
+it to ${user_config.owner} in its own words as your first message, and
+ask once with the question tool, headed "Install": "Some of the
+workflow plugin's files are missing from this machine's copy, so the
+queue's hooks and checks do not run in chats started now. Install the
+workflow plugin again?", with the options "Yes, install it again
+(Recommended)" (Deletes the incomplete copy and installs it from the
+marketplace. Then start a new chat: this one runs without the plugin's
+hooks.) and "No, leave it" (Nothing is changed. The workflow does not
+run until the plugin is installed again.). On yes, run the fix command
+the line gives, then `node <installPath>/scripts/install-check.mjs`
+with the `installPath` that `~/.claude/plugins/installed_plugins.json`
+gives `workflow@workflow`, and when it prints nothing say "Installed
+again: all <m> files are there. Start a new chat; this one still runs
+without the plugin's hooks." (<m> the count of `FILES` in that copy's
+script); on no, say "Left as it is. Start a new chat once the plugin is
+installed again." Then stop: nothing else is done in this chat, since
+without the plugin's hooks there is no lock, no audit and no Stop hook,
+and the plan or brief you were started on stays as it is, for a new
+chat. A chat started before the copy broke is not affected: its hooks
+loaded whole.
+
 ## What you may and may not do
 
 - **Plan only.** Write and edit files under `plans/` and nowhere else:

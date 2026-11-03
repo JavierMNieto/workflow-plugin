@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -2222,5 +2223,138 @@ describe("installing by asking Claude", () => {
     const first = readme.split(/^## /m)[1];
     expect(first.startsWith("Install\n")).toBe(true);
     expect(first.split("\n").filter(Boolean)[1]).toBe(`> ${prompt}`);
+  });
+});
+
+// plans/install-checks-itself.md: an incomplete copy is said plainly.
+describe("the install check", () => {
+  const repo = new URL("../", import.meta.url).pathname;
+  const plugin = join(repo, "plugins", "workflow");
+  const checkScript = join(plugin, "scripts", "install-check.mjs");
+  /** A copy of `plugins/workflow` in a temp dir, with the paths given removed. */
+  const copy = (...remove: string[]) => {
+    const root = join(dir("workflow-copy-"), "workflow");
+    cpSync(plugin, root, { recursive: true });
+    for (const path of remove) rmSync(join(root, path), { recursive: true, force: true });
+    return root;
+  };
+  /** The manifest's SessionStart command, the one declared inline. */
+  const manifestCommand = () => {
+    const manifest = JSON.parse(
+      readFileSync(join(plugin, ".claude-plugin", "plugin.json"), "utf8"),
+    );
+    const [entry] = manifest.hooks.SessionStart;
+    expect(entry.matcher).toBe("startup|resume|clear");
+    return entry.hooks[0].command as string;
+  };
+  /** `plans` in a throwaway git repository, on the copy's `bin/plans`. */
+  const plans = (root: string) => {
+    const cwd = dir("workflow-plans-");
+    execFileSync("git", ["init", "-q"], { cwd });
+    return spawnSync("node", [join(root, "bin", "plans")], { cwd, encoding: "utf8" });
+  };
+  /** The fragment after `Install it again: `, up to the comma before `then start a new chat`. */
+  const fix = (text: string) => /Install it again: (.*), then start a new chat\./.exec(text)?.[1];
+
+  it("lists every tracked file of the plugin, so a new file without a line fails here", async () => {
+    const { FILES } = await import(checkScript);
+    const tracked = execFileSync("git", ["ls-files", "plugins/workflow"], {
+      cwd: repo,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean)
+      .map((path) => path.slice("plugins/workflow/".length));
+    expect(FILES, "FILES in scripts/install-check.mjs differs from git ls-files").toEqual(tracked);
+  });
+  it("When a complete copy starts a session, then the check prints nothing", () => {
+    const root = copy();
+    const run = spawnSync("node", [join(root, "scripts", "install-check.mjs")], {
+      encoding: "utf8",
+    });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe("");
+  });
+  it("When a copy lacks files starts a session, then the check names each and the fix", async () => {
+    const root = copy("hooks/hooks.json", "scripts/project.mjs", "skills");
+    const run = spawnSync("node", [join(root, "scripts", "install-check.mjs")], {
+      encoding: "utf8",
+    });
+    expect(run.status).toBe(0);
+    const out = JSON.parse(run.stdout);
+    const { FILES } = await import(checkScript);
+    const text =
+      `The workflow plugin's installed copy is incomplete: 6 of its ${FILES.length} files are missing from ${root}, ` +
+      "and what is missing does not run in this chat. Missing: hooks/hooks.json, scripts/project.mjs, " +
+      "skills/change/SKILL.md, skills/design-research/SKILL.md, skills/setup/SKILL.md, " +
+      `skills/setup/kinds.md. Install it again: rm -r "${root}" && claude plugin install ` +
+      "workflow@workflow, then start a new chat.";
+    expect(out).toEqual({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
+      systemMessage: text,
+    });
+  });
+  it("When plans runs on such a copy, then it says the same line and exits 1", () => {
+    const root = copy("hooks/hooks.json", "scripts/project.mjs", "skills");
+    const hook = JSON.parse(
+      spawnSync("node", [join(root, "scripts", "install-check.mjs")], { encoding: "utf8" }).stdout,
+    );
+    const run = plans(root);
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe(`${hook.systemMessage}\n`);
+  });
+  it("When a copy lacks the check itself, then the manifest and plans say the fallback", () => {
+    const root = copy("scripts/install-check.mjs");
+    const fallback =
+      "The workflow plugin's installed copy is incomplete: scripts/install-check.mjs is missing, " +
+      `and maybe more. Install it again: rm -r "${root}" && claude plugin install ` +
+      "workflow@workflow, then start a new chat.";
+    const hook = spawnSync("sh", ["-c", manifestCommand()], {
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+    });
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toBe(`${fallback}\n`);
+    const run = plans(root);
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe(`${fallback}\n`);
+  });
+  it("says what the agents do with the line in the same words in all four", () => {
+    const paragraph = (agent: string) =>
+      /\*\*An incomplete install comes first\.\*\*[\s\S]*?\n\n/.exec(
+        readFileSync(join(plugin, "agents", `${agent}.md`), "utf8"),
+      )?.[0];
+    const assistant = paragraph("assistant");
+    expect(assistant).toContain("The workflow plugin's installed copy is incomplete");
+    for (const agent of ["planner", "executor", "maker"]) expect(paragraph(agent)).toBe(assistant);
+  });
+  it("gives one fix command in the script, the manifest's fallback and plans's fallback", async () => {
+    const { FIX } = await import(checkScript);
+    const whole = copy("hooks/hooks.json");
+    const fromScript = fix(
+      JSON.parse(
+        spawnSync("node", [join(whole, "scripts", "install-check.mjs")], { encoding: "utf8" })
+          .stdout,
+      ).systemMessage,
+    );
+    const bare = copy("scripts/install-check.mjs");
+    const fromManifest = fix(
+      spawnSync("sh", ["-c", manifestCommand()], {
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PLUGIN_ROOT: bare },
+      }).stdout,
+    );
+    const fromPlans = fix(plans(bare).stderr);
+    expect(fromScript).toBe(FIX(whole));
+    // The three files read as one, `${CLAUDE_PLUGIN_ROOT}` and the script's root alike.
+    const one = (text: string | undefined, root: string) => text?.split(root).join("<root>");
+    expect(one(fromManifest, bare)).toBe(one(fromScript, whole));
+    expect(one(fromPlans, bare)).toBe(one(fromScript, whole));
+    expect(one(fromScript, whole)).toBe(
+      'rm -r "<root>" && claude plugin install workflow@workflow',
+    );
   });
 });

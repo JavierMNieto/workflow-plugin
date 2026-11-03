@@ -404,6 +404,16 @@ on the machine that planned them.
   into Claude Code.** (Javi, 27 October) `INSTALL.md`, written for
   Claude, does the rest, and a test holds its settings to the handbook's.
   plans/install-by-asking-claude.md.
+- `install-checks-itself` **The plugin checks its own install at
+  every session's start, and an incomplete copy is said to the owner
+  before any work.** (Javi, 3 November) The auto-updated copy of 2
+  November lacked three directories and five scripts; every chat ran
+  without the hooks and nothing said so, since Claude Code's validate
+  passes a copy with components missing and its Errors tab is read by
+  nobody. The check stands alone and is declared in the manifest, the
+  one file read whenever the plugin loads; its file list is held to
+  `git ls-files` by a test, as INSTALL.md's settings are to the
+  handbook's. plans/install-checks-itself.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the
