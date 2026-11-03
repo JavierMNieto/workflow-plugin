@@ -413,7 +413,12 @@ on the machine that planned them.
   nobody. The check stands alone and is declared in the manifest, the
   one file read whenever the plugin loads; its file list is held to
   `git ls-files` by a test, as INSTALL.md's settings are to the
-  handbook's. plans/install-checks-itself.md.
+  handbook's. plans/install-checks-itself.md. 3 November: the fix puts
+  the files back in place from the marketplace's clone, `git archive |
+  tar`, or updates when the clone has moved on; deleting the copy took
+  the scripts from every chat still running on it, and a `--plugin-dir`
+  root is a source checkout. Tried by a test on a throwaway clone.
+  plans/install-fix-safe.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the

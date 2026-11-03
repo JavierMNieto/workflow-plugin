@@ -573,9 +573,10 @@ workflow@workflow --values-stdin`).
 **The plugin checks its own install at every session's start.** An
 installed copy missing any of the plugin's files is said in the
 session's first context and `plans`'s first line, with the files and
-the fix (`rm -r` the copy, `claude plugin install workflow@workflow`,
-a new chat); the agent says it to the owner first, asks once whether
-to install again, and does nothing else in that chat.
+the fix (the files put back from the marketplace's clone at the copy's
+commit, or the newer version installed when there is one; nothing is
+deleted); the agent says it to the owner first, asks once whether to
+install again, and does nothing else in that chat.
 (decisions.md#install-checks-itself)
 
 **A push needs a token in the container**: a fine-grained `GH_TOKEN` on
