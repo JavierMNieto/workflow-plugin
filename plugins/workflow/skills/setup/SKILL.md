@@ -194,8 +194,10 @@ docs, "A topic the people discuss is a GitHub issue").
 
 with a `Detail:` or `Check:` line only when the person names one, and
 `"WORKFLOW_APP_ID": "${localEnv:WORKFLOW_APP_ID}"` and
-`"WORKFLOW_APP_KEY": "${localEnv:WORKFLOW_APP_KEY}"` into the same
-`containerEnv`, the same way as `GH_TOKEN`.
+`"WORKFLOW_APP_KEY": "${localEnv:WORKFLOW_APP_KEY}"`, and for the app's
+webhook `"WORKFLOW_WEBHOOK_SECRET": "${localEnv:WORKFLOW_WEBHOOK_SECRET}"`
+and `"WORKFLOW_WEBHOOK_PORT": "${localEnv:WORKFLOW_WEBHOOK_PORT}"`, into
+the same `containerEnv`, the same way as `GH_TOKEN`.
 
 ## 7. Say what is on and what it costs
 
@@ -221,6 +223,10 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `GitHub App: WORKFLOW_APP_ID and WORKFLOW_APP_KEY reach this container.`,
     when both are set in this shell.
   - `GitHub App: not set; plans gh says what to register.`
+- With an Issues heading, one `Webhook:` line:
+  - `Webhook: secret and port reach this container.`, when both are set
+    in this shell.
+  - `Webhook: not set; plans webhook says what to turn on.`
 
 Then: `/context in a chat here shows the numbers.`
 

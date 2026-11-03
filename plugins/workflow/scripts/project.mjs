@@ -474,6 +474,9 @@ export const QUEUE_IGNORES = [
   ".claude/worktrees/",
   // The project's app's token (plans/plans-as-github-issues.md, part 1).
   ".claude/app-token.*",
+  // What GitHub's webhook brought, and its listener (plans/github-watched.md).
+  ".claude/github-*",
+  ".claude/webhook.*",
 ];
 
 /**

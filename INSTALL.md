@@ -23,7 +23,9 @@ ask only the questions below, and end with the message in step 6.
   one line for the end: pushing from a chat needs GitHub access, and
   `gh auth login` gives it. A project whose topics become GitHub issues
   also needs its GitHub App's id and private key, `WORKFLOW_APP_ID` and
-  `WORKFLOW_APP_KEY`, set where `GH_TOKEN` is; `/workflow:setup` asks.
+  `WORKFLOW_APP_KEY`, set where `GH_TOKEN` is, and for its webhook
+  `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT`; `/workflow:setup`
+  asks.
 
 ## 2. Ask the person's first name
 

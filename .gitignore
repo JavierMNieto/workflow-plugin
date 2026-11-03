@@ -5,6 +5,8 @@ node_modules/
 .claude/assistant.*
 .claude/worktrees/
 .claude/app-token.*
+.claude/github-*
+.claude/webhook.*
 .claude/settings.local.json
 *.log
 plans/

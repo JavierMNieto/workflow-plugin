@@ -119,6 +119,12 @@ export async function installationToken({
   return minted.token;
 }
 
+/** **The app's slug** (`GET /app`, with the app's JWT), which a mention of it names: `@<slug>`. */
+export async function appSlug({ id, key, fetch = globalThis.fetch, now = Date.now() }) {
+  const app = await call(fetch, "GET", "/app", appJwt(id, key, now));
+  return app?.slug || "";
+}
+
 /** `owner/repo` from a GitHub remote's address, https or ssh; null for another host. */
 export function repoOfRemote(url = "") {
   const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(url.trim());

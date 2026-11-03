@@ -2,7 +2,7 @@
 // the edit-time context and the once-per-turn audit, run as the real scripts
 // against a throwaway git repository.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createVerify, generateKeyPairSync } from "node:crypto";
+import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -30,6 +30,7 @@ import {
 import {
   allowedWhileLocked,
   ghCommand,
+  notesWaiting,
   marksReady,
   agentEffort,
   canStart,
@@ -93,6 +94,12 @@ import {
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
 import { appJwt, repoOfRemote } from "../plugins/workflow/scripts/github-app.mjs";
+import {
+  githubEvents,
+  itemsOfDelivery,
+  noteFor,
+  verifyDelivery,
+} from "../plugins/workflow/scripts/github-webhook.mjs";
 
 const here = new URL("../plugins/workflow/scripts/", import.meta.url).pathname;
 const audit = join(here, "turn-audit.mjs");
@@ -1678,7 +1685,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/worktrees/\n.claude/app-token.*\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/worktrees/\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
       );
       g(clone, "commit", "-q", "-am", "two kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -1712,7 +1719,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
       );
       g(clone, "commit", "-q", "-am", "three kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -5613,5 +5620,274 @@ describe("plans gh", () => {
     expect(done.status).toBe(1);
     expect(done.stderr).toMatch(/^The project's Claude has no GitHub App here: /);
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+// plans/github-watched.md: what people write on GitHub reaches the queue on its own.
+describe("github webhook", () => {
+  const sign = (secret: string, body: string) =>
+    `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+
+  it("verifyDelivery accepts a body signed with the secret and refuses a wrong one, none and sha1", () => {
+    const body = '{"zen":"Keep it logically awesome."}';
+    expect(verifyDelivery("s3cret", body, sign("s3cret", body))).toBe(true);
+    expect(verifyDelivery("s3cret", body, sign("other", body))).toBe(false);
+    expect(verifyDelivery("s3cret", `${body} `, sign("s3cret", body))).toBe(false);
+    expect(verifyDelivery("s3cret", body, undefined)).toBe(false);
+    const sha1 = `sha1=${createHmac("sha1", "s3cret").update(body).digest("hex")}`;
+    expect(verifyDelivery("s3cret", body, sha1)).toBe(false);
+    expect(verifyDelivery("", body, sign("", body))).toBe(false);
+  });
+
+  const at = (minute: number) => `2026-11-03T21:${String(minute).padStart(2, "0")}:00Z`;
+  const user = (login: string) => ({ login });
+  const deliveries: [string, string, object][] = [
+    [
+      "d1",
+      "issues",
+      {
+        action: "labeled",
+        label: { name: "status: planning" },
+        issue: {
+          number: 20,
+          title: "Reorder",
+          labels: [{ name: "status: planning" }],
+          updated_at: at(1),
+          html_url: "u20",
+        },
+        sender: user("henry"),
+      },
+    ],
+    [
+      "d2",
+      "issue_comment",
+      {
+        action: "created",
+        issue: { number: 12, title: "Series", labels: [] },
+        comment: {
+          body: "@docs-claude can this also keep the order on the phone?",
+          user: user("henry"),
+          created_at: at(2),
+          html_url: "c2",
+        },
+      },
+    ],
+    [
+      "d3",
+      "issue_comment",
+      {
+        action: "created",
+        issue: { number: 12, title: "Series", labels: [] },
+        comment: { body: "Nice!", user: user("reader"), created_at: at(3), html_url: "c3" },
+      },
+    ],
+    [
+      "d4",
+      "pull_request_review_comment",
+      {
+        action: "created",
+        pull_request: { number: 40, title: "Series", head: { ref: "series-order" }, labels: [] },
+        comment: { body: "Rename this.", user: user("anton"), created_at: at(4), html_url: "r4" },
+      },
+    ],
+    [
+      "d5",
+      "pull_request",
+      {
+        action: "closed",
+        pull_request: {
+          number: 41,
+          title: "Small",
+          merged: true,
+          merged_at: at(5),
+          body: "For #12.\n\n## New\n",
+          head: { ref: "x" },
+          labels: [],
+        },
+        sender: user("javi"),
+      },
+    ],
+    [
+      "d6",
+      "issues",
+      {
+        action: "labeled",
+        label: { name: "status: ready" },
+        issue: {
+          number: 12,
+          title: "Series",
+          labels: [{ name: "status: ready" }],
+          updated_at: at(6),
+        },
+        sender: user("anton"),
+      },
+    ],
+    [
+      "d7",
+      "issue_comment",
+      {
+        action: "created",
+        issue: { number: 12, title: "Series", labels: [] },
+        comment: {
+          body: "Answered from the plan.",
+          user: user("docs-claude[bot]"),
+          created_at: at(7),
+        },
+      },
+    ],
+  ];
+  const items = deliveries.flatMap(([id, event, payload]) => itemsOfDelivery(event, payload, id));
+  const seen = {
+    deliveries: [],
+    issues: {},
+    pulls: {},
+    permissions: { henry: "write", anton: "write", javi: "admin", reader: "read" },
+    readAt: "",
+  };
+  const context = {
+    carried: [12],
+    planned: [12],
+    own: [40, "series-order"],
+    slug: "docs-claude",
+  };
+
+  it("githubEvents returns the five events of seven deliveries, none for a reader's or the app's", () => {
+    const { events } = githubEvents(seen, items, context);
+    expect(events.map((one) => [one.kind, one.number, one.by])).toEqual([
+      ["plan", 20, "henry"],
+      ["mention", 12, "henry"],
+      ["review", 40, "anton"],
+      ["merged", 12, "javi"],
+      ["ready", 12, "anton"],
+    ]);
+    expect(events[3]).toMatchObject({ pull: 41 });
+    // The same delivery twice is one event: GitHub's redelivery is safe.
+    const twice = githubEvents(seen, [items[1], items[1]], context);
+    expect(twice.events).toHaveLength(1);
+    expect(githubEvents(twice.seen, [items[1]], context).events).toEqual([]);
+  });
+
+  it("an issue opened with the planning label is one plan event, and a read's label counts once", () => {
+    const issue = {
+      number: 21,
+      title: "New",
+      labels: [{ name: "status: planning" }],
+      created_at: at(8),
+      updated_at: at(8),
+    };
+    const both = [
+      ...itemsOfDelivery(
+        "issues",
+        { action: "opened", issue: { ...issue, user: user("henry") } },
+        "o1",
+      ),
+      ...itemsOfDelivery(
+        "issues",
+        { action: "labeled", label: { name: "status: planning" }, issue, sender: user("henry") },
+        "o2",
+      ),
+    ];
+    const first = githubEvents(seen, both, context);
+    expect(first.events.map((one) => one.kind)).toEqual(["plan"]);
+    expect(first.seen.labeled).toEqual(["21:status: planning"]);
+  });
+
+  it("notesWaiting lists the notes with an event after their last Handled line, oldest first", () => {
+    const dir = mkdtempSync(join(tmpdir(), "notes-"));
+    writeFileSync(
+      join(dir, "12.md"),
+      "# GitHub #12: S\n\nmention, 3 November 2026 21:02, by henry (write): u\n",
+    );
+    writeFileSync(
+      join(dir, "13.md"),
+      "# GitHub #13: S\n\ncomment, 3 November 2026 21:02, by henry (write): u\n\n## Handled, 3 November 2026, session x\n",
+    );
+    expect(notesWaiting(dir)).toEqual(["plans/github/12.md"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("noteFor writes the note's heading once, then the event and its text indented", () => {
+    const { events } = githubEvents(seen, [items[1]], context);
+    const note = noteFor(events[0], { first: true });
+    expect(note).toMatch(
+      /^# GitHub #12: Series\n\nmention, 3 November 2026 \d\d:02, by henry \(write\): c2\n {4}@docs-claude can this also keep the order on the phone\?\n\n$/,
+    );
+    expect(noteFor(events[0])).not.toContain("# GitHub");
+  });
+
+  describe("plans webhook", () => {
+    let dir: string;
+    const port = 30000 + (process.pid % 20000);
+    const env = () => ({
+      PATH: process.env.PATH || "",
+      WORKFLOW_ROOT: dir,
+      WORKFLOW_WEBHOOK_SECRET: "s3cret",
+      WORKFLOW_WEBHOOK_PORT: String(port),
+      WORKFLOW_GH: "/bin/false",
+      WORKFLOW_LIVE: "[]",
+      CLAUDE_PLUGIN_OPTION_OWNER: "Javi",
+      CLAUDE_PLUGIN_OPTION_MACHINE: "lab",
+    });
+    const plans = (...args: string[]) =>
+      spawnSync("node", [join(here, "plan-queue.mjs"), ...args], { encoding: "utf8", env: env() });
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), "webhook-"));
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(join(dir, ".claude"));
+      writeFileSync(
+        join(dir, ".claude", "workflow.md"),
+        "---\nname: Hook\nbranch: test\n---\n\n## Issues\n\nTopics here are GitHub issues.\n",
+      );
+    });
+    afterAll(() => {
+      plans("webhook", "--stop");
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("with no secret says what to turn on and runs nothing", () => {
+      const done = spawnSync("node", [join(here, "plan-queue.mjs"), "webhook"], {
+        encoding: "utf8",
+        env: { ...env(), WORKFLOW_WEBHOOK_SECRET: "" },
+      });
+      expect(done.status).toBe(1);
+      expect(done.stdout.trim()).toBe(
+        "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set.",
+      );
+      expect(existsSync(join(dir, ".claude", "webhook.json"))).toBe(false);
+    });
+
+    it("answers a signed POST 202 and keeps it, a bad one 401 with nothing, and stops", async () => {
+      expect(plans("list").stdout).toContain("The webhook: none; plans webhook starts it.");
+      expect(plans("webhook").stdout).toMatch(
+        new RegExp(`^The webhook: listening on ${port} since \\d\\d:\\d\\d\\.\\n$`),
+      );
+      const body = JSON.stringify({
+        action: "opened",
+        issue: { number: 3, title: "T", labels: [] },
+      });
+      const post = (signature: string, id: string) =>
+        fetch(`http://127.0.0.1:${port}/`, {
+          method: "POST",
+          body,
+          headers: {
+            "X-Hub-Signature-256": signature,
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": id,
+          },
+        });
+      expect((await post(sign("s3cret", body), "good-1")).status).toBe(202);
+      expect(existsSync(join(dir, ".claude", "github-inbox", "good-1.json"))).toBe(true);
+      expect((await post(sign("wrong", body), "bad-1")).status).toBe(401);
+      expect(existsSync(join(dir, ".claude", "github-inbox", "bad-1.json"))).toBe(false);
+      // A second one finds the first alive and says so.
+      expect(plans("webhook").stdout).toMatch(
+        /^The webhook: listening on \d+ since \d\d:\d\d, last delivery \d\d:\d\d\.\n$/,
+      );
+      expect(plans("list").stdout).toMatch(/\nThe webhook: listening on \d+ since/);
+      const pid = JSON.parse(readFileSync(join(dir, ".claude", "webhook.json"), "utf8")).pid;
+      expect(plans("webhook", "--stop").stdout.trim()).toBe("The webhook: stopped.");
+      await new Promise((done) => setTimeout(done, 300));
+      expect(() => process.kill(pid, 0)).toThrow();
+    });
   });
 });

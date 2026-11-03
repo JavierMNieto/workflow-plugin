@@ -46,6 +46,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
+  mkdirSync,
   openSync,
   readSync,
   readdirSync,
@@ -63,7 +64,15 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { fileURLToPath } from "node:url";
 import { agentsChoice, shellWrites, untiered } from "./turn-audit.mjs";
 import { catalogueFiles, locations, paragraphs } from "./catalogue-context.mjs";
-import { installationToken, repoOfRemote } from "./github-app.mjs";
+import { appSlug, installationToken, repoOfRemote } from "./github-app.mjs";
+import {
+  NOTHING_SEEN,
+  githubEvents,
+  itemsOfDelivery,
+  labelsOf,
+  listen,
+  noteFor,
+} from "./github-webhook.mjs";
 import {
   PROJECT_FILE,
   QUEUE_KINDS,
@@ -83,7 +92,7 @@ import {
 export { machine, owner };
 
 /** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
-const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff"];
+const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff", "session"];
 
 /**
  * The project: for a hook, `CLAUDE_PROJECT_DIR`, which Claude Code sets for
@@ -151,6 +160,10 @@ const files = {
   state: (sessionId) => join(tmpdir(), `workflow-queue-${sessionId || "unknown"}.json`),
   // The project's app's installation token and its end (plans/plans-as-github-issues.md).
   appToken: () => join(root, ".claude", "app-token.json"),
+  // What GitHub's webhook brought, and what was made of it (plans/github-watched.md).
+  githubSeen: () => join(root, ".claude", "github-seen.json"),
+  githubInbox: () => join(root, ".claude", "github-inbox"),
+  webhook: () => join(root, ".claude", "webhook.json"),
 };
 
 /** What `plans` says, and `plans start` refuses with, in a project with no project file. */
@@ -2366,6 +2379,8 @@ export function start(paths, options = {}) {
       ? ignoreQueueFiles(primaryCheckout())
       : sync({ fetch: !options.replace });
   const said = startHere(paths, options);
+  // **The listener is armed with a start** (plans/github-watched.md, part 1).
+  if (!options.dry) armWebhook();
   return synced ? `${synced}\n${said}` : said;
 }
 
@@ -2379,6 +2394,9 @@ export function agentEffort(agent, dir = join(here, "..", "agents")) {
     return "";
   }
 }
+
+/** Whether a path is a note of what came from GitHub, `plans/github/<n>.md`, there. */
+const isNote = (path) => /^plans\/github\/\d+\.md$/.test(path) && existsSync(join(root, path));
 
 /** `plans start`'s refusal of a planned plan's path (plans/plans-as-github-issues.md, part 3). */
 export function plannedWords(plan) {
@@ -2469,7 +2487,8 @@ function startHere(
   if (kind === "assistant") {
     // An assistant is started on one built plan, whose "Built" holds the items.
     const asked = paths[0];
-    if (!plans.some((p) => p.path === asked && p.state === "built"))
+    // Or a note of what came from GitHub (plans/github-watched.md, part 3).
+    if (!isNote(asked) && !plans.some((p) => p.path === asked && p.state === "built"))
       return `${asked} is not a built plan with follow-ups; plans shows the built plans.`;
     paths = [asked];
   }
@@ -2531,7 +2550,9 @@ function startHere(
     : kind === "planner"
       ? plannerPrompt(paths[0])
       : kind === "assistant"
-        ? assistantPrompt(paths[0])
+        ? isNote(paths[0])
+          ? githubPrompt(paths[0])
+          : assistantPrompt(paths[0])
         : startPrompt(paths, plans);
   // **The agent file's effort, on the command line** (part 4): a settings
   // file's effort for the model outranks the frontmatter, and the user
@@ -2831,6 +2852,9 @@ export function list({ all = false, live, related = true, readers = null } = {})
   if (assistants.length) out.push(sessionsLine("assistant", assistants));
   const versions = versionLine(live);
   if (versions) out.push(versions);
+  // **The webhook's line**, in a project with issues (plans/github-watched.md).
+  const issues = proj().found && hasIssues();
+  if (issues) out.push(webhookLine());
   // **Leftover worktrees are seen** (plans/queue-sees-worktree-executor.md):
   // a background executor works in one, and a retired one leaves it behind.
   const under = join(root, ".claude", "worktrees") + "/";
@@ -2929,6 +2953,22 @@ export function list({ all = false, live, related = true, readers = null } = {})
     plans.filter((p) => p.state === "planned" && !p.askingIn),
     (p) => `#${p.issue}, since ${p.day.replace(/ \d{4}$/, "")}`,
   );
+  // **What was opened on GitHub and nothing carries yet** (plans/github-watched.md, part 3).
+  if (issues) {
+    const carried = new Set(plans.filter((p) => p.issue).map((p) => p.issue));
+    const fresh = Object.entries(readJson(files.githubSeen())?.fresh || {}).filter(
+      ([n]) => !carried.has(Number(n)),
+    );
+    if (fresh.length)
+      out.push(
+        "",
+        "New on GitHub",
+        ...fresh.map(([n, one]) => `  #${n} ${one.title || ""}`.trimEnd()),
+      );
+    const waiting = notesWaiting();
+    if (waiting.length)
+      out.push("", "From GitHub, not handled", ...waiting.map((path) => `  ${path}`));
+  }
   // **Where each lands**, in the pull request mode, before the build, and
   // what its author marked it related to.
   group(
@@ -4203,6 +4243,11 @@ function hook(mode, input) {
   // **The compact form has no queue**: the maker is one chat, and the queue's
   // hooks do nothing (the catalogue's hooks run in both forms).
   if (proj().form === "compact") return;
+  // **The session's start arms the webhook's listener** (plans/github-watched.md, part 1).
+  if (mode === "session") {
+    armWebhook();
+    return;
+  }
   const sessionId = input.session_id;
   const executor = kindOf(input) === "executor";
   const statePath = files.state(sessionId);
@@ -4627,6 +4672,562 @@ export function chatCommand(args = [], project = proj(), dir = root) {
   ];
 }
 
+// **What people write on GitHub reaches the queue on its own**
+// (plans/github-watched.md): `plans webhook` listens, `plans github` reads
+// what was missed, both through `githubEvents`, and what is done with an
+// event is below: the note, the assistant started, the issue closed.
+
+/** The port the listener takes: `WORKFLOW_WEBHOOK_PORT`, else 8789. */
+const webhookPort = (env = process.env) => Number(env.WORKFLOW_WEBHOOK_PORT) || 8789;
+
+/** Whether the project file turns issues on: its `## Issues` heading. */
+export function hasIssues(body = proj().body || "") {
+  return /^## Issues[ \t]*$/m.test(withoutFences(body));
+}
+
+/** `plans webhook`'s refusal with no secret here. */
+export function noSecretWords() {
+  return "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set.";
+}
+
+/** The listener's record, when its process is alive; null else. */
+function webhookAlive() {
+  const record = readJson(files.webhook());
+  return record?.pid && pidAlive(record.pid) ? record : null;
+}
+
+/** `plans`'s webhook line, in a project with issues: listening or none. */
+export function webhookLine(record = webhookAlive()) {
+  if (!record) return "The webhook: none; plans webhook starts it.";
+  const last = record.lastAt ? `, last delivery ${hhmm(record.lastAt)}` : "";
+  return `The webhook: listening on ${record.port} since ${hhmm(record.at)}${last}.`;
+}
+
+/**
+ * **The listener is armed where it can listen**: in a project with issues
+ * and the secret set, when none is alive, a detached `plans webhook
+ * --serve`. `plans start` and the session's start call it; it says nothing.
+ */
+export function armWebhook(env = process.env) {
+  if (!proj().found || !hasIssues() || !env.WORKFLOW_WEBHOOK_SECRET || webhookAlive()) return 0;
+  return detached(process.execPath, [fileURLToPath(import.meta.url), "webhook", "--serve"], {
+    ...env,
+    WORKFLOW_ROOT: root,
+  });
+}
+
+/** What the checkout's plans hold for `githubEvents`: carried, planned and own. */
+export function githubContext(plans = readPlans(join(root, "plans"))) {
+  const own = ownOf(plans);
+  return {
+    carried: plans.filter((p) => p.issue && p.state !== "dropped").map((p) => p.issue),
+    planned: plans.filter((p) => p.state === "planned").map((p) => p.issue),
+    own: [...own.keys()],
+  };
+}
+
+/** `gh` for a read, the person's token: the queue's reads, as `openPulls` does. */
+function ghRead(args, timeout, env = process.env) {
+  try {
+    return execFileSync(env.WORKFLOW_GH || "gh", args, {
+      cwd: root,
+      encoding: "utf8",
+      timeout,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The permission of each author not in the seen file yet, `gh api
+ * .../collaborators/<login>/permission`, cached there; a login it cannot
+ * read is left out, so its item is no event and it is asked again.
+ */
+function withPermissions(seen, items, repo, deadline) {
+  const permissions = { ...seen.permissions };
+  const checked = { ...(seen.checked || {}) };
+  for (const login of new Set(items.map((item) => item.author).filter(Boolean))) {
+    // Read again after a day, so a person whose access was taken away stops counting (/code-review).
+    const fresh = Date.now() - (checked[login] || 0) < 24 * 60 * MINUTE;
+    if ((permissions[login] && fresh) || login.endsWith("[bot]") || Date.now() >= deadline)
+      continue;
+    delete permissions[login];
+    const out = ghRead(
+      ["api", `repos/${repo}/collaborators/${login}/permission`, "--jq", ".permission"],
+      left(deadline, 5000),
+    );
+    if (out?.trim()) {
+      permissions[login] = out.trim();
+      checked[login] = Date.now();
+    }
+  }
+  return { ...seen, permissions, checked };
+}
+
+/** The app's slug, read once and kept in the seen file; "" with no app. */
+async function slugOf(seen, env = process.env) {
+  if (seen.slug) return seen.slug;
+  if (!env.WORKFLOW_APP_ID || !env.WORKFLOW_APP_KEY) return "";
+  try {
+    return await appSlug({ id: env.WORKFLOW_APP_ID, key: env.WORKFLOW_APP_KEY });
+  } catch {
+    return "";
+  }
+}
+
+/** The prompt of an assistant started on a note. */
+export function githubPrompt(path) {
+  return `GitHub: ${path}. Read the note, and every other note under plans/github/ with an event not handled, and act on each event not handled yet, by your agent file's "What reaches you from GitHub", then end this chat by "The final message". ${owner()} reads this chat in Remote Control.`;
+}
+
+/**
+ * **What is done with the events** (plans/github-watched.md, part 3), in
+ * their order, a line printed per thing: `merged` closes the issue as the
+ * app with `Merged as #<m>.` and writes `Issue #<n> closed <date>.` in its
+ * plan's "Built"; every other kind but `issue` is appended to
+ * `plans/github/<n>.md` and the assistant started on the oldest note not
+ * handled, under the queue's bounds; `issue` is kept for `plans` to list.
+ */
+export async function handleEvents(events, seen, { dry = false } = {}) {
+  const said = [];
+  const noted = [];
+  const fresh = { ...(seen.fresh || {}) };
+  const plans = readPlans(join(root, "plans"));
+  for (const event of events) {
+    if (event.kind === "merged") {
+      const done = dry
+        ? { status: 0 }
+        : await ghCommand(
+            [
+              "issue",
+              "close",
+              String(event.number),
+              "--reason",
+              "completed",
+              "--comment",
+              `Merged as #${event.pull}.`,
+            ],
+            { run: (bin, args, options) => spawnSync(bin, args, { ...options, stdio: "ignore" }) },
+          );
+      const plan = plans.find((p) => p.issue === event.number && p.state === "built");
+      if (plan && done.status === 0) {
+        const lines = plan.text.split("\n");
+        const at = lines.findIndex((line) => /^## Built\b/.test(line));
+        const first = lines.findIndex((line, i) => i > at && line.trim());
+        if (at >= 0 && first > at) {
+          lines.splice(first + 1, 0, `Issue #${event.number} closed ${today()}.`);
+          writeFileSync(plan.file, lines.join("\n"));
+        }
+      }
+      said.push(
+        done.status === 0
+          ? `GitHub: #${event.number} closed, merged as #${event.pull}.`
+          : `GitHub: #${event.number} was not closed: ${done.said || "plans gh failed"}`,
+      );
+      continue;
+    }
+    if (event.kind === "issue") {
+      fresh[event.number] = { title: event.title, at: event.at };
+      said.push(`GitHub: #${event.number} opened by ${event.by}, listed.`);
+      continue;
+    }
+    const dir = join(root, "plans", "github");
+    const file = join(dir, `${event.number}.md`);
+    if (!dry) {
+      mkdirSync(dir, { recursive: true });
+      appendFileSync(file, noteFor(event, { first: !existsSync(file) }));
+    }
+    noted.push({ path: `plans/github/${event.number}.md`, line: said.length });
+    said.push(`GitHub: #${event.number} ${event.kind} by ${event.by}, noted.`);
+  }
+  if (noted.length) {
+    // The oldest note with an event not handled; one chat at a time.
+    const path = notesWaiting()[0] || noted[0].path;
+    const out = dry ? "" : start([path], { agent: "assistant" });
+    const ours = noted.find((one) => one.path === path) || noted[0];
+    // **An open chat reads the notes itself** at its next turn: no message to send.
+    const open = /^(.+?) is open: send it the message instead\./.exec(out);
+    if (/ was started on: /.test(out))
+      said[ours.line] =
+        `${said[ours.line].replace(/, noted\.$/, ", noted; assistant started.")} ${out}`;
+    else if (open)
+      said.push(`GitHub: ${open[1]} is open and reads plans/github/ at its next turn.`);
+    else if (out) said.push(out);
+  }
+  return { said: said.filter(Boolean), seen: { ...seen, fresh } };
+}
+
+/**
+ * **The notes with an event not handled yet**, oldest first: a note whose
+ * last event line comes after its last `## Handled` line. `plans` lists
+ * them, so a note whose chat could not start is seen.
+ */
+export function notesWaiting(dir = join(root, "plans", "github")) {
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((name) => /^\d+\.md$/.test(name));
+  } catch {
+    return [];
+  }
+  const event = /^(?:plan|mention|comment|review|ready), /;
+  return names
+    .map((name) => {
+      const file = join(dir, name);
+      try {
+        const lines = readFileSync(file, "utf8").split("\n");
+        const lastEvent = lines.findLastIndex((line) => event.test(line));
+        const lastHandled = lines.findLastIndex((line) => /^## Handled\b/.test(line));
+        return lastEvent > lastHandled
+          ? { path: `plans/github/${name}`, mtime: statSync(file).mtimeMs }
+          : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.mtime - b.mtime)
+    .map((one) => one.path);
+}
+
+/** The seen file, with its defaults. */
+function readSeen() {
+  return { ...NOTHING_SEEN, ...readJson(files.githubSeen()) };
+}
+
+/** Items and the seen file through `githubEvents`, the permissions read first, then handled. */
+async function act(items, { deadline = Date.now() + 25_000, dry = false } = {}) {
+  let seen = readSeen();
+  seen.slug = await slugOf(seen);
+  const repo = repoHere(spawnSync, process.env, false);
+  if (repo) seen = withPermissions(seen, items, repo, deadline);
+  const context = { ...githubContext(), slug: seen.slug };
+  const { events, seen: next } = githubEvents(seen, items, context);
+  const { said, seen: kept } = await handleEvents(events, next, { dry });
+  // A dry run changes nothing on disk, so the real one still sees it all (/code-review).
+  if (!dry) writeJson(files.githubSeen(), kept);
+  return said;
+}
+
+/** The inbox's deliveries not seen yet, oldest first, as items. */
+function inboxItems(seen = readSeen()) {
+  let names = [];
+  try {
+    names = readdirSync(files.githubInbox()).filter((name) => name.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const entries = names
+    .map((name) => {
+      const file = join(files.githubInbox(), name);
+      try {
+        return {
+          file,
+          mtime: statSync(file).mtimeMs,
+          delivery: JSON.parse(readFileSync(file, "utf8")),
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.mtime - b.mtime);
+  // The inbox keeps the last five hundred, as the seen file does.
+  for (const old of entries.slice(0, Math.max(0, entries.length - 500)))
+    try {
+      unlinkSync(old.file);
+    } catch {
+      // Gone already.
+    }
+  return entries
+    .filter((one) => !seen.deliveries.includes(one.delivery.id))
+    .flatMap((one) => {
+      try {
+        return itemsOfDelivery(one.delivery.event, JSON.parse(one.delivery.body), one.delivery.id);
+      } catch {
+        return [];
+      }
+    });
+}
+
+/**
+ * **`plans github`**: what the inbox may have missed since the last read,
+ * from `gh`, under `relatedReaders`'s budget: the open issues updated
+ * since, with their comments and labels, the queue's own open pull
+ * requests' comments and reviews, and the pull requests merged since;
+ * then the inbox's own deliveries; all through `githubEvents`.
+ */
+export async function githubCommand({ budget = 25_000, dry = false, inbox = false } = {}) {
+  const deadline = Date.now() + budget;
+  // The read's own start is the next one's line, so nothing made while it runs is lost (/code-review).
+  const began = new Date().toISOString();
+  const seen = readSeen();
+  const since = seen.readAt || "";
+  const items = [];
+  // The listener's handling: the inbox alone, no read.
+  if (inbox) {
+    const said = await act(inboxItems(seen), { deadline, dry });
+    return said.length ? said : ["GitHub: nothing new."];
+  }
+  const newer = (at) => !since || (at && at > since);
+  // What changed since the last read, not the newest fifty (/code-review).
+  const searched = (what) => (since ? ["--search", `${what}:>=${since.slice(0, 19)}Z`] : []);
+  const issues = JSON.parse(
+    ghRead(
+      [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        ...searched("updated"),
+        "--json",
+        "number,title,labels,author,createdAt,updatedAt,url,body,comments",
+      ],
+      left(deadline, 10_000),
+    ) || "[]",
+  );
+  const plans = readPlans(join(root, "plans"));
+  const context = githubContext(plans);
+  for (const issue of issues) {
+    if (!newer(issue.updatedAt)) continue;
+    const base = {
+      number: issue.number,
+      title: issue.title,
+      labels: labelsOf(issue),
+      url: issue.url,
+      pull: false,
+    };
+    if (newer(issue.createdAt))
+      items.push({
+        ...base,
+        kind: "opened",
+        author: issue.author?.login || "",
+        at: issue.createdAt,
+        text: issue.body || "",
+      });
+    // A label read is no event of its own time: the issue's update stands in.
+    for (const label of ["status: planning", "status: ready"])
+      if (base.labels.includes(label) && !(seen.labeled || []).includes(`${issue.number}:${label}`))
+        items.push({
+          ...base,
+          kind: "labeled",
+          label,
+          author: labeller(issue.number, label, deadline),
+          at: issue.updatedAt,
+          text: "",
+        });
+    for (const comment of issue.comments || [])
+      if (newer(comment.createdAt))
+        items.push({
+          ...base,
+          kind: "comment",
+          author: comment.author?.login || "",
+          at: comment.createdAt,
+          text: comment.body || "",
+          url: comment.url || issue.url,
+        });
+  }
+  const pulls = JSON.parse(
+    ghRead(
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "50",
+        "--json",
+        "number,title,url,headRefName,comments,reviews",
+      ],
+      left(deadline, 10_000),
+    ) || "[]",
+  );
+  const own = new Set(context.own);
+  for (const pull of pulls) {
+    if (!own.has(pull.number) && !own.has(pull.headRefName)) continue;
+    const base = {
+      number: pull.number,
+      title: pull.title,
+      labels: [],
+      url: pull.url,
+      pull: true,
+      head: pull.headRefName,
+    };
+    for (const comment of pull.comments || [])
+      if (newer(comment.createdAt))
+        items.push({
+          ...base,
+          kind: "comment",
+          author: comment.author?.login || "",
+          at: comment.createdAt,
+          text: comment.body || "",
+        });
+    for (const review of pull.reviews || [])
+      if (newer(review.submittedAt))
+        items.push({
+          ...base,
+          kind: "review",
+          author: review.author?.login || "",
+          at: review.submittedAt,
+          text: review.body || "",
+        });
+    if (Date.now() < deadline) {
+      const notes = JSON.parse(
+        ghRead(
+          ["api", `repos/{owner}/{repo}/pulls/${pull.number}/comments`],
+          left(deadline, 5000),
+        ) || "[]",
+      );
+      for (const note of notes)
+        if (newer(note.created_at))
+          items.push({
+            ...base,
+            kind: "review",
+            author: note.user?.login || "",
+            at: note.created_at,
+            text: note.body || "",
+            url: note.html_url || pull.url,
+          });
+    }
+  }
+  const merged = JSON.parse(
+    ghRead(
+      [
+        "pr",
+        "list",
+        "--state",
+        "merged",
+        "--limit",
+        "100",
+        ...searched("merged"),
+        "--json",
+        "number,title,url,body,mergedAt,mergedBy,headRefName",
+      ],
+      left(deadline, 10_000),
+    ) || "[]",
+  );
+  for (const pull of merged)
+    if (newer(pull.mergedAt))
+      items.push({
+        number: pull.number,
+        title: pull.title,
+        labels: [],
+        url: pull.url,
+        pull: true,
+        head: pull.headRefName,
+        kind: "closed",
+        merged: true,
+        author: pull.mergedBy?.login || "",
+        at: pull.mergedAt,
+        text: pull.body || "",
+      });
+  items.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const said = await act([...items, ...inboxItems(seen)], { deadline, dry });
+  if (!dry && !inbox) writeJson(files.githubSeen(), { ...readSeen(), readAt: began });
+  return said.length ? said : ["GitHub: nothing new."];
+}
+
+/**
+ * **Who put a label on an issue**, from its events (`gh api
+ * .../issues/<n>/events`), the last `labeled` one with that label; "" when
+ * it cannot be read, so the item is no event (the Claude review).
+ */
+function labeller(number, label, deadline) {
+  if (Date.now() >= deadline) return "";
+  let events = [];
+  try {
+    events = JSON.parse(
+      ghRead(["api", `repos/{owner}/{repo}/issues/${number}/events`], left(deadline, 5000)) || "[]",
+    );
+  } catch {
+    return "";
+  }
+  return (
+    events.findLast((one) => one.event === "labeled" && one.label?.name === label)?.actor?.login ||
+    ""
+  );
+}
+
+/**
+ * **`plans webhook`**: with `--serve`, the listener itself; with
+ * `--stop`, the listener ended; else a listener started when none is
+ * alive. With no secret, one line and nothing runs.
+ */
+export async function webhookCommand(args = [], env = process.env) {
+  if (args.includes("--stop")) {
+    const record = webhookAlive();
+    if (!record) return { said: "The webhook: none was running.", status: 0 };
+    try {
+      process.kill(record.pid);
+    } catch {
+      // Gone already.
+    }
+    try {
+      unlinkSync(files.webhook());
+    } catch {
+      // Gone already.
+    }
+    return { said: "The webhook: stopped.", status: 0 };
+  }
+  if (!env.WORKFLOW_WEBHOOK_SECRET) return { said: noSecretWords(), status: 1 };
+  const alive = webhookAlive();
+  if (alive) return { said: webhookLine(alive), status: 0 };
+  if (!args.includes("--serve")) {
+    detached(process.execPath, [fileURLToPath(import.meta.url), "webhook", "--serve"], {
+      ...env,
+      WORKFLOW_ROOT: root,
+    });
+    for (let i = 0; i < 20 && !webhookAlive(); i++) await sleep(100);
+    return { said: webhookLine(), status: 0 };
+  }
+  const port = webhookPort(env);
+  mkdirSync(files.githubInbox(), { recursive: true });
+  const record = { pid: process.pid, port, at: Date.now(), lastAt: 0 };
+  // **The handling runs in a child**, one at a time, so a start's wait never
+  // keeps the server from answering GitHub within its ten seconds (/code-review).
+  let child = null;
+  let again = false;
+  const run = (args) => {
+    if (child) {
+      again = true;
+      return;
+    }
+    child = spawn(process.execPath, [fileURLToPath(import.meta.url), "github", ...args], {
+      cwd: root,
+      stdio: "ignore",
+      env: { ...env, WORKFLOW_ROOT: root },
+    });
+    child.on("exit", () => {
+      child = null;
+      if (again) {
+        again = false;
+        run(["--inbox"]);
+      }
+    });
+  };
+  const work = () => run(["--inbox"]);
+  const server = listen({
+    port,
+    secret: env.WORKFLOW_WEBHOOK_SECRET,
+    keep: (id, event, body) => {
+      writeFileSync(join(files.githubInbox(), `${id}.json`), JSON.stringify({ id, event, body }));
+      writeJson(files.webhook(), { ...record, lastAt: Date.now() });
+      record.lastAt = Date.now();
+    },
+    after: work,
+  });
+  server.on("listening", () => {
+    writeJson(files.webhook(), record);
+    // What a container that was down missed, once, as `plans github` reads it.
+    run([]);
+  });
+  server.on("error", () => process.exit(1));
+  return { said: "", status: 0, server };
+}
+
 /** `plans gh`'s refusal with no app here (plans/plans-as-github-issues.md, part 1). */
 export function noAppWords(repo = "") {
   return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set.`;
@@ -4721,7 +5322,9 @@ plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
 plans check           lint the catalogues and the deny key the project file names
 plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits
-plans gh <args...>    gh as the project's own GitHub App (WORKFLOW_APP_ID, WORKFLOW_APP_KEY)`;
+plans gh <args...>    gh as the project's own GitHub App (WORKFLOW_APP_ID, WORKFLOW_APP_KEY)
+plans webhook [--stop]  listen for the app's webhook on this container, or stop listening
+plans github          read what GitHub has that the webhook missed, and act on it`;
 
 export function main(args = process.argv.slice(2)) {
   const [mode, ...rest] = args;
@@ -4755,6 +5358,17 @@ export function main(args = process.argv.slice(2)) {
       process.exitCode = done.status ?? 1;
     }
     return;
+  }
+  if (mode === "webhook") {
+    return webhookCommand(rest).then(({ said, status }) => {
+      if (said) process.stdout.write(`${said}\n`);
+      if (status) process.exitCode = status;
+    });
+  }
+  if (mode === "github") {
+    return githubCommand({ dry: rest.includes("--dry"), inbox: rest.includes("--inbox") }).then(
+      (said) => process.stdout.write(`${said.join("\n")}\n`),
+    );
   }
   if (mode === "gh") {
     return ghCommand(rest).then(({ said, status }) => {

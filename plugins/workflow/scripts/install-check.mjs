@@ -28,6 +28,7 @@ export const FILES = [
   "scripts/catalogue-context.mjs",
   "scripts/codex-review.sh",
   "scripts/github-app.mjs",
+  "scripts/github-webhook.mjs",
   "scripts/install-check.mjs",
   "scripts/plain-words.mjs",
   "scripts/plan-queue.d.mts",

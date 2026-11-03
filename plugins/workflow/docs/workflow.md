@@ -506,6 +506,14 @@ writes the section, comments folded by whose call each is; the issue's
 stage is one `status:` label, `planning`, `planned`, `ready`, `building`.
 (decisions.md#ready-before-built)
 
+**What people with write access write on GitHub reaches the queue by the
+app's webhook**: `plans webhook` listens on the container behind the
+host's reverse proxy, checks each delivery's signature, notes each event in
+`plans/github/`, starts the assistant on it, and closes an issue when its
+pull request merges; `plans github` reads what was missed; the assistant
+answers as the app, writes the brief, or writes Ready and starts the
+build. (decisions.md#github-webhook)
+
 **The day's fixes.** With `land: pull-request`, the day's `Lands: fix.`
 plans are one pull request, `Small fixes, <d Month yyyy>`, from
 `fixes-<yyyy-mm-dd>`, opened ready with the first fix and rewritten with
@@ -612,7 +620,9 @@ writes, with `gh auth setup-git --hostname github.com` from the
 dotfiles; its value is in no file, and `gh auth status` says when it
 expires. A project with issues carries its app's id and private key the
 same way, `WORKFLOW_APP_ID` and `WORKFLOW_APP_KEY` (the PEM's text),
-from which `plans gh` mints the app's token. (decisions.md#push-token)
+from which `plans gh` mints the app's token, and its webhook's secret
+and port, `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` (8789
+when unset). (decisions.md#push-token)
 
 **Screenshots on a pull request** go up through `gh pr create --attach`
 and `gh pr edit --attach`, which need gh 2.99 or newer (from GitHub's apt

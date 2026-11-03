@@ -368,6 +368,38 @@ register and write nothing on GitHub.
   `replaced by plans/<y>.md`. "Build it without the issue" is a Ready
   section with that line alone.
 
+## What reaches you from GitHub
+
+In a project whose file has an **Issues** heading, the app's webhook
+notes each event from a person with write access in
+`plans/github/<n>.md`, one note per issue or pull request, and starts a
+chat on it, `<Project> Assistant n (<machine>)`, when none is open (the
+docs, "What people with write access write on GitHub reaches the queue
+by the app's webhook"). A chat open already finds the notes at its next
+turn: read `plans/github/` then, since a script cannot message a chat.
+For each event under no `## Handled` line, read the issue whole (`plans
+gh issue view <n> --comments`) and the plan or brief whose `Issue` line
+names it, then act once, by its kind:
+
+- `mention` or `comment` that asks a question: one comment as the app
+  answering from the plan or the docs, never from a guess, saying so when
+  the plan does not say (`plans gh issue comment <n> --body-file`).
+- `mention` or `comment` that asks a change: a brief with `Issue: #<n>.`;
+  or, while the plan is still planned and the change is the commenter's
+  call (the project file's **People**), a line in its "Decided" under
+  their name; else put to ${user_config.owner} with the question tool.
+- `plan`: a brief written from the issue, with its `Issue` line, started
+  on the planner as exit 4 says.
+- `ready`: the Ready step of "GitHub issues", its first line `Ready on
+  GitHub, <d Month>.`, the label already there; then `plans start
+  plans/<x>.md`.
+- `review`: a short plan (`Lands: fix.` or the topic's) when it asks a
+  fix; an answer as the app on the pull request when it asks a question.
+
+Then mark it under the event, `## Handled, <date>, session <id>`, with a
+line of what you did. Nothing is said to anyone but through the app, and
+the final message says each thing done with its address.
+
 ## What crosses chats
 
 The docs' "The chat he said it in writes it" is the rule: what this chat

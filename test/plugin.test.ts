@@ -167,6 +167,8 @@ catalogue: docs/patterns
       ".claude/assistant.*",
       ".claude/worktrees/",
       ".claude/app-token.*",
+      ".claude/github-*",
+      ".claude/webhook.*",
     ]);
     // The names plan-queue.mjs writes there: its literal files and one per kind.
     const source = readFileSync(join(scripts, "plan-queue.mjs"), "utf8");
@@ -200,7 +202,7 @@ catalogue: docs/patterns
     gitIn(root)("init", "-q");
     writeFileSync(join(root, ".gitignore"), ".claude/executor.*\n.claude/planner.*\n");
     expect(ignoreQueueFiles(root)).toBe(
-      "Added .claude/asking.*, .claude/assistant.*, .claude/worktrees/, .claude/app-token.* to .git/info/exclude.",
+      "Added .claude/asking.*, .claude/assistant.*, .claude/worktrees/, .claude/app-token.*, .claude/github-*, .claude/webhook.* to .git/info/exclude.",
     );
     expect(ignoreQueueFiles(root)).toBe("");
     writeFileSync(join(root, ".gitignore"), "!.claude/**\n");
@@ -219,7 +221,7 @@ catalogue: docs/patterns
     writeFileSync(join(root, ".gitignore"), ".claude/worktrees\n");
     init(root);
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n",
+      ".claude/worktrees\n.claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
     );
   });
 
@@ -238,7 +240,7 @@ catalogue: docs/patterns
     expect(project(root).found).toBe(true);
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
-      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/worktrees/\n.claude/app-token.*\n",
+      ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/worktrees/\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
     );
     expect(text).toContain(
       "# deny:                  MCP tools an agent here may never call, by agent (regular expressions)",

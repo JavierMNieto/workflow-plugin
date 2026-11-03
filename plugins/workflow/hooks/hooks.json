@@ -136,6 +136,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.mjs\" install",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" session",
+            "timeout": 5
           }
         ]
       }
