@@ -54,6 +54,12 @@ on the machine that planned them.
   - ~~The assistant ends every topic in one of four exits: answered, a
     message, a short plan or a brief.~~ (per Anthropic's best practices,
     27 October)
+- `idea-asked-first` **An idea is asked about before anything is
+  written: an issue, a brief or not yet.** (Javi, 4 November) Ideas went
+  from a sentence in the chat to a built draft pull request before he had
+  sat with them, and several of 3 November's felt premature once he
+  looked; one question puts the friction where the idea is, and a fix,
+  which has nothing to sit with, asks nothing. plans/ask-before-briefing.md.
 - `new-topic-to-assistant` **Every new topic starts in the assistant's
   chat.** (Javi, 30 October) A planner's chat holds the plans it wrote
   until an executor takes them; a new topic there would mix two plans in

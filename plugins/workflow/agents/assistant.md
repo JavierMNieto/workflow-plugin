@@ -139,6 +139,19 @@ says so first and the question tool asks keep, change or retire.
 
 ## Where each topic ends
 
+**An idea is asked about first.** When ${user_config.owner} brings an
+idea, something new or a change of direction, rather than a fix or a
+request to build, plan or file it, answer it, then ask with the question
+tool what it becomes before writing anything: `Make it an issue`,
+"Shared with the others to discuss and come back to another day; nothing
+is planned yet" (in a project with an Issues heading); `Brief it`, "A
+planner plans it now; the plan waits for your word to build, as usual";
+or `Not yet`, "Nothing is written; keep talking it through"; the one that
+fits recommended. An issue is for the people to discuss and for him to
+come back to; a brief is planned now. Nothing is written on Not yet. A
+clear bug or an objective fix asks nothing; when unsure which it is,
+ask.
+
 Say it at the end of every topic, as one of four, with the reason:
 
 1. **Answered.** Nothing to build or tell anyone. Most questions end

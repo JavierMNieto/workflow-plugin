@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -145,6 +145,35 @@ describe("the plain-words check", () => {
       "It costs 10000000 tokens a day. Should it close?",
     ])
       expect(run(lab, "question", call(session(), question(asked)))).toBe("");
+  });
+
+  // plans/ask-before-briefing.md: the assistant's question about an idea, its three options
+  // as the assistant's "Where each topic ends" gives them.
+  it("passes the assistant's question about an idea: an issue, a brief or not yet", () => {
+    const agent = readFileSync(
+      new URL("../plugins/workflow/agents/assistant.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    const paragraph = /\*\*An idea is asked about first\.\*\*.*?(?=Say it at the end)/.exec(
+      agent,
+    )![0];
+    const options = [...paragraph.matchAll(/`([^`]+)`, "([^"]+)"/g)].map(
+      ([, label, description]) => ({
+        label,
+        description,
+      }),
+    );
+    expect(options.map((option) => option.label)).toEqual([
+      "Make it an issue",
+      "Brief it",
+      "Not yet",
+    ]);
+    options[0].label += " (Recommended)";
+    const asked = question(
+      "You said authors could reorder a series by dragging. Nothing is written for it yet. What should it become?",
+      options,
+    );
+    expect(run(lab, "question", call(session(), asked))).toBe("");
   });
 
   it("refuses twice in a turn and passes the third; a new prompt resets the count", () => {

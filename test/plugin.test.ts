@@ -1099,6 +1099,51 @@ describe("a brief or a plan is a prompt", () => {
   });
 });
 
+// plans/ask-before-briefing.md
+describe("an idea is asked about before anything is written", () => {
+  const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
+  const read = (path: string) => readFileSync(join(plugin, path), "utf8");
+
+  it("opens the assistant's exits with the question, before exit 1, and asks nothing of a fix", () => {
+    const exits = /^## Where each topic ends\n([\s\S]*?)(?=^## )/m.exec(
+      read("agents/assistant.md"),
+    )![1];
+    const first = exits.trim().split("\n\n")[0].replace(/\s+/g, " ");
+    expect(first).toMatch(/^\*\*An idea is asked about first\.\*\*/);
+    expect(first).toContain("ask with the question tool what it becomes before writing anything");
+    expect(first).toContain(
+      '`Make it an issue`, "Shared with the others to discuss and come back to another day; nothing is planned yet" (in a project with an Issues heading)',
+    );
+    expect(first).toContain(
+      '`Brief it`, "A planner plans it now; the plan waits for your word to build, as usual"',
+    );
+    expect(first).toContain('`Not yet`, "Nothing is written; keep talking it through"');
+    expect(first).toContain("Nothing is written on Not yet.");
+    expect(first).toContain(
+      "A clear bug or an objective fix asks nothing; when unsure which it is, ask.",
+    );
+    expect(exits.indexOf("An idea is asked about first")).toBeLessThan(
+      exits.indexOf("1. **Answered.**"),
+    );
+  });
+
+  it("has the handbook say the same, pointing at the assistant and citing its entry", () => {
+    const docs = read("docs/workflow.md").replace(/\s+/g, " ");
+    const rule =
+      /\*\*An idea is asked about before anything is written\*\*.*?\(decisions\.md#idea-asked-first\)/.exec(
+        docs,
+      )![0];
+    expect(rule).toContain(
+      "an issue (in a project with an Issues heading), a brief or nothing yet",
+    );
+    expect(rule).toContain(
+      "a clear bug, an objective fix or a request to build, plan or file asks nothing",
+    );
+    expect(rule).toContain('(the assistant\'s "Where each topic ends")');
+    expect(read("docs/decisions.md")).toContain("- `idea-asked-first` **An idea is asked about");
+  });
+});
+
 // plans/messages-for-people-only-on-request.md
 describe("a message for another person only when the owner asks", () => {
   const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
