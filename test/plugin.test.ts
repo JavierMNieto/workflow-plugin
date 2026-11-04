@@ -1142,6 +1142,22 @@ describe("an idea is asked about before anything is written", () => {
     expect(rule).toContain('(the assistant\'s "Where each topic ends")');
     expect(read("docs/decisions.md")).toContain("- `idea-asked-first` **An idea is asked about");
   });
+
+  it("writes an issue nobody plans yet with no label and no plan line", () => {
+    const issues = /^## GitHub issues\n([\s\S]*?)(?=^## )/m
+      .exec(read("agents/assistant.md"))![1]
+      .replace(/\s+/g, " ");
+    expect(issues).toContain(
+      'An issue alone, `Make it an issue` with no brief, leaves out the line "The plan behind this: the first comment." and takes no label until a brief carries its number; the topic ends as answered, with its address.',
+    );
+    expect(issues).toContain('--label "status: planning"`, the label left out for an issue alone.');
+    expect(issues).toContain(
+      '`status: planning` with the brief, added (`plans gh issue edit <n> --add-label "status: planning"`) when a brief takes the number of an issue that has no label',
+    );
+    expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
+      "**An issue nobody plans yet carries no status label and no plan line** until a brief carries its number, and its topic ends as answered, with the issue's address. (decisions.md#issue-alone)",
+    );
+  });
 });
 
 // plans/messages-for-people-only-on-request.md

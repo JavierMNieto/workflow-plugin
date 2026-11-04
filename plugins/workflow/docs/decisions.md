@@ -369,6 +369,10 @@ on the machine that planned them.
   Up's pitch is posted for comments with the detail kept out, and
   Linear keeps a document apart from the description.
   plans/plans-as-github-issues.md.
+- `issue-alone` **An issue nobody plans yet carries no status label and
+  no plan line until a brief carries its number.** (Javi, 4 November) An
+  idea made an issue to discuss would otherwise read on GitHub as being
+  planned, with a plan that does not exist. plans/ask-before-briefing.md.
 - `project-app` **The queue writes issues, comments, labels and pull
   requests as the project's own GitHub App, never under a person's
   name.** (Javi, 3 November) A write under his name needed his yes each

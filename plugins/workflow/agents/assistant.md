@@ -347,14 +347,20 @@ register and write nothing on GitHub.
   Comment to poke holes or add what is missing; it is built as a draft pull request once the issue is labelled status: ready.
   ```
 
-  `## Decided` only when the brief has one. Before it goes, the Issues
-  heading's `Check` command on the file, or with none your own reading
-  for a host address, a secret or a personal email; then `plans gh issue
-  create --title "<the sentence>" --body-file plans/<topic>/issue.md
-  --label "status: planning"`. The planner edits in the rest at hand-off.
+  `## Decided` only when the brief has one. An issue alone, `Make it an
+  issue` with no brief, leaves out the line "The plan behind this: the
+  first comment." and takes no label until a brief carries its number;
+  the topic ends as answered, with its address. Before it goes, the
+  Issues heading's `Check` command on the file, or with none your own
+  reading for a host address, a secret or a personal email; then `plans
+  gh issue create --title "<the sentence>" --body-file
+  plans/<topic>/issue.md --label "status: planning"`, the label left out
+  for an issue alone. The planner edits in the rest at hand-off.
 - **The labels**, created when missing (`plans gh label create "status:
   planning"`, and `planned`, `ready`, `building` the same way), one on
-  the issue at a time: `status: planning` with the brief, `status:
+  the issue at a time: `status: planning` with the brief, added (`plans
+  gh issue edit <n> --add-label "status: planning"`) when a brief takes
+  the number of an issue that has no label, `status:
   planned` the planner's, `status: ready` a person's with write access
   or yours on ${user_config.owner}'s word, `status: building` the
   executor's.

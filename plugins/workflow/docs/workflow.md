@@ -503,6 +503,10 @@ the body; anyone opens one, the assistant writes them on the owner's
 word, the planner adds the plan's overview, the executor writes `For
 #<n>` on the pull request. (decisions.md#issue-is-the-overview)
 
+**An issue nobody plans yet carries no status label and no plan line**
+until a brief carries its number, and its topic ends as answered, with
+the issue's address. (decisions.md#issue-alone)
+
 **The queue speaks on GitHub as the project's own app**, through `plans
 gh`, pull requests included; the push alone is the person's token.
 (decisions.md#project-app)
