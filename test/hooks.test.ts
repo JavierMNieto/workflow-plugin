@@ -916,6 +916,11 @@ describe("plan-queue", () => {
       expect(reason).toContain("each by its Lands line");
       expect(reason).toContain("the day's fixes pull request");
       expect(reason).toContain("its pull request when the topic is ready");
+      // plans/draft-takes-its-follow-ups.md: a draft of the queue's own takes the plan resting on it.
+      expect(reason).toContain(
+        "a plan resting on an open draft of this queue's own lands in that draft, and is stacked only on one marked ready or another person's",
+      );
+      expect(reason).not.toContain("stacked only on the open pull request it rests on");
       expect(reason).not.toContain("one pull request per plan");
       expect(reason).not.toContain("the suites once at the end");
     });

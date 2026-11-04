@@ -374,16 +374,32 @@ stays on `GH_TOKEN`.
   name that is the branch, `main` or `fixes-` followed by anything is no
   topic's, and the plan is built as `topic <the plan's file name without
   .md>`, its "Built" saying why:
+  - **A plan that rests on an open pull request**, whose header names an
+    earlier plan it rests on, one whose additions it uses, and that
+    plan's pull request is open, is settled first, by `gh pr view <n>
+    --json isDraft,headRefName`. **A draft of this queue's own** (one a
+    plan in this checkout's `plans/` names as its own, as "At a batch's
+    start" says) takes it: the plan lands in that pull request whatever
+    topic its `Lands` line names, its topic that head branch, built as "An
+    open pull request's branch" says and described as "A pull request
+    already open" says. One marked ready, or another person's, is
+    stacked on ("No branch yet"), the plan built as `topic <the plan's
+    file name without .md>` when its `Lands` line names that pull
+    request's own topic, with `-2` after it when that too is the pull
+    request's head branch. A plan sent to another topic than its `Lands`
+    line names has that line rewritten to the topic it lands in, so
+    `plans` lists it there, and its "Built" names the topic the line
+    named and why. A plan that only changes a file an open pull request
+    changes is neither joined to it nor stacked on it, so each can be
+    merged or held alone.
   - **No branch yet** (no `origin/<name>`, no local `<name>`): `git switch
-    -c <name> origin/<branch>`. **Stacked** only when the plan's header
-    names an earlier plan it rests on, one whose additions it uses, and
-    that plan's pull request is open: then `git switch -c <name> <that
-    head branch>`, the pull request's `--base` is that branch, and the
-    first line of its body is `Builds on #<n>; merge that first.`
-    GitHub retargets it to the branch when the first's head branch is
-    deleted on merge (the repository's "Automatically delete head
-    branches"). A plan that only changes a file an open pull request
-    changes is not stacked, so each can be merged or held alone.
+    -c <name> origin/<branch>`. **Stacked** only when the plan rests on an
+    open pull request marked ready, or another person's (above): then
+    `git switch -c <name> <that head branch>`, the pull request's `--base`
+    is that branch, and the first line of its body is `Builds on #<n>;
+    merge that first.` GitHub retargets it to the branch when the first's
+    head branch is deleted on merge (the repository's "Automatically
+    delete head branches").
   - **A waiting branch** (`origin/<name>` exists and no open pull request
     has it as head): `git switch -C <name> origin/<name>`, unless the local
     branch holds commits the remote lacks (then the local one, pushed

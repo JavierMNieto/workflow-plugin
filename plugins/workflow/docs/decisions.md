@@ -137,11 +137,19 @@ on the machine that planned them.
   effect under each change; the `Also` list kept, answered after the plan
   was built. plans/pull-request-description-standard.md,
   plans/pull-request-description-standard-follow-up.md.
-- `stack-only-on-use` **A plan that rests on an open pull request (uses
-  what it adds) is stacked on it; one that only changes the same file is
-  not.** (Javi, 30 October) Each pull request can be merged or held
-  alone; a shared file is a conflict to merge later, not a dependency.
-  plans/stack-only-when-it-depends.md.
+- `stack-only-on-use` **A plan that rests on an open draft pull request
+  of the queue's own lands in it; one that rests on a pull request marked
+  ready, or someone else's, is stacked on it; one that only changes the
+  same file is neither.** (Javi, 4 November) A draft is not done yet, so
+  work that belongs to it goes into it, as he had to ask three times in
+  a day for a stacked pull request to be joined into the draft it built
+  on; what he reviewed should not change
+  under him, the queue never pushes to another person's branch, and a
+  shared file is a conflict to merge later, not a dependency.
+  plans/stack-only-when-it-depends.md, plans/draft-takes-its-follow-ups.md.
+  - ~~A plan that rests on an open pull request (uses what it adds) is
+    stacked on it; one that only changes the same file is not.~~ (Javi,
+    30 October)
 - `merge-never-force` **A branch is brought up to date by merging, never
   force-pushed.** (Javi, 29 October) Merge, never force, which a project
   may enforce in its settings; a squash merge keeps the merge commit off

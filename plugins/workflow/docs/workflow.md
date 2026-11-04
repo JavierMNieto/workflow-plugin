@@ -238,8 +238,11 @@ accounts for, with their author, under `Also`; then where to try it; on
 one screen. "Before the push" runs once per plan; the merge is the
 people's, and no agent merges. (decisions.md#description-is-the-diff)
 
-**A plan that rests on an open pull request (uses what it adds) is
-stacked on it; one that only changes the same file is not.**
+**A plan that rests on an open draft pull request of the queue's own
+lands in it; one that rests on a pull request marked ready, or someone
+else's, is stacked on it; one that only changes the same file is
+neither.** To rest on a pull request is to use what it adds; landing in
+it, the plan's `Lands` is that pull request's topic.
 (decisions.md#stack-only-on-use)
 
 **A branch is brought up to date by merging, never force-pushed**, a

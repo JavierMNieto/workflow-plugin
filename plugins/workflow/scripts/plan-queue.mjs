@@ -1548,7 +1548,7 @@ export function decideStop({
   if (!keep) return { retire: true, paths, why: verdict.why };
   const how =
     land === "pull-request"
-      ? `each by its Lands line: a fix into the day's fixes pull request, or pushed straight to origin/${branch()} and its run read, a topic's plans on the topic's branch and its pull request when the topic is ready (stacked only on the open pull request it rests on), Building lines, the suites before each plan's push or pull request, one commit per plan`
+      ? `each by its Lands line: a fix into the day's fixes pull request, or pushed straight to origin/${branch()} and its run read, a topic's plans on the topic's branch and its pull request when the topic is ready (a plan resting on an open draft of this queue's own lands in that draft, and is stacked only on one marked ready or another person's), Building lines, the suites before each plan's push or pull request, one commit per plan`
       : `a new branch off origin/${branch()}, Building lines, the suites once at the end, one commit per plan, the push`;
   return {
     refuse: true,

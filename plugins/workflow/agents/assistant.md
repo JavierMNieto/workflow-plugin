@@ -496,8 +496,10 @@ says so in a line.
 "Sources" is the address of each product looked up, or "None: every
 string follows a named rule or is free". A short plan names an earlier plan it
 rests on in its header line only when it uses what that plan adds, never
-for a shared file; only then is it built on that plan's pull request
-("build it on #<n>'s branch"). "Done when" is every check the executor
+for a shared file; only then does it go into that plan's pull request:
+an open draft of this queue's own it lands in ("lands in #<n>", its
+`Lands` that draft's topic), one marked ready or another person's it is
+stacked on ("stacked on #<n>"). "Done when" is every check the executor
 runs before it writes "Built", a line each with its command, or what is
 looked at, and what it shows, the test files and cases to add among them; a behavior a person
 sees is a scenario, When <what they do>, then <what they see>, naming the

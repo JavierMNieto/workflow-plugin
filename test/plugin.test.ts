@@ -1831,7 +1831,9 @@ describe("a pull request stacked only on one it cannot be built without", () => 
       .replace(/\s+/g, " ");
     expect(mode).not.toContain("--name-only");
     expect(mode).toContain("one whose additions it uses");
-    expect(mode).toContain("only changes a file an open pull request changes is not stacked");
+    expect(mode).toContain(
+      "only changes a file an open pull request changes is neither joined to it nor stacked on it",
+    );
     expect(mode).toContain("`mergeable` `CONFLICTING`");
     // From the head as GitHub has it, its own base merged in, a plain push.
     expect(mode).toContain("`git switch -C <head branch> origin/<head branch>`");
@@ -1910,12 +1912,59 @@ describe("a pull request stacked only on one it cannot be built without", () => 
 
   it("has the docs, the planner and the assistant name a plan rested on only when it is used", () => {
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
-      "rests on an open pull request (uses what it adds) is stacked on it; one that only changes the same file is not",
+      "A plan that rests on an open draft pull request of the queue's own lands in it; one that rests on a pull request marked ready, or someone else's, is stacked on it; one that only changes the same file is neither.",
     );
     for (const agent of ["planner", "assistant"])
       expect(read(`agents/${agent}.md`).replace(/\s+/g, " ")).toContain(
         "only when it uses what that plan adds, never for a shared file",
       );
+  });
+
+  // plans/draft-takes-its-follow-ups.md: a plan resting on an open draft of
+  // the queue's own lands in it, listed with that draft's topic, not a new one.
+  it("lands a plan resting on the queue's own open draft in that draft, and stacks it on any other", () => {
+    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
+      .exec(read("agents/executor.md"))![0]
+      .replace(/\s+/g, " ");
+    const rests = mode.slice(
+      mode.indexOf("**A plan that rests on an open pull request**"),
+      mode.indexOf("**No branch yet**"),
+    );
+    expect(rests).toContain("`gh pr view <n> --json isDraft,headRefName`");
+    expect(rests).toContain(
+      "**A draft of this queue's own** (one a plan in this checkout's `plans/` names as its own",
+    );
+    expect(rests).toContain(
+      "the plan lands in that pull request whatever topic its `Lands` line names, its topic that head branch",
+    );
+    expect(rests).toContain("One marked ready, or another person's, is stacked on");
+    // A plan written for a draft since marked ready gets a topic of its own, not the ready one.
+    expect(rests).toContain(
+      "the plan built as `topic <the plan's file name without .md>` when its `Lands` line names that pull request's own topic, with `-2` after it when that too is the pull request's head branch",
+    );
+    // The plan is listed where it lands, so its old topic is not taken for opened.
+    expect(rests).toContain(
+      "A plan sent to another topic than its `Lands` line names has that line rewritten to the topic it lands in, so `plans` lists it there",
+    );
+    const fresh = mode.slice(
+      mode.indexOf("**No branch yet**"),
+      mode.indexOf("**A waiting branch**"),
+    );
+    expect(fresh).toContain(
+      "**Stacked** only when the plan rests on an open pull request marked ready, or another person's",
+    );
+    expect(fresh).not.toContain("that plan's pull request is open: then");
+    for (const agent of ["planner", "assistant"]) {
+      const text = read(`agents/${agent}.md`).replace(/\s+/g, " ");
+      expect(text).toContain(
+        'an open draft of this queue\'s own it lands in ("lands in #<n>", its `Lands` that draft\'s topic), one marked ready or another person\'s it is stacked on ("stacked on #<n>")',
+      );
+      expect(text).not.toContain("build it on #<n>'s branch");
+    }
+    const entry = read("docs/decisions.md").replace(/\s+/g, " ");
+    expect(entry).toContain(
+      "~~A plan that rests on an open pull request (uses what it adds) is stacked on it; one that only changes the same file is not.~~ (Javi, 30 October)",
+    );
   });
 });
 

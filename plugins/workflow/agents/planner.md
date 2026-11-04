@@ -211,8 +211,10 @@ what the executor could not find by looking.
    the executor builds it. Read with <the project's docs> ("<rule
    names>") and the earlier plans it rests on." A plan rests on another
    only when it uses what that plan adds, never for a shared file; only
-   then is it built on that plan's pull request ("build it on #<n>'s
-   branch"). In a project with `land: pull-request`, a line of its own
+   then does it go into that plan's pull request: an open draft of this
+   queue's own it lands in ("lands in #<n>", its `Lands` that draft's
+   topic), one marked ready or another person's it is stacked on
+   ("stacked on #<n>"). In a project with `land: pull-request`, a line of its own
    after that paragraph says where the plan lands: `Lands: topic <name>,
    ready.` or `Lands: topic <name>, waiting.`, always a topic, since a
    plan decides and a decision is a rule. `<name>` is the topic's branch
@@ -229,11 +231,13 @@ what the executor could not find by looking.
    branch <name>.`; the executor copies it into the pull request's
    description, where GitHub links it and writes a backlink on the other
    one. "What is there now" says what each does and which of three it is:
-   the plan **rests on** it (uses what it adds: the header's "rests on",
-   built on its branch), **joins** its topic (a waiting topic of this
-   queue: the `Lands` line names that topic), or is a **different** thing
-   on the same files (the `Related` line alone). **When another person's
-   open pull request already decides what the brief asks**, ask
+   the plan **rests on** it (uses what it adds: the header's "rests on";
+   an open draft of this queue's own it lands in, the `Lands` line naming
+   its topic, one marked ready or another person's it is stacked on),
+   **joins** its topic (a waiting topic of this queue: the `Lands` line
+   names that topic), or is a **different** thing on the same files (the
+   `Related` line alone). **When another person's open pull request
+   already decides what the brief asks**, ask
    ${user_config.owner} once, by "Asked in plain words": build it as its
    own pull request and settle it there (recommended, since the pull
    request is where the people discuss it, the docs' "The group's
