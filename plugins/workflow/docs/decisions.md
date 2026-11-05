@@ -351,9 +351,15 @@ on the machine that planned them.
   brief written while the planner is busy is not lost, and the planner
   is started under the executor's bounds. plans/cache-aware-queue.md.
 - `planner-takes-next-brief` **A planner with room left takes the next
-  brief.** (Javi, 27 October) A warm planner with a related brief is
-  cheaper than a fresh one, by the executor's own rule.
-  plans/cache-aware-queue.md.
+  brief: under its ceiling the oldest, under its related ceiling the
+  oldest brief on the ground of its plans.** (Javi, 5 November) For a
+  planner the fresh start's writes outweigh the reread of a context three
+  times its size, so relatedness is the planner's cost argument, where it
+  was the executor's quality guard; under one ceiling the median planner
+  planned one brief and retired. plans/cache-aware-queue.md,
+  plans/reuse-ceiling-per-agent.md.
+  - ~~A planner with room left takes the next brief.~~ (Javi, 27
+    October; by the executor's rule)
 - `asked-once` **A decision a plan leaves to the owner is asked by its
   planner, once, and the plan is the planner's for thirty minutes.**
   (Javi, 28 October) Wait thirty minutes, then decide for him; a plan
@@ -409,13 +415,28 @@ on the machine that planned them.
   would look odd there; Rust's rollups and Dependabot's grouped updates
   batch small changes the same way. plans/pull-requests-by-topic.md.
 - `context-cost` **A session's context is worth keeping only while it is
-  cheaper than a fresh one.** (per Anthropic's pricing page, 27 October)
-  Every turn re-reads the whole context at the cache-read price: a plan
-  of about 120 turns reads about $1.90 at 80k, $4.80 at 200k and $14.40
-  at 600k (Opus), where a fresh executor costs about $2.60 per plan in
-  all, so the wash is near 100k; the default ceiling, 200k, buys a
-  related plan's continuity for about $2.40 more, and a cold cache adds
-  the rewrite of the whole context. plans/cache-aware-queue.md.
+  cheaper than a fresh one, and the wash is each agent's: an executor
+  retires past 200k, a planner past 160k for a brief on other ground and
+  past 480k for one related to its plans.** (Javi, 5 November) The wash
+  is (start + shared reading) x (1 + write price / (turns x read price)):
+  a kept context is re-read every turn at the read price, a fresh one
+  writes its 50k start and the reading it shares once at the one-hour
+  write price. Per Anthropic's pricing page
+  (platform.claude.com/docs/en/about-claude/pricing) read on 5 November
+  2026 (Fable 5.1 $10 input, $20 one-hour write, $0.25 read, $50 output a
+  million; Opus 5.5 $4, $8, $0.20, $20) and the transcripts of 27 October
+  to 4 November (34 planners of the project it was first written in,
+  median 36 turns, 54 percent of their cost cache writes; 39 executors,
+  68 percent cache reads): a
+  planner on Fable washes at 160k with nothing shared and 480k with 100k
+  shared; an executor on Opus at about 70k and 110k, and 200k stays the
+  owner's allowance of about $3 a plan for the batch's continuity. `plans
+  cost` measures it again. plans/cache-aware-queue.md,
+  plans/reuse-ceiling-per-agent.md.
+  - ~~A session's context is worth keeping only while it is cheaper than
+    a fresh one.~~ (per Anthropic's pricing page, 27 October; one wash of
+    100k for both agents, counted with the fresh session's growth on one
+    side only)
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel

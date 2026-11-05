@@ -2083,20 +2083,56 @@ describe("the reuse ceiling and the reviewer", () => {
     );
   });
 
-  it("reads reuse, 200000 by default, and the starter names it", () => {
+  it("reads reuse per agent, 200k for an executor and 160k or 480k for a planner by default, and the starter names it", () => {
     const at = (front: string) => {
       const root = dir("reuse-");
       mkdirSync(join(root, ".claude"));
       writeFileSync(join(root, ".claude", "workflow.md"), `---\nname: R\n${front}---\n`);
       return project(root).reuse;
     };
-    expect(at("")).toBe(200_000);
-    expect(at("reuse: 120000\n")).toBe(120_000);
+    const defaults = {
+      executor: { any: 200_000, related: 200_000 },
+      planner: { any: 160_000, related: 480_000 },
+    };
+    expect(at("")).toEqual(defaults);
+    expect(at("reuse: nothing\n")).toEqual(defaults);
+    // A number holds every agent to it, both cases.
+    expect(at("reuse: 120000\n")).toEqual({
+      executor: { any: 120_000, related: 120_000 },
+      planner: { any: 120_000, related: 120_000 },
+    });
+    // The map sets each; a missing one is the default.
+    expect(
+      at(
+        "reuse:\n  executor: 150000\n  executor-related: 250000\n  planner: 100000\n  planner-related: 300000\n",
+      ),
+    ).toEqual({
+      executor: { any: 150_000, related: 250_000 },
+      planner: { any: 100_000, related: 300_000 },
+    });
+    expect(at("reuse:\n  executor: 150000\n")).toEqual({
+      executor: { any: 150_000, related: 150_000 },
+      planner: { any: 160_000, related: 480_000 },
+    });
+    // Related work is never held to less than any work.
+    expect(at("reuse:\n  planner-related: 100000\n  executor-related: 10\n")).toEqual({
+      executor: { any: 200_000, related: 200_000 },
+      planner: { any: 160_000, related: 160_000 },
+    });
+    expect(at("reuse:\n  planner: 600000\n").planner).toEqual({
+      any: 600_000,
+      related: 600_000,
+    });
     const fresh = dir("reuse-init-");
     init(fresh);
-    expect(readFileSync(join(fresh, ".claude", "workflow.md"), "utf8")).toContain(
-      "# reuse: 200000",
-    );
+    const text = readFileSync(join(fresh, ".claude", "workflow.md"), "utf8");
+    for (const line of [
+      "# reuse: 200000          the context, in tokens, above which a finished session retires: one number for every agent, or",
+      "#   executor: 200000     the executor's (default 200000)",
+      "#   planner: 160000      the planner's for a brief on other ground (default 160000)",
+      "#   planner-related: 480000  the planner's for a brief related to its plans (default 480000)",
+    ])
+      expect(text).toContain(line);
   });
 
   it("has the reviewer agent, read-only", () => {

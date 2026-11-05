@@ -196,7 +196,7 @@ deny:                     # MCP tools an agent here may never call, by agent
   assistant:
     - "mcp__server__write_.*"
 form: compact             # one chat decides and builds; omit for the full queue
-reuse: 200000             # the context, in tokens, above which a finished session retires
+reuse: 200000             # the context above which a finished session retires: a number for every agent, or a map of executor, executor-related, planner, planner-related
 reviews:                  # the reviews before a push; omit for all three (none when compact)
   - code-review
 note: \JaviAI             # the writing plugin's note command; omit for notes in the report
@@ -416,8 +416,9 @@ another's edits are refused. Its Stop hook holds the stop on a red or
 unfinished run of its push, or pull request of the checkout, whose fix
 is pushed where the red one was, before anything else, then names
 the waiting plans to a session it may reuse (no compaction, or one and a
-waiting plan naming a file the batch changed; a context under `reuse`,
-200k by default; a cache still warm), else retires it and starts the
+waiting plan naming a file the batch changed; a context under its
+ceiling (the project file's `reuse`: 200k for an executor by default); a
+cache still warm), else retires it and starts the
 next executor. At a third compaction inside one plan the session hands
 it over (work committed, a "Handing over" section, stop), up to six times
 a plan; twice at the same step, the owner is asked.
@@ -429,6 +430,10 @@ reset; none after a quick death; twenty-four a day at most; `plans pause`
 and `plans resume` on the owner's "pause the queue" and "resume the
 queue".
 (decisions.md#starts-bounded)
+
+**`plans cost` measures the queue**: each session's turns, context and
+cost by agent, from the transcripts, at the prices the script names with
+the date they were read. (decisions.md#context-cost)
 
 **Sessions the queue starts are Remote Control chats named after the
 project and the machine**, `<Project> Executor 2 (lab)`.
@@ -471,10 +476,13 @@ taken by the planner's `## Planning, <date>, session <id>` line; `plans
 start --agent planner` starts a planner under the executor's bounds.
 (decisions.md#briefs-queued)
 
-**A planner with room left takes the next brief**, by the executor's
-rule: none compacted, the oldest; one, the oldest related brief; two, or
-one with nothing related, it retires. A chat holds every plan it wrote
-until a Building line takes it. (decisions.md#planner-takes-next-brief)
+**A planner with room left takes the next brief**: none compacted and
+under 160k, the oldest; under 480k, or compacted once, the oldest brief
+related to its plans (one that names a file they name, or one of them);
+else it retires, and `plans start` sends a brief to a live planner only
+when it is under its ceiling for that brief. A chat holds every plan it
+wrote until a Building line takes it.
+(decisions.md#planner-takes-next-brief)
 
 **Asked once.** A decision a plan leaves to the owner is asked by its
 planner, in its chat, and by nobody else; a question a plan did not

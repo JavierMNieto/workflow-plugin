@@ -27,8 +27,13 @@ import {
   treeFiles,
   untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
+import { costWords, measure } from "../plugins/workflow/scripts/cost.mjs";
 import {
   allowedWhileLocked,
+  ceilingsLine,
+  lastFreshLines,
+  tiredFor,
+  usageWords,
   ghCommand,
   notesWaiting,
   marksReady,
@@ -2056,7 +2061,7 @@ describe("the planner queue", () => {
       told: ["plans/older.md"],
     });
     expect((decidePlannerStop({ waiting: [older, newer] }) as { reason: string }).reason).toContain(
-      "A brief is waiting and this session can take it: plans/older.md.",
+      "A brief is waiting and this session can take it: plans/older.md (no context known, and it has not compacted).",
     );
     expect(decidePlannerStop({ waiting: [older, newer], compactions: 1 })).toMatchObject({
       refuse: true,
@@ -2395,7 +2400,7 @@ describe("the planner queue", () => {
     try {
       const said = stop();
       expect(said).toContain('"decision":"block"');
-      const named = /can take it: (plans\/[^\s]+\.md)\./.exec(said)![1];
+      const named = /can take it: (plans\/[^\s]+\.md) \(/.exec(said)![1];
       let state = JSON.parse(readFileSync(stateFile, "utf8"));
       expect(state.plans).toEqual(["plans/first-plan.md"]);
       expect(state.brief).toBe(named);
@@ -3803,7 +3808,11 @@ describe("the cache-aware queue", () => {
   const at = (minutes: number, k: number) => ({ context: k * 1000, at: now - minutes * MIN });
 
   it("mayReuse: by compactions, the ceiling and the cache", () => {
-    expect(mayReuse({ compactions: 0, usage: at(1, 150), now })).toEqual({ reuse: true });
+    expect(mayReuse({ compactions: 0, usage: at(1, 150), now })).toEqual({
+      reuse: true,
+      why: "its context is 150k tokens, under the reuse ceiling of 200k",
+      related: false,
+    });
     expect(mayReuse({ usage: at(1, 250), now }).why).toContain(
       "its context is 250k tokens, over the reuse ceiling of 200k",
     );
@@ -3811,11 +3820,19 @@ describe("the cache-aware queue", () => {
     expect(mayReuse({ usage: at(70, 200), now }).why).toContain(
       "its cache has gone cold after 70 minutes idle",
     );
-    expect(mayReuse({ usage: at(70, 40), now })).toEqual({ reuse: true });
+    expect(mayReuse({ usage: at(70, 40), now })).toMatchObject({ reuse: true });
     expect(mayReuse({ compactions: 2, usage: at(1, 10), now }).reuse).toBe(false);
     expect(mayReuse({ compactions: 1, related: false, now }).reuse).toBe(false);
-    expect(mayReuse({ compactions: 1, related: true, now })).toEqual({ reuse: true });
-    expect(mayReuse({ compactions: 0 })).toEqual({ reuse: true });
+    expect(mayReuse({ compactions: 1, related: true, now })).toEqual({
+      reuse: true,
+      why: "it has compacted once, and a related plan waits",
+      related: true,
+    });
+    expect(mayReuse({ compactions: 0 })).toEqual({
+      reuse: true,
+      why: "no context known, and it has not compacted",
+      related: false,
+    });
   });
 
   it("sessionUsage reads the last assistant turn's context and time, and null without a file", () => {
@@ -3863,7 +3880,7 @@ describe("the cache-aware queue", () => {
       retire: true,
       why: expect.stringContaining("over the reuse ceiling"),
     });
-    expect(decidePlannerStop({ waiting, usage: at(1, 300), now })).toMatchObject({
+    expect(decidePlannerStop({ waiting, usage: at(1, 500), now })).toMatchObject({
       retire: true,
       why: expect.stringContaining("over the reuse ceiling"),
     });
@@ -4002,6 +4019,384 @@ describe("the cache-aware queue", () => {
     expect(describeSession(one("idle", 300) as never)).toContain("over the reuse ceiling");
   });
 
+  // plans/reuse-ceiling-per-agent.md: each agent its own ceiling, the planner's by relatedness.
+  const planner = { any: 160_000, related: 480_000 };
+
+  it("mayReuse holds a planner to 160k for any brief and 480k for a related one, and says why either way", () => {
+    expect(
+      mayReuse({ usage: at(1, 300), related: true, now, ceiling: planner, kind: "planner" }),
+    ).toEqual({
+      reuse: true,
+      why: "its context is 300k tokens, under the reuse ceiling of 480k for a related brief",
+      related: true,
+    });
+    expect(
+      mayReuse({ usage: at(1, 300), related: false, now, ceiling: planner, kind: "planner" }),
+    ).toEqual({
+      reuse: false,
+      why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+    });
+    expect(
+      mayReuse({ usage: at(1, 500), related: true, now, ceiling: planner, kind: "planner" }).why,
+    ).toBe(
+      "its context is 500k tokens, over the reuse ceiling of 480k for a related brief: every turn would re-read it",
+    );
+    expect(mayReuse({ usage: at(1, 150), now, ceiling: planner, kind: "planner" })).toEqual({
+      reuse: true,
+      why: "its context is 150k tokens, under the reuse ceiling of 160k",
+      related: false,
+    });
+    // A number is still the ceiling for both cases.
+    expect(mayReuse({ usage: at(1, 300), related: true, now, ceiling: 200_000 })).toMatchObject({
+      reuse: false,
+      why: expect.stringContaining("over the reuse ceiling of 200k: every turn"),
+    });
+    expect(mayReuse({ usage: at(1, 150), related: false, now, ceiling: 200_000 }).reuse).toBe(true);
+  });
+
+  it("decidePlannerStop over 160k names the related brief, under it the oldest, and says why", () => {
+    const older = { path: "plans/older.md", related: false };
+    const newer = { path: "plans/newer.md", related: true };
+    const kept = decidePlannerStop({ waiting: [older, newer], usage: at(1, 300), now });
+    expect(kept).toMatchObject({
+      refuse: true,
+      told: ["plans/newer.md"],
+      kept: {
+        paths: ["plans/newer.md"],
+        why: "its context is 300k tokens, under the reuse ceiling of 480k for a related brief",
+      },
+    });
+    expect((kept as { reason: string }).reason).toContain(
+      "A brief is waiting and this session can take it: plans/newer.md (its context is 300k tokens, under the reuse ceiling of 480k for a related brief).",
+    );
+    expect(decidePlannerStop({ waiting: [older, newer], usage: at(1, 100), now })).toMatchObject({
+      refuse: true,
+      told: ["plans/older.md"],
+    });
+    expect(decidePlannerStop({ waiting: [older], usage: at(1, 300), now })).toMatchObject({
+      retire: true,
+      why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+    });
+  });
+
+  it("decideStop between an executor's two ceilings names the related plans only", () => {
+    const waiting = [
+      { path: "plans/a.md", related: false, asks: false },
+      { path: "plans/b.md", related: true, asks: false },
+    ];
+    const ceiling = { any: 100_000, related: 300_000 };
+    const kept = decideStop({ waiting, usage: at(1, 200), now, ceiling });
+    expect(kept).toMatchObject({
+      refuse: true,
+      told: ["plans/b.md"],
+      kept: { paths: ["plans/b.md"] },
+    });
+    expect((kept as { reason: string }).reason).toContain(
+      "can take them: plans/b.md (its context is 200k tokens, under the reuse ceiling of 300k for a related plan).",
+    );
+    // At the next stop the unrelated one goes to a fresh executor.
+    expect(
+      decideStop({ waiting, told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+    ).toMatchObject({ retire: true, paths: ["plans/a.md"] });
+    // Under both, every plan, as before.
+    expect(decideStop({ waiting, usage: at(1, 50), now, ceiling })).toMatchObject({
+      told: ["plans/a.md", "plans/b.md"],
+    });
+  });
+
+  it("canStart messages a busy planner at 300k for a related brief, starts beside it for another, and replaces it idle", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const held = (status: string, related: boolean) => ({
+      ...one(status, 300, "planner"),
+      ceiling: planner,
+      holds: ["plans/own.md"],
+      related,
+    });
+    const messaged = canStart({
+      kind: "planner",
+      now,
+      usage,
+      name: "Test",
+      brief: "plans/next.md",
+      ceiling: planner,
+      sessions: [held("busy", true)] as never,
+    });
+    expect(messaged).toMatchObject({ refuse: true });
+    expect(messaged.why).toContain("A planner is alive");
+    expect(messaged.why).toContain("Send it the brief with SendMessage");
+    const beside = canStart({
+      kind: "planner",
+      now,
+      usage,
+      name: "Test",
+      ceiling: planner,
+      sessions: [held("busy", false)] as never,
+    });
+    expect(beside).toMatchObject({ start: true });
+    expect(beside.note).toContain("Started beside Test Planner 1");
+    expect(
+      canStart({
+        kind: "planner",
+        now,
+        usage,
+        name: "Test",
+        ceiling: planner,
+        sessions: [held("idle", false)] as never,
+      }),
+    ).toMatchObject({
+      start: true,
+      replace: [
+        {
+          sessionId: "planner-idle-300",
+          why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+        },
+      ],
+    });
+  });
+
+  it("canStart counts a planner's compactions: once compacted, an unrelated brief replaces it", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const compacted = (related: boolean) => ({
+      ...one("idle", 100, "planner"),
+      ceiling: planner,
+      compactions: 1,
+      related,
+    });
+    expect(
+      canStart({
+        kind: "planner",
+        now,
+        usage,
+        name: "Test",
+        sessions: [compacted(false)] as never,
+      }),
+    ).toMatchObject({
+      start: true,
+      replace: [{ why: "this session has compacted 1 time, and nothing waiting is related" }],
+    });
+    expect(
+      canStart({ kind: "planner", now, usage, name: "Test", sessions: [compacted(true)] as never }),
+    ).toMatchObject({ refuse: true });
+  });
+
+  it("canStart keeps an executor between its two ceilings for related plans only (Codex C1)", () => {
+    const usage = {
+      at: now / 1000,
+      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+    };
+    const ceiling = { any: 100_000, related: 300_000 };
+    const idle = (related: boolean) => ({ ...one("idle", 200), ceiling, related });
+    expect(
+      canStart({ now, usage, name: "Test", ceiling, sessions: [idle(true)] as never }).why,
+    ).toContain("An executor is alive");
+    expect(
+      canStart({ now, usage, name: "Test", ceiling, sessions: [idle(false)] as never }),
+    ).toMatchObject({ start: true, replace: [{ sessionId: "executor-idle-200" }] });
+  });
+
+  it("usageWords says over the ceiling for an unrelated brief between the two, and over it past both", () => {
+    const row = (k: number) => ({
+      kind: "planner",
+      ceiling: planner,
+      usage: { context: k * 1000, at: Date.now() - MIN },
+    });
+    expect(usageWords(row(300) as never)).toBe(
+      "300k context, warm, over the reuse ceiling for an unrelated brief",
+    );
+    expect(usageWords(row(500) as never)).toBe("500k context, warm, over the reuse ceiling");
+    expect(usageWords(row(100) as never)).toBe("100k context, warm");
+    expect(
+      usageWords({
+        ...row(300),
+        kind: "executor",
+        ceiling: { any: 100_000, related: 400_000 },
+      } as never),
+    ).toContain("over the reuse ceiling for an unrelated plan");
+  });
+
+  it("describeSession shows why a kept session was kept, and not once it is retired", () => {
+    const kept = {
+      ...one("busy", 180, "planner"),
+      ceiling: planner,
+      on: "plans/x.md",
+      kept: {
+        paths: ["plans/x.md"],
+        why: "its context is 180k tokens, under the reuse ceiling of 480k for a related brief",
+      },
+    };
+    expect(describeSession(kept as never)).toContain(
+      "planning plans/x.md, kept for plans/x.md: its context is 180k tokens, under the reuse ceiling of 480k for a related brief",
+    );
+    expect(describeSession({ ...kept, retired: true } as never)).not.toContain("kept for");
+    // Once the work it was kept for is done, the reason is stale.
+    expect(describeSession({ ...kept, on: "" } as never)).not.toContain("kept for");
+    const executor = {
+      ...one("busy", 150),
+      on: "plans/b.md",
+      kept: {
+        paths: ["plans/a.md", "plans/b.md"],
+        why: "its context is 150k tokens, under the reuse ceiling of 200k",
+      },
+    };
+    expect(describeSession(executor as never)).toContain(
+      "kept for plans/a.md and plans/b.md: its context is 150k tokens, under the reuse ceiling of 200k",
+    );
+  });
+
+  it("plans says the ceilings, and the last fresh start of each kind with why", () => {
+    expect(ceilingsLine({ executor: { any: 200_000, related: 200_000 }, planner })).toBe(
+      "Ceilings: an executor retires past 200k; a planner past 160k, or past 480k when the brief waiting is related to its plans.",
+    );
+    const log = [
+      { at: Date.UTC(2026, 10, 5, 9, 0), name: "Reuse Planner 1 (wp)", paths: ["plans/a.md"] },
+      {
+        at: new Date(2026, 10, 5, 12, 40).getTime(),
+        name: "Reuse Planner 2 (wp)",
+        paths: ["plans/x.md"],
+        why: "Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it.",
+      },
+      { at: now, name: "Other Executor 3 (wp)", paths: ["plans/b.md"], why: "Other." },
+    ];
+    expect(lastFreshLines(log, "Reuse")).toEqual([
+      "Last fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it.",
+    ]);
+    const repo = mkdtempSync(join(tmpdir(), "ceilings-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      mkdirSync(join(repo, ".claude"));
+      writeFileSync(join(repo, ".claude", "workflow.md"), "---\nname: Reuse\nbranch: test\n---\n");
+      writeFileSync(
+        join(repo, ".claude", "starts.log"),
+        log.map((line) => JSON.stringify(line)).join("\n") + "\n",
+      );
+      const out = execFileSync(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import { list } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+           console.log(list({ live: [] }));`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: repo,
+            WORKFLOW_STARTS_LOG: join(repo, ".claude", "starts.log"),
+          },
+        },
+      );
+      expect(out).toContain(
+        "The planner: none alive.\nCeilings: an executor retires past 200k; a planner past 160k, or past 480k when the brief waiting is related to its plans.\nLast fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired:",
+      );
+      expect(out).not.toContain("Last fresh executor");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("tiredFor and the planner's prompt hook call a planner over its ceiling tired for the brief, and say why", () => {
+    const repo = mkdtempSync(join(tmpdir(), "tired-"));
+    const id = `tired-${process.pid}`;
+    const stateFile = join(tmpdir(), `workflow-queue-${id}.json`);
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      mkdirSync(join(repo, ".claude"));
+      mkdirSync(join(repo, "plans"));
+      writeFileSync(join(repo, ".claude", "workflow.md"), "---\nname: Tired\nbranch: test\n---\n");
+      writeFileSync(
+        join(repo, "plans", "own.md"),
+        "# Own\n\nPlan only, 5 November 2026.\n\nChanges `src/a.mjs`.\n",
+      );
+      writeFileSync(
+        join(repo, "plans", "other.md"),
+        "# Other\n\nBrief for the planner, 5 November 2026, by the assistant with Javi.\n\nChanges `src/b.mjs`.\n",
+      );
+      writeFileSync(
+        join(repo, "plans", "near.md"),
+        "# Near\n\nBrief for the planner, 5 November 2026, by the assistant with Javi.\n\nChanges `src/a.mjs` again.\n",
+      );
+      const textOf = (path: string) => readFileSync(join(repo, path), "utf8");
+      const state = { agent: "planner", compactions: 0, plans: ["plans/own.md"] };
+      const usage = { context: 250_000, at: Date.now() - MIN };
+      expect(tiredFor(state, "plans/other.md", { usage, textOf })).toBe(
+        "its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+      );
+      expect(tiredFor(state, "plans/near.md", { usage, textOf })).toBe("");
+      const transcript = join(repo, "t.jsonl");
+      writeFileSync(
+        transcript,
+        `${JSON.stringify({
+          type: "assistant",
+          timestamp: new Date().toISOString(),
+          message: { usage: { input_tokens: 10, cache_read_input_tokens: 250_000 } },
+        })}\n`,
+      );
+      writeFileSync(stateFile, JSON.stringify(state));
+      const out = execFileSync("node", [join(here, "plan-queue.mjs"), "prompt"], {
+        input: JSON.stringify({
+          session_id: id,
+          agent_type: "planner",
+          transcript_path: transcript,
+          prompt: "Plan plans/other.md: it is a brief for the planner.",
+        }),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CLAUDE_PROJECT_DIR: repo,
+          WORKFLOW_LIVE: "[]",
+          WORKFLOW_STARTS_LOG: join(repo, ".claude", "starts.log"),
+        },
+      });
+      expect(out).toContain(
+        "This session is tired for plans/other.md (its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it): do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.",
+      );
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(stateFile, { force: true });
+    }
+  });
+
+  it("a Stop hook's start deferred by usage keeps the retired session's why for the timer's start", () => {
+    const repo = mkdtempSync(join(tmpdir(), "deferred-why-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      mkdirSync(join(repo, ".claude"));
+      mkdirSync(join(repo, "plans"));
+      writeFileSync(join(repo, ".claude", "workflow.md"), "---\nname: Later\nbranch: test\n---\n");
+      // Paused, so the deferral is written and no timer runs.
+      writeFileSync(join(repo, ".claude", "executor.pause"), JSON.stringify({ at: "12:00" }));
+      execFileSync(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import { start } from ${JSON.stringify(join(here, "plan-queue.mjs"))};
+           console.log(start(["plans/x.md"], { replace: "old-session", at: Date.now() + 3_600_000, why: "its context is 250k tokens, over the reuse ceiling of 200k: every turn would re-read it" }));`,
+        ],
+        {
+          encoding: "utf8",
+          env: { ...process.env, CLAUDE_PROJECT_DIR: repo, WORKFLOW_LIVE: "[]" },
+        },
+      );
+      expect(
+        JSON.parse(readFileSync(join(repo, ".claude", "executor.deferred"), "utf8")),
+      ).toMatchObject({
+        replace: "old-session",
+        retired:
+          "its context is 250k tokens, over the reuse ceiling of 200k: every turn would re-read it",
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("plans start --dry retires an idle executor whose transcript is over the ceiling", () => {
     const repo = mkdtempSync(join(tmpdir(), "reuse-"));
     const projects = mkdtempSync(join(tmpdir(), "reuse-projects-"));
@@ -4049,6 +4444,156 @@ describe("the cache-aware queue", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
       rmSync(projects, { recursive: true, force: true });
+    }
+  });
+});
+
+/** **The cost report** (plans/reuse-ceiling-per-agent.md, part 6): `plans cost`'s numbers. */
+describe("the cost report", () => {
+  const turn = (id: string, at: string, u: object, extra: object = {}) =>
+    JSON.stringify({
+      type: "assistant",
+      timestamp: at,
+      message: { id, model: "claude-fable-5-1-20261001", usage: u },
+      ...extra,
+    });
+
+  it("measures each transcript's main thread and prices it by agent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cost-"));
+    try {
+      // A planner: two turns, the second written twice (one message id), a
+      // sidechain turn to skip, a synthetic one to skip, one compaction.
+      writeFileSync(
+        join(dir, "planner-1.jsonl"),
+        [
+          JSON.stringify({ type: "agent-setting", agentSetting: "workflow:planner" }),
+          turn("m1", "2026-11-01T10:00:00Z", {
+            input_tokens: 0,
+            cache_creation_input_tokens: 50_000,
+            cache_read_input_tokens: 0,
+            output_tokens: 1000,
+          }),
+          // The turn's first entry, its output still streaming: the last entry counts.
+          turn("m2", "2026-11-01T10:05:00Z", {
+            input_tokens: 0,
+            cache_creation_input_tokens: 150_000,
+            cache_read_input_tokens: 50_000,
+            output_tokens: 7,
+          }),
+          turn("m2", "2026-11-01T10:05:00Z", {
+            input_tokens: 0,
+            cache_creation_input_tokens: 150_000,
+            cache_read_input_tokens: 50_000,
+            output_tokens: 2000,
+          }),
+          turn(
+            "side",
+            "2026-11-01T10:06:00Z",
+            { input_tokens: 0, cache_creation_input_tokens: 999_999, output_tokens: 1 },
+            { isSidechain: true },
+          ),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-11-01T10:07:00Z",
+            message: { id: "syn", model: "<synthetic>", usage: { input_tokens: 0 } },
+          }),
+          JSON.stringify({ type: "system", subtype: "compact_boundary" }),
+          "",
+        ].join("\n"),
+      );
+      // An executor on Opus: one turn.
+      writeFileSync(
+        join(dir, "executor-1.jsonl"),
+        [
+          JSON.stringify({ type: "agent-setting", agentSetting: "workflow:executor" }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-11-02T09:00:00Z",
+            message: {
+              id: "e1",
+              model: "claude-opus-5-5",
+              usage: {
+                input_tokens: 0,
+                cache_creation_input_tokens: 100_000,
+                cache_read_input_tokens: 150_000,
+                output_tokens: 5000,
+              },
+            },
+          }),
+          "",
+        ].join("\n"),
+      );
+      // An older chat with no agent, and an unknown model.
+      writeFileSync(
+        join(dir, "chat-1.jsonl"),
+        `${JSON.stringify({
+          type: "assistant",
+          timestamp: "2026-10-20T09:00:00Z",
+          message: { id: "c1", model: "claude-other-1", usage: { input_tokens: 1_000_000 } },
+        })}\n`,
+      );
+      const rows = measure(dir);
+      expect(rows.map((row: { id: string }) => row.id)).toEqual([
+        "chat-1",
+        "planner-1",
+        "executor-1",
+      ]);
+      expect(rows[1]).toMatchObject({
+        agent: "workflow:planner",
+        turns: 2,
+        maxContext: 200_000,
+        endContext: 200_000,
+        write: 200_000,
+        read: 50_000,
+        output: 3000,
+        compactions: 1,
+      });
+      const lines = costWords(rows, {
+        ceilings: {
+          executor: { any: 200_000, related: 200_000 },
+          planner: { any: 160_000, related: 480_000 },
+        },
+        machine: "wp",
+        dir: "~/.claude/projects/x",
+      });
+      expect(lines[0]).toBe(
+        "Cost of this queue's sessions on wp since 20 October 2026 (3 transcripts in ~/.claude/projects/x), at the prices read on 5 November 2026 from platform.claude.com/docs/en/about-claude/pricing: Fable 5.1 $10 input, $20 one-hour cache write, $0.25 cache read, $50 output a million tokens; Opus 5.5 $4, $8, $0.20, $20.",
+      );
+      // Planner: writes 200k x $20 = $4, reads 50k x $0.25 = $0.0125, output 3k x $50 = $0.15.
+      expect(lines[1]).toBe(
+        "Planners: 1 session, median 2 turns, median context at the end 200k, 1 ended over 160k and 0 over 480k, 1 compacted; $4.16, cache writes 96%, output 4%, cache reads 0%.",
+      );
+      // Executor: writes 100k x $8 = $0.80, reads 150k x $0.20 = $0.03, output 5k x $20 = $0.10.
+      expect(lines[2]).toBe(
+        "Executors: 1 session, median 1 turns, median context at the end 250k, 1 ended over 200k, none compacted; $0.93, cache writes 86%, output 11%, cache reads 3%.",
+      );
+      expect(lines[3]).toBe(
+        "Other: 1 session (no agent setting); $4.00 (claude-other-1 priced as Opus 5.5).",
+      );
+      // Each turn at its own model's prices (Codex C2): $10 on Fable, then $4 on Opus.
+      writeFileSync(
+        join(dir, "switched-1.jsonl"),
+        [
+          JSON.stringify({ type: "agent-setting", agentSetting: "workflow:assistant" }),
+          turn("s1", "2026-11-03T09:00:00Z", { input_tokens: 1_000_000 }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-11-03T09:05:00Z",
+            message: { id: "s2", model: "claude-opus-5-5", usage: { input_tokens: 1_000_000 } },
+          }),
+          "",
+        ].join("\n"),
+      );
+      expect(costWords(measure(dir, { since: "2026-11-03" }))[1]).toBe(
+        "Assistants: 1 session, median 2 turns, median context at the end 1000k, none compacted; $14, input 100%, cache writes 0%, output 0%.",
+      );
+      // Since a day: the older chat is left out.
+      expect(measure(dir, { since: "2026-11-01" })).toHaveLength(3);
+      expect(
+        costWords(measure(dir, { since: "2026-11-02" }), { since: "2026-11-02" })[0],
+      ).toContain("since 2 November 2026 (2 transcripts)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

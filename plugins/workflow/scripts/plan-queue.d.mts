@@ -50,7 +50,17 @@ export type StopDecision = {
   paths?: string[];
   handover?: Handed;
   context?: string;
+  /** Why the session was kept, and for which plans. */
+  kept?: Kept;
 } | null;
+/** Why a Stop hook kept a session, and the plans or brief it took. */
+export type Kept = { paths: string[]; why: string };
+/** A ceiling for one agent: a number is both cases. */
+export type Ceiling = number | { any: number; related: number };
+export type Ceilings = {
+  executor: { any: number; related: number };
+  planner: { any: number; related: number };
+};
 export type StartDecision = {
   start?: true;
   name?: string;
@@ -152,7 +162,11 @@ export type Session = {
   compactions?: number;
   /** Its context and the age of its last turn, from its transcript. */
   usage?: SessionUsage | null;
-  ceiling?: number;
+  ceiling?: Ceiling;
+  /** Why its Stop hook kept it for the work it took. */
+  kept?: Kept | null;
+  /** A planner's: whether the brief being started is related to its plans. */
+  related?: boolean;
 };
 export function worktrees(): Tree[];
 export const SESSION_NAME: RegExp;
@@ -182,9 +196,14 @@ export function sessionsOf(
       sessionId: string,
     ) => { agent?: string; retired?: boolean; plans?: string[]; compactions?: number } | null;
     usageFor?: (row: LiveRow) => SessionUsage | null;
-    ceiling?: number;
+    ceiling?: Ceiling;
   },
 ): Session[];
+export function ceilingsLine(reuse?: Ceilings): string;
+export function lastFreshLines(
+  log: { at: number; name: string; paths?: string[]; why?: string }[],
+  project: string,
+): string[];
 /** How long a planner's question holds its plan from the executor ("Asked once"). */
 export const ANSWER_WINDOW: number;
 export type AskingOptions = {
@@ -216,10 +235,23 @@ export function decidePlannerStop(facts: {
   told?: string[];
   paused?: boolean;
   retired?: boolean;
+  usage?: SessionUsage | null;
+  ceiling?: Ceiling;
+  now?: number;
 }):
-  | { retire: true; related: boolean; declined?: boolean }
-  | { refuse: true; told: string[]; reason: string }
+  | { retire: true; related: boolean; declined?: boolean; why?: string }
+  | { refuse: true; told: string[]; reason: string; kept: Kept }
   | null;
+export function tiredFor(
+  state: { compactions?: number; plans?: string[] },
+  brief: string,
+  options?: {
+    usage?: SessionUsage | null;
+    ceiling?: Ceiling;
+    now?: number;
+    textOf?: (path: string) => string;
+  },
+): string;
 export function plannerMayEdit(facts: {
   plans?: string[];
   brief?: string;
@@ -307,6 +339,8 @@ export function start(
     agent?: string;
     at?: number;
     timer?: boolean;
+    /** Why the session `replace` names was retired, for the starts log. */
+    why?: string;
   },
 ): string;
 export function list(options?: { all?: boolean; live?: LiveRow[] | null }): string;
@@ -332,14 +366,16 @@ export function decideStop(facts: {
   continuing?: boolean;
   refusedRun?: number | null;
   usage?: SessionUsage | null;
-  ceiling?: number;
+  ceiling?: Ceiling;
   now?: number;
   land?: string;
   /** The briefs this session's built plans owe their projects. */
   carry?: Carry[];
 }): StopDecision;
 export type SessionUsage = { context: number; at: number };
-export const REUSE_DEFAULT: number;
+export const REUSE_DEFAULT: Ceilings;
+export function pairOf(ceiling: Ceiling): { any: number; related: number };
+export function ceilingOf(ceiling: Ceiling, related: boolean): number;
 export const CACHE_TTL: number;
 export const WARM: number;
 export function sessionUsage(transcriptPath: string): SessionUsage | null;
@@ -361,10 +397,11 @@ export function mayReuse(facts: {
   related?: boolean;
   usage?: SessionUsage | null;
   now?: number;
-  ceiling?: number;
-}): { reuse: true } | { reuse: false; why: string };
+  ceiling?: Ceiling;
+  kind?: "executor" | "planner";
+}): { reuse: true; why: string; related: boolean } | { reuse: false; why: string };
 export function usageWords(
-  one: { usage?: SessionUsage | null; ceiling?: number },
+  one: { kind?: string; usage?: SessionUsage | null; ceiling?: Ceiling },
   now?: number,
 ): string;
 export function decideResumed(facts: {
@@ -384,7 +421,7 @@ export function canStart(facts: {
   /** The brief a planner start was asked for, named in the message to send a live planner. */
   brief?: string;
   name?: string;
-  ceiling?: number;
+  ceiling?: Ceiling;
   taken?: string[];
   machine?: string;
   /** A timer's start: an idle executor is replaced whatever its warmth. */

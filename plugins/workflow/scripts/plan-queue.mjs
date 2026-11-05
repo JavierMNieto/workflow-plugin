@@ -87,9 +87,11 @@ import {
   owner,
   pluginAgents,
   project,
+  REUSE_DEFAULT,
 } from "./project.mjs";
+import { costWords, measure } from "./cost.mjs";
 
-export { machine, owner };
+export { machine, owner, REUSE_DEFAULT };
 
 /** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
 const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff", "session"];
@@ -869,7 +871,7 @@ export function sessionsOf(
     plans = [],
     stateFor = readState,
     usageFor = (row) => sessionUsage(transcriptOf(row)),
-    ceiling = REUSE_DEFAULT,
+    ceiling = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
   } = {},
 ) {
   if (!live) return [];
@@ -900,6 +902,8 @@ export function sessionsOf(
           "",
         // When its end timer fires, if it is left quiet (plans/idle-chats-end.md).
         endsAt: state?.end?.at || 0,
+        // Why its Stop hook kept it for the work it took (plans/reuse-ceiling-per-agent.md).
+        kept: state?.kept || null,
         // A planner's plans, which its chat still talks about, where each
         // stands, and how tired it is.
         ...(kind === "planner"
@@ -960,17 +964,40 @@ function endsWords(one, now = Date.now()) {
     : "";
 }
 
-/** "618k context, warm", "200k context, cold 130 min, over the reuse ceiling", or "" with no usage. */
+/**
+ * "618k context, warm", "200k context, cold 130 min, over the reuse ceiling",
+ * or "" with no usage: over the ceiling for any work, or, between the row's
+ * two ceilings, "over the reuse ceiling for an unrelated brief" (a plan, for
+ * an executor).
+ */
 export function usageWords(one, now = Date.now()) {
   if (!one.usage) return "";
   const age = now - one.usage.at;
+  const pair = pairOf(one.ceiling || REUSE_DEFAULT[one.kind] || REUSE_DEFAULT.executor);
+  const context = one.usage.context;
   return [
-    `${Math.round(one.usage.context / 1000)}k context`,
+    `${kTokens(context)} context`,
     age <= WARM ? "warm" : `cold ${Math.round(age / MINUTE)} min`,
-    one.usage.context > (one.ceiling || REUSE_DEFAULT) ? "over the reuse ceiling" : "",
+    context > pair.related
+      ? "over the reuse ceiling"
+      : context > pair.any
+        ? `over the reuse ceiling for an unrelated ${one.kind === "planner" ? "brief" : "plan"}`
+        : "",
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+/**
+ * "kept for plans/x.md: <why>" while the session, not retired, has under way
+ * a plan or brief it was kept for, else "": once that work is done the
+ * reason is stale.
+ */
+function keptWords(one) {
+  const paths = one.kept?.paths || [];
+  return !one.retired && one.on && paths.includes(one.on) && one.kept.why
+    ? `kept for ${andList(paths)}: ${one.kept.why}`
+    : "";
 }
 
 /** One session as its kind's line says it. */
@@ -993,6 +1020,7 @@ export function describeSession(one) {
       usageWords(one),
       endsWords(one),
       !one.retired && one.on ? `planning ${one.on}` : "",
+      keptWords(one),
       !one.retired && holds.length ? `holds ${heldWords(one)}` : "",
       !one.retired && n ? `${n} compaction${n === 1 ? "" : "s"}` : "",
       one.retired
@@ -1014,10 +1042,47 @@ export function describeSession(one) {
       : `in ${one.where}${one.branch ? ` on ${one.branch}` : ""}`,
     one.holdsLock ? "holds the lock" : "",
     one.on ? `building ${one.on}` : "",
+    keptWords(one),
     one.retired ? "retired" : "",
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+/**
+ * **`plans` says the ceilings** (plans/reuse-ceiling-per-agent.md, part 5):
+ * "Ceilings: an executor retires past 200k; a planner past 160k, or past 480k
+ * when the brief waiting is related to its plans.", from the project's.
+ */
+export function ceilingsLine(reuse = REUSE_DEFAULT) {
+  const past = (ceiling, work, own) => {
+    const pair = pairOf(ceiling);
+    return pair.any === pair.related
+      ? `past ${kTokens(pair.any)}`
+      : `past ${kTokens(pair.any)}, or past ${kTokens(pair.related)} when the ${work} waiting is related to its ${own}`;
+  };
+  return `Ceilings: an executor retires ${past(reuse.executor, "plan", "batch")}; a planner ${past(reuse.planner, "brief", "plans")}.`;
+}
+
+/**
+ * **`plans` says why the last fresh session of each kind started**: the
+ * newest line of the starts log for this project's executors and planners
+ * that retired a session, "Last fresh planner: <name> at 12:40 on 5 November,
+ * on plans/x.md; <old name> [<id>] was retired: <why>". None without one.
+ */
+export function lastFreshLines(log, project) {
+  return ["executor", "planner"].flatMap((kind) => {
+    const last = log.findLast((line) => {
+      const parsed = parseName(line.name || "");
+      return line.why && parsed && parsed.project === project && parsed.kind === kind;
+    });
+    if (!last) return [];
+    const at = new Date(last.at);
+    const day = `${at.getDate()} ${MONTHS[at.getMonth()]}`;
+    return [
+      `Last fresh ${kind}: ${last.name} at ${hhmm(last.at)} on ${day}, on ${andList(last.paths || [])}; ${last.why}`,
+    ];
+  });
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -1200,8 +1265,22 @@ function annotate(plan) {
     : plan.path;
 }
 
-/** The context, in tokens, above which a finished session retires: the cost wash is near 100k. */
-export const REUSE_DEFAULT = 200_000;
+/**
+ * A ceiling as one agent's pair: a number is both cases. `REUSE_DEFAULT`, in
+ * project.mjs beside the key it defaults, gives each agent's and the formula.
+ */
+export function pairOf(ceiling) {
+  return typeof ceiling === "number" ? { any: ceiling, related: ceiling } : ceiling;
+}
+
+/** The ceiling for one case: the pair's `related` when the plan or brief is related, else `any`. */
+export function ceilingOf(ceiling, related) {
+  const pair = pairOf(ceiling);
+  return related ? pair.related : pair.any;
+}
+
+/** "200k", a token count as the queue's lines say it. */
+const kTokens = (n) => `${Math.round(n / 1000)}k`;
 /** The prompt cache's life, and how long before its end a context counts as cold. */
 export const CACHE_TTL = 60 * MINUTE;
 export const WARM = CACHE_TTL - 5 * MINUTE;
@@ -1392,35 +1471,55 @@ function askingWords(plan) {
 }
 
 /**
- * **One reuse rule for the executor and the planner**: a finished session
- * takes the next plan or brief when its compactions allow it, its context is
- * under the ceiling, and its cache is warm or its context small; every turn
- * re-reads the whole context at the cache-read price, and a fresh session's
- * first turn is about 50k tokens. With no usage known, the compactions alone.
+ * **One reuse rule, each agent held to its own ceiling**
+ * (plans/reuse-ceiling-per-agent.md): a finished session takes the next plan
+ * or brief when its compactions allow it, its context is under its ceiling
+ * for that work (`ceiling`, a number or the agent's `{ any, related }` pair:
+ * `related` when the work waiting is related to its own), and its cache is
+ * warm or its context small; every turn re-reads the whole context at the
+ * cache-read price, and a fresh session writes its start and the reading it
+ * shares at the write price. With no usage known, the compactions alone.
+ * `{ reuse, why }` either way; a keep's `related` says only related work may
+ * be taken (the context is over `any`, or it has compacted once). `kind`
+ * names the work: a plan for the executor, a brief for the planner.
  */
 export function mayReuse({
   compactions = 0,
   related = false,
   usage = null,
   now = Date.now(),
-  ceiling = REUSE_DEFAULT,
+  ceiling = REUSE_DEFAULT.executor,
+  kind = "executor",
 }) {
+  const work = kind === "planner" ? "brief" : "plan";
   if (compactions >= 2 || (compactions === 1 && !related))
     return {
       reuse: false,
       why: `this session has compacted ${compactions} time${compactions === 1 ? "" : "s"}${compactions === 1 ? ", and nothing waiting is related" : ""}`,
     };
-  if (usage && usage.context > ceiling)
+  const pair = pairOf(ceiling);
+  const equal = pair.any === pair.related;
+  const limit = ceilingOf(pair, related);
+  if (usage && usage.context > limit)
     return {
       reuse: false,
-      why: `its context is ${Math.round(usage.context / 1000)}k tokens, over the reuse ceiling of ${Math.round(ceiling / 1000)}k: every turn would re-read it`,
+      why: `its context is ${kTokens(usage.context)} tokens, over the reuse ceiling of ${equal ? kTokens(limit) : related ? `${kTokens(pair.related)} for a related ${work}` : `${kTokens(pair.any)} for an unrelated ${work} (${kTokens(pair.related)} for a related one)`}: every turn would re-read it`,
     };
   if (usage && usage.at && now - usage.at > WARM && usage.context > 60_000)
     return {
       reuse: false,
-      why: `its cache has gone cold after ${Math.round((now - usage.at) / MINUTE)} minutes idle, and rewriting ${Math.round(usage.context / 1000)}k tokens costs more than a fresh start`,
+      why: `its cache has gone cold after ${Math.round((now - usage.at) / MINUTE)} minutes idle, and rewriting ${kTokens(usage.context)} tokens costs more than a fresh start`,
     };
-  return { reuse: true };
+  const overAny = Boolean(usage && usage.context > pair.any);
+  return {
+    reuse: true,
+    why: usage
+      ? `its context is ${kTokens(usage.context)} tokens, under the reuse ceiling of ${overAny ? `${kTokens(pair.related)} for a related ${work}` : kTokens(pair.any)}`
+      : compactions === 1
+        ? `it has compacted once, and a related ${work} waits`
+        : "no context known, and it has not compacted",
+    related: overAny || compactions === 1,
+  };
 }
 
 /**
@@ -1473,7 +1572,7 @@ export function decideStop({
   continuing = false,
   refusedRun = null,
   usage = null,
-  ceiling = REUSE_DEFAULT,
+  ceiling = REUSE_DEFAULT.executor,
   now = Date.now(),
   land = "push",
   carry = [],
@@ -1543,9 +1642,12 @@ export function decideStop({
     now,
     ceiling,
   });
-  const keep = verdict.reuse;
-  const paths = fresh.map((plan) => plan.path);
-  if (!keep) return { retire: true, paths, why: verdict.why };
+  if (!verdict.reuse)
+    return { retire: true, paths: fresh.map((plan) => plan.path), why: verdict.why };
+  // **Kept for related work only**, the related plans are taken, and the rest
+  // go to a fresh executor at the next stop.
+  const taken = verdict.related ? fresh.filter((plan) => plan.related) : fresh;
+  const paths = taken.map((plan) => plan.path);
   const how =
     land === "pull-request"
       ? `each by its Lands line: a fix into the day's fixes pull request, or pushed straight to origin/${branch()} and its run read, a topic's plans on the topic's branch and its pull request when the topic is ready (a plan resting on an open draft of this queue's own lands in that draft, and is stacked only on one marked ready or another person's), Building lines, the suites before each plan's push or pull request, one commit per plan`
@@ -1553,7 +1655,8 @@ export function decideStop({
   return {
     refuse: true,
     told: paths,
-    reason: `Plans are waiting and this session can take them: ${fresh.map(annotate).join(", ")}. Build them as a new batch by your agent file: ReadNotifications first, ${how}. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
+    kept: { paths, why: verdict.why },
+    reason: `Plans are waiting and this session can take them: ${taken.map(annotate).join(", ")} (${verdict.why}). Build them as a new batch by your agent file: ReadNotifications first, ${how}. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
   };
 }
 
@@ -1644,7 +1747,7 @@ export function canStart({
   sessions = [],
   brief = "",
   name = "",
-  ceiling = REUSE_DEFAULT,
+  ceiling = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
   taken = [],
   machine = "",
   unwatched = false,
@@ -1680,9 +1783,11 @@ export function canStart({
   // (plans/queue-counts-any-executor.md, plans/planner-queue.md). The lock
   // below is an executor's only evidence when the sessions cannot be read.
   // **A stale session does not block its successor** (cache-aware queue):
-  // one whose context is over the reuse ceiling, or cold, is replaced when
+  // one whose context is over its reuse ceiling, or cold, is replaced when
   // idle; a busy planner so is left to finish, and a fresh one starts beside
   // it. A busy executor, or any session still worth reusing, refuses as before.
+  // A planner is judged by the brief's relatedness to its plans (`related`,
+  // set by `startHere`; plans/reuse-ceiling-per-agent.md, part 4).
   // A session with a plan or a brief under way (its Building or Planning
   // line) is never stale: replacing it would orphan that work.
   // **A start nobody is watching** (`unwatched`, a timer's) replaces an idle
@@ -1697,7 +1802,14 @@ export function canStart({
             reuse: false,
             why: "idle while a plan's thirty minutes ran out, and the queue cannot message it",
           }
-        : mayReuse({ usage: one.usage, now, ceiling });
+        : mayReuse({
+            compactions: one.compactions || 0,
+            usage: one.usage,
+            related: Boolean(one.related),
+            now,
+            ceiling,
+            kind,
+          });
   let replace = [];
   let beside = [];
   if (sessions.length && sessions.every((one) => !stale(one).reuse)) {
@@ -2228,7 +2340,10 @@ export function endSession(
   endSwarm(row.pid);
   killTimer(state.end?.pid, sessionId);
   clearEnd(sessionId, null);
-  const words = [row.state, usageWords({ usage, ceiling: proj().reuse })].filter(Boolean);
+  const kind = state.agent === "planner" ? "planner" : "executor";
+  const words = [row.state, usageWords({ kind, usage, ceiling: proj().reuse[kind] })].filter(
+    Boolean,
+  );
   const line = `Ended ${who}: ${words.join(", ")}.`;
   if (!verdict.on || !plan) return { ended: true, line };
   // **The plan under way is handed over once its session is stopped**, read
@@ -2314,7 +2429,7 @@ function dropDeferred(file, paths) {
  * where `plans` shows it. **Paused, the deferral is held**: the file is
  * written with no timer (`pid: null`), and `resume` re-arms it.
  */
-function defer(until, why, paths, replace = "", agent = "executor", file = agent) {
+function defer(until, why, paths, replace = "", agent = "executor", file = agent, retired = "") {
   const old = readJson(files.deferred(file));
   if (old?.pid) {
     try {
@@ -2351,7 +2466,16 @@ function defer(until, why, paths, replace = "", agent = "executor", file = agent
         ],
         { ...process.env, WORKFLOW_ROOT: root },
       );
-  writeJson(files.deferred(file), { until: when, why, paths: all, pid, replace: stop });
+  // Why the session it replaces was retired, for the starts log the timer's start writes.
+  const because = stop ? retired || old?.retired || "" : "";
+  writeJson(files.deferred(file), {
+    until: when,
+    why,
+    paths: all,
+    pid,
+    replace: stop,
+    ...(because ? { retired: because } : {}),
+  });
   const hhmm = new Date(when).toTimeString().slice(0, 5);
   return held
     ? `Deferred until ${hhmm}, held while the queue is paused: ${why}; ${all.join(", ")}.`
@@ -2410,7 +2534,15 @@ export function droppedWords(plan) {
 
 function startHere(
   paths,
-  { replace = "", dry = false, agent = "executor", at = 0, timer = false, deferral = "" } = {},
+  {
+    replace = "",
+    dry = false,
+    agent = "executor",
+    at = 0,
+    timer = false,
+    deferral = "",
+    why = "",
+  } = {},
 ) {
   if (!proj().found) return NO_PROJECT;
   // A path as the queue writes it, so `./plans/x.md` or an absolute one is
@@ -2495,8 +2627,15 @@ function startHere(
   const paused = pausedSince();
   // Paused, the deferral is held (no timer), so the resume re-arms it.
   if (at && at > Date.now())
-    return defer(at, `the usage limit cut the last ${kind} off`, paths, replace, kind);
+    return defer(at, `the usage limit cut the last ${kind} off`, paths, replace, kind, kind, why);
   const probe = !["executor", "planner", "assistant"].includes(agent);
+  // A timer's start replacing a session takes the retirement's why its deferral kept.
+  if (timer && replace && !why) why = readJson(files.deferred(deferral || kind))?.retired || "";
+  // **A brief is judged against the planner it would go to**
+  // (plans/reuse-ceiling-per-agent.md, part 4): read once, and each live
+  // planner's ceiling is the related one when the brief names its ground.
+  const briefText = kind === "planner" ? plans.find((p) => p.path === paths[0])?.text || "" : "";
+  const ceiling = kind === "planner" ? proj().reuse.planner : proj().reuse.executor;
   const decision = probe
     ? { start: true, name: `Probe ${Date.now() % 1000}`, note: "" }
     : canStart({
@@ -2516,15 +2655,25 @@ function startHere(
         sessions:
           kind === "assistant"
             ? []
-            : sessionsOf(kind, live, readJson(files.lock()), {
-                plans,
-                ceiling: proj().reuse,
-              }).filter((one) => one.sessionId !== replace && !one.retired),
+            : sessionsOf(kind, live, readJson(files.lock()), { plans, ceiling })
+                .filter((one) => one.sessionId !== replace && !one.retired)
+                .map((one) =>
+                  kind === "planner"
+                    ? {
+                        ...one,
+                        related: relatedBrief(briefText, one.holds.map(planText), one.holds),
+                      }
+                    : // An executor's plans are related by its Stop hook's rule, a
+                      // file its batch changed; read only when its two ceilings differ.
+                      ceiling.any !== ceiling.related
+                      ? { ...one, related: executorRelated(one.sessionId, paths) }
+                      : one,
+                ),
         brief: kind === "executor" ? "" : paths[0],
         // This checkout's chats only: one in another checkout reads another queue (Codex).
         open: kind === "assistant" ? openAssistants(live, proj().name) : [],
         name: proj().name,
-        ceiling: proj().reuse,
+        ceiling,
         taken: liveNames(),
         machine: machine().name,
         // Only the window's timer: a usage limit's restart refuses beside a live executor as before.
@@ -2544,6 +2693,7 @@ function startHere(
       replace,
       kind,
       deferral === "asking" ? "asking" : kind,
+      why,
     );
   const prompt = probe
     ? "Reply with the single word ok"
@@ -2610,11 +2760,25 @@ function startHere(
     dropDeferred(file, paths);
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
+  const retiredWords = replaced.map(
+    ({ old }) => `${old.name} [${String(old.sessionId).slice(0, 8)}] was retired: ${old.why}.`,
+  );
   if (!probe) {
     const usage = readJson(files.usage());
+    // **The log says why a fresh session started** (plans/reuse-ceiling-per-
+    // agent.md, part 5): the session it retired, a Stop hook's (`replace`,
+    // with the hook's `why`) or the ones replaced here, which `plans` prints.
+    const oldName =
+      live?.find((row) => row.sessionId === replace)?.name || String(replace).slice(0, 8);
+    const because = [
+      ...(replace && why
+        ? [`${oldName} [${String(replace).slice(0, 8)}] was retired: ${why}.`]
+        : []),
+      ...retiredWords,
+    ].join(" ");
     appendFileSync(
       files.starts(),
-      `${JSON.stringify({ at: Date.now(), name: decision.name, paths, five: usage?.five_hour?.used_percentage ?? null, seven: usage?.seven_day?.used_percentage ?? null })}\n`,
+      `${JSON.stringify({ at: Date.now(), name: decision.name, paths, five: usage?.five_hour?.used_percentage ?? null, seven: usage?.seven_day?.used_percentage ?? null, ...(because ? { why: because } : {}) })}\n`,
     );
   }
   // The session replaced is stopped three minutes on: a tired executor, or a
@@ -2623,13 +2787,7 @@ function startHere(
   if (replace) stopLater(replace, live);
   // A replaced session is stopped three minutes on; a planner by the sweep
   // below, which finds it retired.
-  const retiredWords = [];
-  for (const { old } of replaced) {
-    if (kind === "executor") stopLater(old.sessionId, live);
-    retiredWords.push(
-      `${old.name} [${String(old.sessionId).slice(0, 8)}] was retired: ${old.why}.`,
-    );
-  }
+  for (const { old } of replaced) if (kind === "executor") stopLater(old.sessionId, live);
   // A planner started by the assistant, with nothing to replace, still ends
   // the retired planners' chats: the next planner starting is their cut-off.
   if (kind === "planner") stopRetiredPlanners(live, { except: replace });
@@ -2830,7 +2988,7 @@ export function list({ all = false, live, related = true, readers = null } = {})
   if (live)
     executor = sessionsLine(
       "executor",
-      sessionsOf("executor", live, lock, { trees, plans, ceiling: proj().reuse }),
+      sessionsOf("executor", live, lock, { trees, plans, ceiling: proj().reuse.executor }),
     );
   else if (lock && !lock.released)
     executor = `The executor: ${lock.name || nameOf(lock.sessionId)} [${String(lock.sessionId).slice(0, 8)}], status unknown.`;
@@ -2841,13 +2999,16 @@ export function list({ all = false, live, related = true, readers = null } = {})
     out.push(
       sessionsLine(
         "planner",
-        sessionsOf("planner", live, lock, { trees, plans, ceiling: proj().reuse }),
+        sessionsOf("planner", live, lock, { trees, plans, ceiling: proj().reuse.planner }),
       ),
     );
+  // **The ceilings, and why the last fresh session of each kind started**
+  // (plans/reuse-ceiling-per-agent.md, part 5), with a project file.
+  if (proj().found) out.push(ceilingsLine(proj().reuse), ...lastFreshLines(readLog(), proj().name));
   // **The assistant line**, only while a chat the queue started is alive
   // (plans/project-follow-ups-reach-the-project.md, part 6).
   const assistants = live
-    ? sessionsOf("assistant", live, lock, { trees, plans, ceiling: proj().reuse })
+    ? sessionsOf("assistant", live, lock, { trees, plans, ceiling: proj().reuse.executor })
     : [];
   if (assistants.length) out.push(sessionsLine("assistant", assistants));
   const versions = versionLine(live);
@@ -3080,6 +3241,12 @@ export function changedFiles(state, dir = root) {
     : diff(`origin/${branch()}...HEAD`);
   const turn = readJson(join(tmpdir(), `workflow-turn-${state.sessionId}.json`));
   return [...new Set([...changed, ...(turn?.wrote || [])])];
+}
+
+/** Whether any of `paths` names a file the executor `sessionId`'s batch changed. */
+function executorRelated(sessionId, paths) {
+  const changed = changedFiles({ ...readState(sessionId), sessionId });
+  return paths.some((path) => related(planText(path), changed));
 }
 
 /** The branch's tip, for a session's `base`; "" when the ref is missing. */
@@ -3587,11 +3754,12 @@ function release(sessionId) {
  * (plans/planner-continues.md, part 2, replacing plans/planner-queue.md's
  * one brief per planner). Nothing while a brief carries this session's live
  * Planning line (`current`), while paused, or when retired. With briefs
- * waiting that this session was not told of: one that has not compacted
- * takes the oldest, one that has compacted once the oldest related to its
- * plans, and one that has compacted twice, or once with nothing related
- * waiting, is retired for a fresh planner. With nothing waiting it stays
- * alive, idle and unretired, and a brief reaches it by message.
+ * waiting that this session was not told of: under its ceiling for any
+ * brief and not compacted, it takes the oldest; under its ceiling for a
+ * related brief, or compacted once, the oldest related to its plans; else it
+ * is retired for a fresh planner (plans/reuse-ceiling-per-agent.md). With
+ * nothing waiting it stays alive, idle and unretired, and a brief reaches it
+ * by message.
  */
 export function decidePlannerStop({
   current = null,
@@ -3601,7 +3769,7 @@ export function decidePlannerStop({
   paused = false,
   retired = false,
   usage = null,
-  ceiling = REUSE_DEFAULT,
+  ceiling = REUSE_DEFAULT.planner,
   now = Date.now(),
 }) {
   if (retired || current || paused) return null;
@@ -3612,13 +3780,14 @@ export function decidePlannerStop({
   if (!fresh.length)
     return waiting.length ? { retire: true, related: false, declined: true } : null;
   const related = fresh.some((brief) => brief.related);
-  const verdict = mayReuse({ compactions, related, usage, now, ceiling });
+  const verdict = mayReuse({ compactions, related, usage, now, ceiling, kind: "planner" });
   if (!verdict.reuse) return { retire: true, related, why: verdict.why };
-  const next = compactions === 0 ? fresh[0] : fresh.find((brief) => brief.related);
+  const next = verdict.related ? fresh.find((brief) => brief.related) : fresh[0];
   return {
     refuse: true,
     told: [next.path],
-    reason: `A brief is waiting and this session can take it: ${next.path}. Plan it by your agent file: the Planning line as your first edit, the research, the plan written over the brief, its decisions through the question tool in the same turn, the hand-off to the executor. What you wrote above this line was not a final message: the final message leads with every plan this session wrote, each with where it is and what it decides.`,
+    kept: { paths: [next.path], why: verdict.why },
+    reason: `A brief is waiting and this session can take it: ${next.path} (${verdict.why}). Plan it by your agent file: the Planning line as your first edit, the research, the plan written over the brief, its decisions through the question tool in the same turn, the hand-off to the executor. What you wrote above this line was not a final message: the final message leads with every plan this session wrote, each with where it is and what it decides.`,
   };
 }
 
@@ -3840,13 +4009,28 @@ function byMessage() {
   return `by one message (${name ? `the ${name} Assistant` : "this project's Assistant"} on this machine, by ListAgents)`;
 }
 
-/** Whether a planner is too tired for `brief`: two compactions, or one and the brief on other ground. */
-function tiredFor(state, brief, textOf = planText) {
-  const n = state.compactions || 0;
-  if (n >= 2) return true;
-  if (n < 1) return false;
+/**
+ * Why a planner is too tired for `brief`, or "": the reuse rule with the
+ * brief's relatedness to its plans (plans/reuse-ceiling-per-agent.md, part
+ * 4): two compactions, or one and the brief on other ground, or a context
+ * over its ceiling for that brief, or a cold cache over a small context.
+ */
+export function tiredFor(
+  state,
+  brief,
+  { usage = null, ceiling = REUSE_DEFAULT.planner, now = Date.now(), textOf = planText } = {},
+) {
   const plans = state.plans || [];
-  return !relatedBrief(textOf(brief), plans.map(textOf), plans);
+  const related = relatedBrief(textOf(brief), plans.map(textOf), plans);
+  const verdict = mayReuse({
+    compactions: state.compactions || 0,
+    related,
+    usage,
+    now,
+    ceiling,
+    kind: "planner",
+  });
+  return verdict.reuse ? "" : verdict.why;
 }
 
 /** "plans/a.md" or "plans/a.md and plans/b.md", for a planner's messages. */
@@ -4034,7 +4218,12 @@ function plannerHook(mode, input, sessionId, statePath) {
     // **The planner's hooks decide whether it has room** (part 4): a brief
     // named while it is tired is not taken, and its Stop hook retires it for
     // a fresh planner.
-    const tired = named ? tiredFor({ ...state, agent: "planner" }, named) : false;
+    const tired = named
+      ? tiredFor({ ...state, agent: "planner" }, named, {
+          usage: sessionUsage(input.transcript_path),
+          ceiling: proj().reuse.planner,
+        })
+      : "";
     const queued = named ? readPlans(join(root, "plans"), liveIds(live)) : [];
     // A brief named mid-plan does not replace the one in hand (/code-review, 27 October).
     const inHand = queued.some(
@@ -4056,7 +4245,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     ];
     if (tired)
       lines.push(
-        `This session is tired for ${named}: do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.`,
+        `This session is tired for ${named} (${tired}): do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.`,
       );
     if (relatedText) lines.push(relatedText);
     if (state.plans.length) lines.push(plannerContext(state, live));
@@ -4113,7 +4302,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       paused: Boolean(pausedSince()),
       retired: state.retired,
       usage: sessionUsage(input.transcript_path),
-      ceiling: proj().reuse,
+      ceiling: proj().reuse.planner,
     });
     if (!decision) {
       writeJson(statePath, state);
@@ -4127,6 +4316,8 @@ function plannerHook(mode, input, sessionId, statePath) {
       // over it joins the list even when its Planning line is gone by the
       // next Stop (Codex, 27 October).
       state.brief = decision.told[0];
+      // Why it was kept, which `plans` says beside the session.
+      state.kept = decision.kept;
       const said = state.relatedSaid || [];
       const found = said.includes(state.brief) ? null : briefRelated(state.brief, plans);
       const relatedText = found?.text || "";
@@ -4139,17 +4330,17 @@ function plannerHook(mode, input, sessionId, statePath) {
     state.retired = true;
     state.planned = state.plans.length > 0;
     writeJson(statePath, state);
-    const said = start([], { agent: "planner", replace: sessionId });
-    armEnd(sessionId, live);
-    // An executor can take a plan before this Stop: its Building line found
-    // this planner unretired then, so the chat is stopped here.
-    if (state.plans.length && state.plans.every((path) => doneWith(planText(path))))
-      stopPlannersOn(state.plans[0], live);
     const n = state.compactions;
     const why = decision.declined
       ? "the brief named at the last stop is still waiting, untaken"
       : decision.why ||
         `this session has compacted ${n} time${n === 1 ? "" : "s"}${n === 1 && !decision.related ? ", and the brief waiting is on other ground" : ""}`;
+    const said = start([], { agent: "planner", replace: sessionId, why });
+    armEnd(sessionId, live);
+    // An executor can take a plan before this Stop: its Building line found
+    // this planner unretired then, so the chat is stopped here.
+    if (state.plans.length && state.plans.every((path) => doneWith(planText(path))))
+      stopPlannersOn(state.plans[0], live);
     hookOutput(
       "Stop",
       `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, the next planner starts, or the chat has been quiet an hour, when this chat is stopped (its plans stand in the queue; a question left open keeps the chat alive, and the plan with it for thirty minutes).`,
@@ -4502,7 +4693,7 @@ function hook(mode, input) {
       continuing: Boolean(input.stop_hook_active),
       refusedRun: state.runRefused ?? null,
       usage: sessionUsage(input.transcript_path),
-      ceiling: proj().reuse,
+      ceiling: proj().reuse.executor,
       land: proj().land,
     });
     if (!decision) {
@@ -4512,6 +4703,8 @@ function hook(mode, input) {
     if (decision.refuse) {
       if (decision.runId) state.runRefused = decision.runId;
       if (decision.told) state.told.push(...decision.told);
+      // Why it was kept, which `plans` says beside the session.
+      if (decision.kept) state.kept = decision.kept;
       writeJson(statePath, state);
       process.stdout.write(JSON.stringify({ decision: "block", reason: decision.reason }));
       return;
@@ -4527,12 +4720,12 @@ function hook(mode, input) {
     release(sessionId);
     state.retired = true;
     writeJson(statePath, state);
-    const said = start(paths, { replace: sessionId });
-    armEnd(sessionId, live);
-    const started = /was started on/.test(said);
     const why = decision.handover
       ? `${decision.handover.path} was handed over`
       : decision.why || `this session has compacted ${state.compactions} times`;
+    const said = start(paths, { replace: sessionId, why });
+    armEnd(sessionId, live);
+    const started = /was started on/.test(said);
     hookOutput(
       "Stop",
       started
@@ -5321,6 +5514,7 @@ plans end [id...] [--now]  end this queue's finished chats, or these; --now ends
 plans sync            move a clean, detached checkout to the branch
 plans init            write .claude/workflow.md for this project
 plans check           lint the catalogues and the deny key the project file names
+plans cost [--since yyyy-mm-dd] [<folder>]  what this queue's sessions cost, by agent, from their transcripts
 plans chat [--dry] [args...]  open the maker (compact) or the assistant here, with the project's mcp and inherits
 plans gh <args...>    gh as the project's own GitHub App (WORKFLOW_APP_ID, WORKFLOW_APP_KEY)
 plans webhook [--stop]  listen for the app's webhook on this container, or stop listening
@@ -5334,6 +5528,27 @@ export function main(args = process.argv.slice(2)) {
   }
   if (mode === "init") {
     process.stdout.write(`${init(root)}\n`);
+    return;
+  }
+  // **`plans cost`** (plans/reuse-ceiling-per-agent.md, part 6): this
+  // checkout's transcripts, or a folder's, since a day when given.
+  if (mode === "cost") {
+    const at = rest.indexOf("--since");
+    const since = at >= 0 ? rest[at + 1] || "" : "";
+    if (at >= 0 && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+      process.stdout.write("plans cost --since takes a day as yyyy-mm-dd.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const folder =
+      rest.filter((_, i) => at < 0 || (i !== at && i !== at + 1))[0] ||
+      dirname(transcriptOf({ cwd: root, sessionId: "x" }));
+    const rows = measure(folder, { since });
+    const home = homedir();
+    const shown = folder.startsWith(`${home}/`) ? `~${folder.slice(home.length)}` : folder;
+    process.stdout.write(
+      `${costWords(rows, { ceilings: proj().reuse, machine: machine().name, since, dir: shown }).join("\n")}\n`,
+    );
     return;
   }
   if (mode === "check") {
@@ -5456,6 +5671,7 @@ export function main(args = process.argv.slice(2)) {
         deferred.replace || "",
         agentOfDeferral(kind),
         kind,
+        deferred.retired || "",
       );
       armed.push(deferredWords(readJson(files.deferred(kind)) || deferred));
     }
