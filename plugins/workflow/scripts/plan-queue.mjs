@@ -1659,18 +1659,21 @@ export function decideStop({
   // (plans/executor-over-ceiling-hands-on.md): the plans the session was
   // already named included, so a session named plans under the ceiling and
   // over it at a later stop is retired on all of them; only the untold ones
-  // are named when it may go on.
+  // are named when it may go on. `related` is read over the plans not yet
+  // named when there are any, else over all: a session that declined a
+  // related plan is not kept for it past its ceiling for unrelated work while
+  // an unrelated one waits (Javi, 5 November).
   if (!waiting.length) return null;
+  const fresh = waiting.filter((plan) => !told.includes(plan.path));
   const verdict = mayReuse({
     compactions,
-    related: waiting.some((plan) => plan.related),
+    related: (fresh.length ? fresh : waiting).some((plan) => plan.related),
     usage,
     now,
     ceiling,
   });
   if (!verdict.reuse)
     return { retire: true, paths: waiting.map((plan) => plan.path), why: verdict.why };
-  const fresh = waiting.filter((plan) => !told.includes(plan.path));
   // **Kept for related work only**, the related plans are taken, and the rest
   // go to a fresh executor at the next stop.
   const taken = verdict.related ? fresh.filter((plan) => plan.related) : fresh;

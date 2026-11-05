@@ -4198,6 +4198,15 @@ describe("the cache-aware queue", () => {
     expect(
       decideStop({ waiting: [waiting[0]], told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
     ).toMatchObject({ retire: true, paths: ["plans/a.md"] });
+    // b declined and still waiting: a is not held for it; both go to a fresh
+    // executor (Javi, 5 November).
+    expect(
+      decideStop({ waiting, told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+    ).toMatchObject({ retire: true, paths: ["plans/a.md", "plans/b.md"] });
+    // Every plan named and b related: kept for b under 300k.
+    expect(
+      decideStop({ waiting: [waiting[1]], told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+    ).toBeNull();
     // Under both, every plan, as before.
     expect(decideStop({ waiting, usage: at(1, 50), now, ceiling })).toMatchObject({
       told: ["plans/a.md", "plans/b.md"],

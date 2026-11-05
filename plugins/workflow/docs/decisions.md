@@ -319,6 +319,9 @@ on the machine that planned them.
   plans the session was named included; an executor named three plans at
   187k declined them and stopped at 202k, and the hook passed, since it
   judged only plans not yet told. plans/executor-over-ceiling-hands-on.md.
+  5 November (Javi): with two ceilings, a session that declined a related
+  plan is not kept for it while an unrelated one waits; `related` is read
+  over the plans not yet named when any are. plans/executor-over-ceiling-hands-on.md.
 - `starts-bounded` **Starts are bounded, as every loop over model calls
   is.** (Javi, 27 October) A queue that starts sessions on its own must
   not spend the subscription's window or loop on a session that dies.
