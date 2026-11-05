@@ -315,6 +315,10 @@ on the machine that planned them.
   the cache-read price and a fresh session's first turn is 50k tokens,
   so a session is reused only while it is cheaper than a fresh one.
   plans/cache-aware-queue.md, plans/base-at-building-line.md.
+  5 November: the ceiling is judged at every stop while plans wait, the
+  plans the session was named included; an executor named three plans at
+  187k declined them and stopped at 202k, and the hook passed, since it
+  judged only plans not yet told. plans/executor-over-ceiling-hands-on.md.
 - `starts-bounded` **Starts are bounded, as every loop over model calls
   is.** (Javi, 27 October) A queue that starts sessions on its own must
   not spend the subscription's window or loop on a session that dies.
@@ -339,6 +343,9 @@ on the machine that planned them.
   checkout, one executor holding the lock.** (Javi, 27 October) A
   worktree per session made the queue lose track of what was built
   where. plans/worktrees-ignored.md.
+  5 November: an untracked file under `plans/` is the queue's and never
+  holds the checkout, tracked plans or not.
+  plans/executor-over-ceiling-hands-on.md.
 - `queues-in-parallel` **Each project's queue runs apart from every
   other, in parallel.** (Javi, 27 October) A change to the workflow is
   never held by the project it was noticed in.

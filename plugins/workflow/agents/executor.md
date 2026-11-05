@@ -886,15 +886,19 @@ what they ask of you.
 - **Before the final message**, `ReadNotifications` and `plans`. Plans
   waiting are built as a new batch when this session has not compacted,
   or has compacted once and a waiting plan names a file this batch
-  changed; the prompt hook's context line says how many times it has. The
-  Stop hook applies the same rule and names the plans. A new batch starts
-  at "Before the first edit" step 4: start clean, a new branch off
-  `origin/<branch>`.
-- **A tired context is replaced, not cleared.** At two compactions, or
-  one with nothing related waiting, the Stop hook starts the next
-  executor (`<Project> Executor 2 (lab), 3 (lab), ...`, a Remote Control
-  chat named for the project and the machine) and
-  tells you; your final message's first line says so, sent as a push
+  changed, and its context is under the reuse ceiling; the prompt hook's
+  context line says how many times it has. The Stop hook judges this at
+  every stop, from the transcript, and names the plans or retires the
+  session: a session named plans builds them, and never declines them on
+  its own count of its context, since the hook retires it at the next
+  stop it is over the ceiling. A new batch starts at "Before the first
+  edit" step 4: start clean, a new branch off `origin/<branch>`.
+- **A tired context is replaced, not cleared.** At two compactions, one
+  with nothing related waiting, or a context over the reuse ceiling at a
+  stop with plans waiting (the ones it was named included, at zero
+  compactions too), the Stop hook starts the next executor (`<Project>
+  Executor 2 (lab), 3 (lab), ...`, a Remote Control chat named for the
+  project and the machine) and tells you; your final message's first line says so, sent as a push
   notification too when `PushNotification` is in the session. On your
   first turn in a started session, send `<this session's name> started
   on: <paths>` the same way. When a start was refused, the refusal's line

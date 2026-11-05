@@ -495,10 +495,31 @@ export function stateOf(text, { mtime = 0, live = null } = {}) {
   if (dropped) return { ...plan, state: "dropped", ...dropped };
   const built = /^## Built(?:, ([^\n]+))?/m.exec(text);
   if (built) {
-    // The commit is the hash written after "commit", else the section's first eight-hex word.
+    // The commit is the hash written after "commit", in any case and at git's
+    // short length of seven or more: in the section's opening paragraph,
+    // where the executor says how the plan landed, else anywhere in the
+    // section; else the opening paragraph's first hash that is no session
+    // id, Actions run or issue: the word after `session` or `run`, a whole
+    // UUID, anything in brackets or a link, and a number after `#` are
+    // never a commit (plans/executor-over-ceiling-hands-on.md, part 4). Cut
+    // to eight, in git's lower case.
     const section = sectionAfter(text, /^## Built/m);
-    const named = /\bcommit `?([0-9a-f]{8})[0-9a-f]*`?/.exec(section);
-    const sha = named ? named[1] : (/\b[0-9a-f]{8}\b/.exec(section)?.[0] ?? "");
+    const paragraph =
+      section
+        .split("\n")
+        .slice(1)
+        .join("\n")
+        .trim()
+        .split(/\n\s*\n/)[0] || "";
+    const commit = /\bcommit\s+`?([0-9a-f]{7,40})\b/i;
+    const named = commit.exec(paragraph) || commit.exec(section);
+    const loose = /(?<!#)\b[0-9a-f]{7,40}\b/i.exec(
+      paragraph
+        .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, " ")
+        .replace(/\b(?:session|run):?\s+`?[0-9a-f-]{4,}\b`?/gi, " ")
+        .replace(/\[[^\]\n]*\]|\bhttps?:\/\/\S+/g, " "),
+    );
+    const sha = (named ? named[1] : (loose?.[0] ?? "")).slice(0, 8).toLowerCase();
     // **A plan landed by pull request** (`land: pull-request`) names it, on
     // the first line or on the line a topic's later opening adds.
     const pr = Number(/^Pull request #(\d+)/m.exec(section)?.[1] || 0);
@@ -1558,7 +1579,8 @@ export function decideEnd({
  * What the Stop hook answers, decided from facts alone: `{refuse, reason}`,
  * `{retire, paths}` (a fresh executor takes them), `{handover, plan}` (a
  * fresh executor resumes it), `{context}` (pass, with words for the model),
- * or null to pass.
+ * or null to pass. With plans waiting, the reuse verdict comes first, on all
+ * of them, told or not; the plans not yet told are named only when it says yes.
  */
 export function decideStop({
   compactions = 0,
@@ -1633,20 +1655,26 @@ export function decideStop({
       told: [stuck.path],
     };
   }
-  const fresh = waiting.filter((plan) => !told.includes(plan.path));
-  if (!fresh.length) return null;
+  // **The ceiling is judged at every stop while plans wait**
+  // (plans/executor-over-ceiling-hands-on.md): the plans the session was
+  // already named included, so a session named plans under the ceiling and
+  // over it at a later stop is retired on all of them; only the untold ones
+  // are named when it may go on.
+  if (!waiting.length) return null;
   const verdict = mayReuse({
     compactions,
-    related: fresh.some((plan) => plan.related),
+    related: waiting.some((plan) => plan.related),
     usage,
     now,
     ceiling,
   });
   if (!verdict.reuse)
-    return { retire: true, paths: fresh.map((plan) => plan.path), why: verdict.why };
+    return { retire: true, paths: waiting.map((plan) => plan.path), why: verdict.why };
+  const fresh = waiting.filter((plan) => !told.includes(plan.path));
   // **Kept for related work only**, the related plans are taken, and the rest
   // go to a fresh executor at the next stop.
   const taken = verdict.related ? fresh.filter((plan) => plan.related) : fresh;
+  if (!taken.length) return null;
   const paths = taken.map((plan) => plan.path);
   const how =
     land === "pull-request"
@@ -2860,9 +2888,9 @@ function primaryCheckout() {
 }
 
 /**
- * **`plans sync`**: moves a clean, detached checkout that is not ahead of
- * the project's branch to `origin/<branch>`, or says why not. One line
- * either way.
+ * **`plans sync`**: moves a detached checkout that is clean but for
+ * untracked files under `plans/`, and not ahead of the project's branch, to
+ * `origin/<branch>`, or says why not. One line either way.
  *
  * Always the primary checkout, the one the hooks run from, even when run
  * from inside a worktree. `fetch: false` inside a hook, which the plugin's
@@ -2899,7 +2927,17 @@ export function sync({ fetch = true } = {}) {
     }
     if (onBranch)
       return `${note}Not moved: the checkout is on branch ${onBranch}; it moves only when detached.`;
-    if (run(["status", "--porcelain"]))
+    // **An untracked file under `plans/` never holds the checkout**
+    // (plans/executor-over-ceiling-hands-on.md, part 3): the queue's working
+    // files are there, tracked or not, and git carries an untracked file across
+    // a detach unchanged. A directory comes collapsed (`?? plans/x/`), all of
+    // `plans/` as `?? plans/` when nothing in it is tracked, a name with a
+    // space quoted (`?? "plans/my plan.md"`); a tracked plan
+    // changed (` M plans/x.md`) still holds it, a commit perhaps not made.
+    const changes = run(["status", "--porcelain"])
+      .split("\n")
+      .filter((line) => line && !/^\?\? "?plans\//.test(line));
+    if (changes.length)
       return `${note}Not moved: the checkout has changes; commit, stash or discard them first.`;
     const head = run(["rev-parse", "HEAD"]);
     const target = `origin/${branch()}`;
@@ -3261,7 +3299,7 @@ function branchTip() {
 /**
  * The project's run on its branch (`run` in the project file); null with
  * none, or unread. With `only`, the commits a fix pushed straight landed
- * (their Built lines' eight-hex shas): null unless HEAD is one of them, so
+ * (their Built lines' shas, seven or eight hex digits): null unless HEAD is one of them, so
  * the pull request mode never answers for a run another person's merge set off.
  */
 function imageRun({ only = null } = {}) {

@@ -691,6 +691,51 @@ describe("plan-queue", () => {
       });
       const named = `${header("24 October 2026")}## Built, 24 October 2026\n\nExecutor [8411646d], commit 0d3505f8.\n`;
       expect(stateOf(named)).toMatchObject({ sha: "0d3505f8" });
+      // plans/executor-over-ceiling-hands-on.md, part 4: the commit line, in
+      // any case and at seven digits, before a session id later in the section.
+      const at = (opening: string, rest = "") =>
+        stateOf(`${header("5 November 2026")}## Built, 5 November 2026\n\n${opening}\n${rest}`);
+      expect(
+        at(
+          "Commit 63708ca on branch `x`, pushed to `master` at 15:42.",
+          "\n- Both earlier plans' `## Building … session 632d8f1c` lines removed.\n",
+        ),
+      ).toMatchObject({ sha: "63708ca" });
+      expect(at("commit 63708ca8fa6ead31ac3fbabf76d62fc20e1d6418")).toMatchObject({
+        sha: "63708ca8",
+      });
+      expect(at("Pushed to `master` as 744af17 from branch `x`.")).toMatchObject({
+        sha: "744af17",
+      });
+      expect(at("by Docs Executor 3 (session 0858c8cd) as `15829f0`")).toMatchObject({
+        sha: "15829f0",
+      });
+      // Codex, C1: a whole UUID, or one in backticks, is a session id too.
+      expect(
+        at("Executor (session 0858c8cd-1234-4567-89ab-0123456789ab) pushed as 15829f0."),
+      ).toMatchObject({ sha: "15829f0" });
+      expect(at("Executor (session `0858c8cd`), run 19123456789, as 15829f0.")).toMatchObject({
+        sha: "15829f0",
+      });
+      expect(at("Executor [0858c8cd-1234-4567-89ab-0123456789ab] as 15829f0.")).toMatchObject({
+        sha: "15829f0",
+      });
+      // /code-review: a bare UUID, a run written "Run:" or as a link, upper
+      // case, and the opening's commit before a later merge's.
+      expect(at("Executor 3 (0858c8cd-1234-4567-89ab-0123456789ab) pushed 744af17.")).toMatchObject(
+        { sha: "744af17" },
+      );
+      expect(at("Run: 19123456789, pushed as 744af17.")).toMatchObject({ sha: "744af17" });
+      expect(
+        at("https://github.com/o/r/actions/runs/19123456789 green, pushed as 744af17."),
+      ).toMatchObject({ sha: "744af17" });
+      expect(at("Commit ABCDEF1 pushed.")).toMatchObject({ sha: "abcdef1" });
+      expect(
+        at(
+          "Pull request #12 (https://github.com/o/r/pull/12) to test from branch x, commit 1234abcd; draft.",
+          "\nMerged test 5 November, commit abcdef12: none.\n",
+        ),
+      ).toMatchObject({ sha: "1234abcd" });
       expect(stateOf(header("20 October 2026"))).toMatchObject({ state: "old" });
       expect(stateOf("# Notes\n\nSome notes.\n")).toBeNull();
     });
@@ -971,6 +1016,39 @@ describe("plan-queue", () => {
         retire: true,
       });
       expect(decideStop({ retired: true, waiting: [plan("plans/a.md")], run: failed })).toBeNull();
+    });
+
+    // plans/executor-over-ceiling-hands-on.md, part 1: a session named plans
+    // at 187k and stopping at 202k is retired on them.
+    it("retires a session over the ceiling on the plans it was told, and at zero compactions", () => {
+      const now = Date.now();
+      const at = (minutes: number, k: number) => ({
+        context: k * 1000,
+        at: now - minutes * 60_000,
+      });
+      const both = [plan("plans/a.md"), plan("plans/b.md")];
+      const told = ["plans/a.md", "plans/b.md"];
+      const fresh = decideStop({ waiting: [plan("plans/a.md")], usage: at(0, 300), now });
+      expect(fresh).toMatchObject({ retire: true, paths: ["plans/a.md"] });
+      expect(fresh!.why).toContain("over the reuse ceiling");
+      expect(decideStop({ waiting: both, told, usage: at(0, 187), now })).toBeNull();
+      const over = decideStop({ waiting: both, told, usage: at(0, 202), compactions: 0, now });
+      expect(over).toMatchObject({ retire: true, paths: ["plans/a.md", "plans/b.md"] });
+      expect(over!.why).toContain("over the reuse ceiling");
+      expect(decideStop({ waiting: both, told, compactions: 2, now })).toMatchObject({
+        retire: true,
+        paths: ["plans/a.md", "plans/b.md"],
+      });
+      const one = decideStop({
+        waiting: both,
+        told: ["plans/a.md"],
+        usage: at(0, 150),
+        compactions: 0,
+        now,
+      });
+      expect(one).toMatchObject({ refuse: true, told: ["plans/b.md"] });
+      expect(one!.reason).toContain("plans/b.md");
+      expect(one!.reason).not.toContain("plans/a.md");
     });
 
     it("starts a handed plan whatever the count, and asks about a stuck one instead", () => {
@@ -1676,6 +1754,28 @@ describe("plan-queue", () => {
       expect(syncIn(clone)).toBe(`The checkout is at test, ${test.slice(0, 8)}.`);
       expect(g(clone, "rev-parse", "HEAD")).toBe(test);
       expect(syncIn(clone)).toBe(`Already at test, ${test.slice(0, 8)}.`);
+    });
+    // plans/executor-over-ceiling-hands-on.md, part 3.
+    it("moves past untracked files under plans/, and refuses any other untracked file", () => {
+      const test = g(clone, "rev-parse", "origin/test");
+      mkdirSync(join(clone, "plans", "x"), { recursive: true });
+      writeFileSync(join(clone, "plans", "x.md"), "# X\n");
+      writeFileSync(join(clone, "plans", "x", "sketch.md"), "# Sketch\n");
+      try {
+        expect(syncIn(clone)).toBe(`Already at test, ${test.slice(0, 8)}.`);
+        g(clone, "checkout", "-q", "--detach", first);
+        expect(syncIn(clone)).toBe(`The checkout is at test, ${test.slice(0, 8)}.`);
+        writeFileSync(join(clone, "plans", "my plan.md"), "# Mine\n");
+        g(clone, "checkout", "-q", "--detach", first);
+        expect(syncIn(clone)).toBe(`The checkout is at test, ${test.slice(0, 8)}.`);
+        writeFileSync(join(clone, "other.txt"), "other\n");
+        expect(syncIn(clone)).toBe(
+          "Not moved: the checkout has changes; commit, stash or discard them first.",
+        );
+      } finally {
+        rmSync(join(clone, "plans"), { recursive: true, force: true });
+        rmSync(join(clone, "other.txt"), { force: true });
+      }
     });
     it("moves the primary checkout when run from a worktree, never the worktree", () => {
       g(clone, "checkout", "-q", "--detach", first);
@@ -4094,9 +4194,9 @@ describe("the cache-aware queue", () => {
     expect((kept as { reason: string }).reason).toContain(
       "can take them: plans/b.md (its context is 200k tokens, under the reuse ceiling of 300k for a related plan).",
     );
-    // At the next stop the unrelated one goes to a fresh executor.
+    // At the next stop, b built, the unrelated one goes to a fresh executor.
     expect(
-      decideStop({ waiting, told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+      decideStop({ waiting: [waiting[0]], told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
     ).toMatchObject({ retire: true, paths: ["plans/a.md"] });
     // Under both, every plan, as before.
     expect(decideStop({ waiting, usage: at(1, 50), now, ceiling })).toMatchObject({

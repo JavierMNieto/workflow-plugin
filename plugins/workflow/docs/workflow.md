@@ -399,7 +399,8 @@ opened by `plans chat`, its slide steps a skill of the talk workspace.
 ## The queue
 
 **A plan's state is in its file**, which `plans` reads and prints: `##
-Built` (its commit, and a `Pull request #<n>`, `Pushed straight to
+Built` (its commit, the hash after `commit` or the first in its opening
+paragraph that is no session id, seven digits or more, and a `Pull request #<n>`, `Pushed straight to
 <branch> as a fix` or `On topic <name>` line); `## Dropped, <date>`,
 written by the plan's author on the owner's word with one line of why, is
 dropped: never ready, never started, refused by path, out of the asking
@@ -419,7 +420,9 @@ the waiting plans to a session it may reuse (no compaction, or one and a
 waiting plan naming a file the batch changed; a context under its
 ceiling (the project file's `reuse`: 200k for an executor by default); a
 cache still warm), else retires it and starts the
-next executor. At a third compaction inside one plan the session hands
+next executor, judged at every stop while plans wait, the plans it was
+named included, so a session under the ceiling when named and over it
+when it next stops is retired then, at zero compactions too. At a third compaction inside one plan the session hands
 it over (work committed, a "Handing over" section, stop), up to six times
 a plan; twice at the same step, the owner is asked.
 (decisions.md#one-executor, decisions.md#context-cost)
@@ -457,7 +460,8 @@ owner's word. (decisions.md#end-now)
 "none"`): no executor makes a worktree, and `plans` lists any under
 `.claude/worktrees/`; `plans start` refuses while an unretired executor
 lives; an executor detaches the checkout at `origin/<branch>` after its
-batch, and `plans sync` moves a clean, detached one to the branch. The
+batch, and `plans sync` moves a detached one that is clean but for
+untracked files under `plans/`, the queue's own, to the branch. The
 queue's files in `.claude/` and `.claude/worktrees/` are git-ignored.
 (decisions.md#background-in-checkout)
 
