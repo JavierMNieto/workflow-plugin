@@ -658,7 +658,11 @@ expires. A project with issues carries its app's id and private key the
 same way, `WORKFLOW_APP_ID` and `WORKFLOW_APP_KEY` (the PEM's text),
 from which `plans gh` mints the app's token, and its webhook's secret
 and port, `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` (8789
-when unset). (decisions.md#push-token)
+when unset). Any of these left out of the environment is read, when the queue
+uses it, from the private dotenv file that `WORKFLOW_SECRETS_FILE`
+names (a relative path from the checkout's root), and never put into
+the environment, so the key stays out of every other program's
+environment. (decisions.md#push-token)
 
 **Screenshots on a pull request** go up through `gh pr create --attach`
 and `gh pr edit --attach`, which need gh 2.99 or newer (from GitHub's apt

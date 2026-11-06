@@ -2,7 +2,8 @@
 // the queue writes issues, comments, labels and pull requests as the
 // project's own GitHub App, never under a person's name. Its id and private
 // key reach the container as `GH_TOKEN` does, `WORKFLOW_APP_ID` and
-// `WORKFLOW_APP_KEY`; an installation token is minted from them here, for an
+// `WORKFLOW_APP_KEY`, or in the file `WORKFLOW_SECRETS_FILE` names, which the
+// queue's `secret()` reads; an installation token is minted from them here, for an
 // hour, and kept in `.claude/app-token.json` until five minutes before it
 // ends. `node:` modules only; `fetch` is Node's own.
 import { createSign } from "node:crypto";

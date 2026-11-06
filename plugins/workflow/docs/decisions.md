@@ -537,8 +537,11 @@ on the machine that planned them.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the
-  Workflows scope lets a plan that changes `.github/workflows/` push.
-  plans/push-to-github.md.
+  Workflows scope lets a plan that changes `.github/workflows/` push. The
+  app's key and the webhook's secret may instead be in a private file
+  that `WORKFLOW_SECRETS_FILE` names, read only when used, so no other
+  program's environment holds them (Javi, 6 November).
+  plans/push-to-github.md, plans/secrets-from-a-file.md.
 - `screenshots-attach` **Screenshots on a pull request go up through `gh
   pr create --attach` and `gh pr edit --attach`, from gh 2.99.** (as
   GitHub CLI does, 31 October) GitHub's changelog of 1 September 2026

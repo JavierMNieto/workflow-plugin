@@ -5234,8 +5234,63 @@ export function chatCommand(args = [], project = proj(), dir = root) {
 // what was missed, both through `githubEvents`, and what is done with an
 // event is below: the note, the assistant started, the issue closed.
 
+/**
+ * **The values of a dotenv file**: `NAME=value` a line, `export ` before it
+ * allowed, `#` lines and a ` #` after an unquoted value comments (a value
+ * that begins with `#` is the value, as Compose reads it); a
+ * single-quoted value as written, a double-quoted one running over lines to
+ * its closing quote, its `\n`, `\"` and `\\` escapes read.
+ */
+export function dotenv(text = "") {
+  const source = String(text).replace(/\r\n?/g, "\n");
+  const values = {};
+  const start = /^[ \t]*(?:export[ \t]+)?([A-Za-z_]\w*)[ \t]*=[ \t]*/gm;
+  let m;
+  while ((m = start.exec(source))) {
+    const at = start.lastIndex;
+    const quote = /["']/.test(source[at]) ? source[at] : "";
+    let end = at + 1;
+    while (quote && end < source.length && source[end] !== quote)
+      end += quote === '"' && source[end] === "\\" ? 2 : 1;
+    if (quote && end < source.length) {
+      const inner = source.slice(at + 1, end);
+      values[m[1]] =
+        quote === '"' ? inner.replace(/\\([n"\\])/g, (_, c) => (c === "n" ? "\n" : c)) : inner;
+      start.lastIndex = end + 1;
+    } else {
+      // Unquoted, or a quote never closed: the rest of the line.
+      const lineEnd = source.indexOf("\n", at) < 0 ? source.length : source.indexOf("\n", at);
+      values[m[1]] = source
+        .slice(at, lineEnd)
+        .replace(/[ \t]+#.*$/, "")
+        .trim();
+      start.lastIndex = lineEnd;
+    }
+  }
+  return values;
+}
+
+/**
+ * **A secret, read when it is used** (decisions.md#push-token): the
+ * environment's value of `name` when it is set, else its value in the
+ * private dotenv file `WORKFLOW_SECRETS_FILE` names (a relative path from the
+ * checkout's root, so `plans gh` from a subfolder and the listener started
+ * at the root read the same file; Codex), read again at each call
+ * and never put into `process.env`, so no program the queue starts inherits
+ * it; "" when neither has it or the file cannot be read.
+ */
+export function secret(name, env = process.env) {
+  if (env[name]) return env[name];
+  if (!env.WORKFLOW_SECRETS_FILE) return "";
+  try {
+    return dotenv(readFileSync(resolve(root, env.WORKFLOW_SECRETS_FILE), "utf8"))[name] || "";
+  } catch {
+    return "";
+  }
+}
+
 /** The port the listener takes: `WORKFLOW_WEBHOOK_PORT`, else 8789. */
-const webhookPort = (env = process.env) => Number(env.WORKFLOW_WEBHOOK_PORT) || 8789;
+const webhookPort = (env = process.env) => Number(secret("WORKFLOW_WEBHOOK_PORT", env)) || 8789;
 
 /** Whether the project file turns issues on: its `## Issues` heading. */
 export function hasIssues(body = proj().body || "") {
@@ -5244,7 +5299,7 @@ export function hasIssues(body = proj().body || "") {
 
 /** `plans webhook`'s refusal with no secret here. */
 export function noSecretWords() {
-  return "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set.";
+  return "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.";
 }
 
 /** The listener's record, when its process is alive; null else. */
@@ -5266,7 +5321,8 @@ export function webhookLine(record = webhookAlive()) {
  * --serve`. `plans start` and the session's start call it; it says nothing.
  */
 export function armWebhook(env = process.env) {
-  if (!proj().found || !hasIssues() || !env.WORKFLOW_WEBHOOK_SECRET || webhookAlive()) return 0;
+  if (!proj().found || !hasIssues() || !secret("WORKFLOW_WEBHOOK_SECRET", env) || webhookAlive())
+    return 0;
   return detached(process.execPath, [fileURLToPath(import.meta.url), "webhook", "--serve"], {
     ...env,
     WORKFLOW_ROOT: root,
@@ -5326,9 +5382,11 @@ function withPermissions(seen, items, repo, deadline) {
 /** The app's slug, read once and kept in the seen file; "" with no app. */
 async function slugOf(seen, env = process.env) {
   if (seen.slug) return seen.slug;
-  if (!env.WORKFLOW_APP_ID || !env.WORKFLOW_APP_KEY) return "";
+  const id = secret("WORKFLOW_APP_ID", env);
+  const key = secret("WORKFLOW_APP_KEY", env);
+  if (!id || !key) return "";
   try {
-    return await appSlug({ id: env.WORKFLOW_APP_ID, key: env.WORKFLOW_APP_KEY });
+    return await appSlug({ id, key });
   } catch {
     return "";
   }
@@ -5729,7 +5787,8 @@ export async function webhookCommand(args = [], env = process.env) {
     }
     return { said: "The webhook: stopped.", status: 0 };
   }
-  if (!env.WORKFLOW_WEBHOOK_SECRET) return { said: noSecretWords(), status: 1 };
+  const webhookSecret = secret("WORKFLOW_WEBHOOK_SECRET", env);
+  if (!webhookSecret) return { said: noSecretWords(), status: 1 };
   const alive = webhookAlive();
   if (alive) return { said: webhookLine(alive), status: 0 };
   if (!args.includes("--serve")) {
@@ -5768,7 +5827,7 @@ export async function webhookCommand(args = [], env = process.env) {
   const work = () => run(["--inbox"]);
   const server = listen({
     port,
-    secret: env.WORKFLOW_WEBHOOK_SECRET,
+    secret: webhookSecret,
     keep: (id, event, body) => {
       writeFileSync(join(files.githubInbox(), `${id}.json`), JSON.stringify({ id, event, body }));
       writeJson(files.webhook(), { ...record, lastAt: Date.now() });
@@ -5787,7 +5846,7 @@ export async function webhookCommand(args = [], env = process.env) {
 
 /** `plans gh`'s refusal with no app here (plans/plans-as-github-issues.md, part 1). */
 export function noAppWords(repo = "") {
-  return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set.`;
+  return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.`;
 }
 
 /**
@@ -5831,8 +5890,9 @@ export async function ghCommand(
 ) {
   const quoted = ["gh", ...args].map((word) => `'${String(word).replace(/'/g, "'\\''")}'`);
   if (marksReady(quoted.join(" "))) return { said: READY_REFUSED, status: 1 };
-  if (!env.WORKFLOW_APP_ID || !env.WORKFLOW_APP_KEY)
-    return { said: noAppWords(repo ?? repoHere(run, env, false)), status: 1 };
+  const id = secret("WORKFLOW_APP_ID", env);
+  const key = secret("WORKFLOW_APP_KEY", env);
+  if (!id || !key) return { said: noAppWords(repo ?? repoHere(run, env, false)), status: 1 };
   const name = repo ?? repoHere(run, env);
   const [owner, repository] = name.split("/");
   if (!owner || !repository)
@@ -5845,8 +5905,8 @@ export async function ghCommand(
     token = await installationToken({
       owner,
       repo: repository,
-      id: env.WORKFLOW_APP_ID,
-      key: env.WORKFLOW_APP_KEY,
+      id,
+      key,
       cacheFile,
       fetch,
       now,

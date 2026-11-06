@@ -35,6 +35,7 @@ import {
   tiredFor,
   usageWords,
   ghCommand,
+  secret,
   notesWaiting,
   marksReady,
   agentEffort,
@@ -6872,7 +6873,7 @@ describe("plans gh", () => {
       cacheFile: cache(),
     });
     expect(done).toEqual({
-      said: "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set.",
+      said: "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.",
       status: 1,
     });
     expect(runs).toEqual([]);
@@ -6966,6 +6967,135 @@ describe("plans gh", () => {
     expect(done.status).toBe(1);
     expect(done.stderr).toMatch(/^The project's Claude has no GitHub App here: /);
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+// plans/secrets-from-a-file.md: the app's key and the webhook's secret from a private file.
+describe("secrets from a file", () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const names = ["WORKFLOW_APP_ID", "WORKFLOW_APP_KEY", "WORKFLOW_WEBHOOK_SECRET"];
+  const file = (text: string) => {
+    const path = join(mkdtempSync(join(tmpdir(), "secrets-")), "workflow.env");
+    writeFileSync(path, text, { mode: 0o600 });
+    return path;
+  };
+
+  it("reads the app's id, key and the webhook's secret from the file when the environment has none", () => {
+    const path = file(
+      `# The queue's secrets\nexport WORKFLOW_APP_ID=123 # the app's\nWORKFLOW_APP_KEY="${pem}"\nWORKFLOW_WEBHOOK_SECRET='s3 cret' # the webhook's\n`,
+    );
+    const env = { PATH: "", WORKFLOW_SECRETS_FILE: path };
+    expect(secret("WORKFLOW_APP_ID", env)).toBe("123");
+    expect(secret("WORKFLOW_APP_KEY", env)).toBe(pem);
+    expect(secret("WORKFLOW_WEBHOOK_SECRET", env)).toBe("s3 cret");
+    // A value that begins with `#` is the value, as Compose reads it.
+    const hashed = file("WORKFLOW_WEBHOOK_SECRET=#Xk9#2\n");
+    expect(secret("WORKFLOW_WEBHOOK_SECRET", { WORKFLOW_SECRETS_FILE: hashed })).toBe("#Xk9#2");
+  });
+
+  it("reads a relative path from the checkout's root, wherever the command runs", () => {
+    const checkout = mkdtempSync(join(tmpdir(), "secrets-root-"));
+    mkdirSync(join(checkout, ".devcontainer"));
+    writeFileSync(join(checkout, ".devcontainer", "workflow.env"), "WORKFLOW_APP_ID=123\n");
+    const source = `import { secret } from ${JSON.stringify(join(here, "plan-queue.mjs"))}; process.stdout.write(secret("WORKFLOW_APP_ID"));`;
+    const done = spawnSync("node", ["--input-type=module", "-e", source], {
+      cwd: tmpdir(),
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH || "",
+        WORKFLOW_ROOT: checkout,
+        WORKFLOW_SECRETS_FILE: ".devcontainer/workflow.env",
+      },
+    });
+    rmSync(checkout, { recursive: true, force: true });
+    expect(done.stdout).toBe("123");
+  });
+
+  it("reads a key spanning lines in one double-quoted value whole, and a key with \\n escapes signs the same", () => {
+    const now = Date.UTC(2026, 10, 6, 12);
+    const spanning = file(`WORKFLOW_APP_KEY="${pem}"\nWORKFLOW_APP_ID=123\n`);
+    const escaped = file(`WORKFLOW_APP_KEY=${pem.replace(/\n/g, "\\n")}\n`);
+    const quoted = file(`WORKFLOW_APP_KEY="${pem.replace(/\n/g, "\\n")}"\n`);
+    const key = (path: string) => secret("WORKFLOW_APP_KEY", { WORKFLOW_SECRETS_FILE: path });
+    expect(key(spanning)).toBe(pem);
+    expect(secret("WORKFLOW_APP_ID", { WORKFLOW_SECRETS_FILE: spanning })).toBe("123");
+    expect(appJwt("123", key(escaped), now)).toBe(appJwt("123", pem, now));
+    expect(appJwt("123", key(quoted), now)).toBe(appJwt("123", pem, now));
+  });
+
+  it("lets a name set in the environment win over the file", () => {
+    const path = file("WORKFLOW_APP_ID=123\nWORKFLOW_WEBHOOK_SECRET=from-file\n");
+    const env = { WORKFLOW_SECRETS_FILE: path, WORKFLOW_APP_ID: "456" };
+    expect(secret("WORKFLOW_APP_ID", env)).toBe("456");
+    expect(secret("WORKFLOW_WEBHOOK_SECRET", env)).toBe("from-file");
+  });
+
+  it("reads a missing or unreadable file as unset, and the refusals name the file", async () => {
+    const missing = join(tmpdir(), "no-such-secrets.env");
+    const unreadable = file("WORKFLOW_APP_ID=123\n");
+    chmodSync(unreadable, 0o000);
+    // Root reads a file whatever its mode, so the unreadable one counts only for others.
+    const asRoot = process.getuid?.() === 0;
+    const folder = mkdtempSync(join(tmpdir(), "secrets-dir-"));
+    for (const path of [missing, folder, ...(asRoot ? [] : [unreadable])]) {
+      for (const name of names) expect(secret(name, { WORKFLOW_SECRETS_FILE: path })).toBe("");
+    }
+    const ran: string[][] = [];
+    const done = await ghCommand(["issue", "list"], {
+      env: { PATH: "", WORKFLOW_SECRETS_FILE: missing },
+      run: (_bin: string, args: string[]) => {
+        ran.push(args);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      repo: "o/r",
+    });
+    expect(done).toEqual({
+      said: "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.",
+      status: 1,
+    });
+    expect(ran).toEqual([]);
+  });
+
+  it("plans gh mints from the file's key and leaves none of the three in process.env", async () => {
+    const path = file(
+      `WORKFLOW_APP_ID=123\nWORKFLOW_APP_KEY="${pem}"\nWORKFLOW_WEBHOOK_SECRET=s3cret\n`,
+    );
+    const before = names.map((name) => process.env[name]);
+    for (const name of names) delete process.env[name];
+    const now = Date.UTC(2026, 10, 6, 12);
+    const fetch = async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        url.endsWith("/installation")
+          ? { id: 77 }
+          : { token: "t", expires_at: new Date(now + 3600_000).toISOString() },
+    });
+    const runs: Record<string, string>[] = [];
+    try {
+      const done = await ghCommand(["issue", "list"], {
+        env: { ...process.env, WORKFLOW_SECRETS_FILE: path },
+        run: (_bin: string, _args: string[], options: { env: Record<string, string> }) => {
+          runs.push(options.env);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        fetch,
+        repo: "o/r",
+        now,
+        cacheFile: join(mkdtempSync(join(tmpdir(), "app-token-")), "app-token.json"),
+      });
+      expect(done).toEqual({ said: "", status: 0 });
+      expect(runs[0].GH_TOKEN).toBe("t");
+      for (const name of names) {
+        expect(process.env[name]).toBeUndefined();
+        expect(runs[0][name]).toBeUndefined();
+      }
+    } finally {
+      names.forEach((name, i) => {
+        if (before[i] !== undefined) process.env[name] = before[i];
+      });
+    }
   });
 });
 
@@ -7197,7 +7327,7 @@ describe("github webhook", () => {
       });
       expect(done.status).toBe(1);
       expect(done.stdout.trim()).toBe(
-        "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set.",
+        "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.",
       );
       expect(existsSync(join(dir, ".claude", "webhook.json"))).toBe(false);
     });
