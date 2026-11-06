@@ -370,6 +370,18 @@ on the machine that planned them.
   plans/reuse-ceiling-per-agent.md.
   - ~~A planner with room left takes the next brief.~~ (Javi, 27
     October; by the executor's rule)
+- `brief-leased` **A brief left with a live planner is leased to it
+  for thirty minutes, by message when it is idle and by its Stop hook
+  when it is busy; one over its ceiling for the brief or waiting on a
+  question gets a fresh planner beside it at once, and a brief not taken
+  by the lease's end goes to a fresh planner.** (Javi, 6 November) Five
+  briefs sat seven hours behind one planner's question: a message
+  reaches a busy session between its tool calls, where no hook judges
+  it, and a chat blocked on a question receives nothing until it is
+  answered, so a brief sent by message was known to nobody. As SQS's
+  visibility timeout and PagerDuty's escalation timeout (thirty minutes
+  by default) hand an item nobody acknowledged to the next taker; the
+  window is "Asked once"'s. plans/briefs-reach-a-free-planner.md.
 - `asked-once` **A decision a plan leaves to the owner is asked by its
   planner, once, and the plan is the planner's for thirty minutes.**
   (Javi, 28 October) Wait thirty minutes, then decide for him; a plan

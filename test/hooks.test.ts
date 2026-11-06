@@ -1198,7 +1198,7 @@ describe("plan-queue", () => {
       const first = decideStop({ carry: [owed] })!;
       expect(first).toMatchObject({ refuse: true, told: ["for:plans/a.md:plans/x.md"] });
       expect(first.reason).toBe(
-        'plans/a.md leaves work for Docs (its section "For Docs: plans/x.md") and /w/docs/plans/x.md is not written. Write the brief there from the section, by your agent file, and start that queue: cd /w/docs && plans start --agent planner plans/x.md, or the message it prints for a live planner; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.',
+        'plans/a.md leaves work for Docs (its section "For Docs: plans/x.md") and /w/docs/plans/x.md is not written. Write the brief there from the section, by your agent file, and start that queue: cd /w/docs && plans start --agent planner plans/x.md, or what its line says to do; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.',
       );
       expect(decideStop({ carry: [owed], told: ["for:plans/a.md:plans/x.md"] })).toBeNull();
       const from = decideStop({ carry: [{ ...owed, checkout: "", missing: "from" }] })!;
@@ -1809,7 +1809,7 @@ describe("plan-queue", () => {
       try {
         const test = g(clone, "rev-parse", "origin/test");
         expect(syncIn(clone)).toBe(
-          `Added .claude/asking.*, .claude/assistant.* to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
+          `Added .claude/asking.*, .claude/handed.*, .claude/assistant.* to .git/info/exclude. The checkout is at test, ${test.slice(0, 8)}.`,
         );
         expect(g(clone, "rev-parse", "HEAD")).toBe(test);
         expect(g(clone, "status", "--porcelain")).toBe("");
@@ -1829,7 +1829,7 @@ describe("plan-queue", () => {
       g(clone, "checkout", "-q", "--detach", "origin/test");
       writeFileSync(
         join(clone, ".gitignore"),
-        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/assistant.*\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
+        ".claude/executor.*\n.claude/planner.*\n.claude/asking.*\n.claude/handed.*\n.claude/assistant.*\n.claude/app-token.*\n.claude/github-*\n.claude/webhook.*\n",
       );
       g(clone, "commit", "-q", "-am", "three kinds");
       const behind = g(clone, "rev-parse", "HEAD");
@@ -2071,7 +2071,7 @@ describe("the planner queue", () => {
     expect(listWith([])).toMatch(/\nThe planner: none alive\.\n/);
   });
 
-  it("names planners by their own count and refuses only beside a planner", () => {
+  it("names planners by their own count and refuses only beside an executor", () => {
     const log = [{ at: 0, name: "Executor 7" }];
     expect(canStart({ kind: "planner", log })).toMatchObject({ start: true, name: "Planner 1" });
     expect(canStart({ log })).toMatchObject({ start: true, name: "Executor 8" });
@@ -2087,12 +2087,15 @@ describe("the planner queue", () => {
       retired: false,
       on: "plans/x.md",
     };
-    // plans/planner-continues.md, part 4: the brief is sent to the live planner.
+    // plans/briefs-reach-a-free-planner.md, part 2: a busy planner with room
+    // takes the brief at its Stop hook, and nothing is sent.
+    const now = Date.UTC(2026, 10, 6, 4, 25);
+    const until = new Date(now + 30 * 60_000).toTimeString().slice(0, 5);
     expect(
-      canStart({ kind: "planner", sessions: [planner], brief: "plans/next.md" }),
+      canStart({ kind: "planner", sessions: [planner], brief: "plans/next.md", now }),
     ).toMatchObject({
-      refuse: true,
-      why: `A planner is alive: Planner 3 [33330000], busy, planning plans/x.md. Send it the brief with SendMessage, one message per brief: ${plannerPrompt("plans/next.md")}`,
+      wait: true,
+      why: `Planner 3 [33330000] is busy, planning plans/x.md, with room for plans/next.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
     });
     // An executor's lock does not hold a planner back.
     expect(
@@ -3898,6 +3901,136 @@ if (args[0] === "agents") {
         "Started Seen Executor 1 (lab)",
       );
     });
+    // plans/briefs-reach-a-free-planner.md, parts 3 and 4.
+    it(
+      "leases a brief left with a busy planner, ends the lease at its Planning line, and starts a fresh planner at its end",
+      { timeout: 60_000 },
+      () => {
+        const dir = fixture("Lease");
+        const brief = (title: string) =>
+          `# ${title}\n\nBrief for the planner, 6 November 2026, by the assistant with Javi.\n\nWhat.\n`;
+        writeFileSync(join(dir, "plans", "b.md"), brief("B"));
+        writeFileSync(join(dir, "plans", "c.md"), brief("C"));
+        const projects = temp("queue-lease-projects-");
+        const row = (status: object) => ({
+          sessionId: "lease-planner-1",
+          name: "Lease Planner 1 (lab)",
+          kind: "background",
+          cwd: dir,
+          ...status,
+        });
+        const deferred = join(dir, ".claude", "handed.deferred");
+        const env = {
+          WORKFLOW_PROJECTS: projects,
+          WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
+          WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
+          WORKFLOW_LIVE: JSON.stringify([row({ status: "busy" })]),
+        };
+        const timers: number[] = [];
+        try {
+          // A dry run says the same line and writes nothing.
+          const dry = runIn(dir, ["start", "--dry", "--agent", "planner", "plans/b.md"], env);
+          expect(dry).toContain(
+            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ",
+          );
+          expect(existsSync(deferred)).toBe(false);
+          const before = Date.now();
+          const said = runIn(dir, ["start", "--agent", "planner", "plans/b.md"], env);
+          expect(said).toContain(
+            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md",
+          );
+          const lease = JSON.parse(readFileSync(deferred, "utf8"));
+          timers.push(lease.pid);
+          expect(lease.paths).toEqual(["plans/b.md"]);
+          expect(lease.why).toMatch(
+            /^waiting for Lease Planner 1 \(lab\) \[lease-pl\] since \d\d:\d\d$/,
+          );
+          expect(lease.until).toBeGreaterThanOrEqual(before + 30 * 60_000);
+          expect(lease.until).toBeLessThanOrEqual(Date.now() + 30 * 60_000);
+          expect(said).toContain(
+            `It has until ${new Date(lease.until).toTimeString().slice(0, 5)}`,
+          );
+          // A second brief joins the lease at the earlier time.
+          runIn(dir, ["start", "--agent", "planner", "plans/c.md"], env);
+          const both = JSON.parse(readFileSync(deferred, "utf8"));
+          timers.push(both.pid);
+          expect(both.paths).toEqual(["plans/b.md", "plans/c.md"]);
+          expect(both.until).toBe(lease.until);
+          // `plans` says who holds them and until when.
+          const listed = execFileSync(
+            "node",
+            [
+              "--input-type=module",
+              "-e",
+              `import { list } from ${JSON.stringify(join(here, queue))};
+             console.log(list({ live: [] }));`,
+            ],
+            { encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env } },
+          );
+          expect(listed).toContain(
+            `Deferred until ${new Date(lease.until).toTimeString().slice(0, 5)}: ${both.why}; plans/b.md, plans/c.md`,
+          );
+          // The planner's Planning line on b ends b's lease.
+          writeFileSync(
+            join(dir, "plans", "b.md"),
+            `## Planning, 6 November 2026, session lease-planner-1\n\n${brief("B")}`,
+          );
+          runIn(dir, ["wrote"], env, {
+            session_id: "lease-planner-1",
+            agent_type: "planner",
+            tool_name: "Edit",
+            tool_input: { file_path: join(dir, "plans", "b.md") },
+          });
+          expect(JSON.parse(readFileSync(deferred, "utf8")).paths).toEqual(["plans/c.md"]);
+          // The lease's end: the planner named waits on a question, so a fresh
+          // planner is started beside it on c, and the lease is gone.
+          const { script, rows } = stub();
+          writeFileSync(rows, JSON.stringify([row({ status: "idle", state: "blocked" })]));
+          const { WORKFLOW_LIVE: _, ...rest } = process.env;
+          const started = execFileSync(
+            "node",
+            [
+              join(here, queue),
+              "start",
+              "--timer",
+              String(Date.now() - 1000),
+              "--agent",
+              "planner",
+              "--deferral",
+              "handed",
+              "plans/c.md",
+            ],
+            {
+              encoding: "utf8",
+              env: {
+                ...rest,
+                ...env,
+                WORKFLOW_LIVE: "",
+                CLAUDE_PROJECT_DIR: dir,
+                WORKFLOW_CLAUDE: script,
+                STUB_ROWS: rows,
+              },
+            },
+          );
+          expect(existsSync(deferred)).toBe(false);
+          expect(readFileSync(join(dir, ".claude", "starts.log"), "utf8")).toContain(
+            '"name":"Lease Planner 2 (lab)","paths":["plans/c.md"]',
+          );
+          expect(started).toBe("");
+          expect(readFileSync(join(dir, ".claude", "planner.started"), "utf8")).toContain(
+            "Started Lease Planner 2 (lab)",
+          );
+        } finally {
+          for (const pid of timers)
+            try {
+              process.kill(pid);
+            } catch {
+              // Gone already.
+            }
+          rmSync(projects, { recursive: true, force: true });
+        }
+      },
+    );
   });
 });
 
@@ -4088,7 +4221,7 @@ describe("the cache-aware queue", () => {
     }
   });
 
-  it("canStart starts a planner beside a busy stale one, and refuses beside a busy one under the ceiling", () => {
+  it("canStart starts a planner beside a busy stale one, and waits for a busy one under the ceiling", () => {
     const usage = {
       at: now / 1000,
       five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
@@ -4101,10 +4234,15 @@ describe("the cache-aware queue", () => {
     });
     expect(beside).toMatchObject({ start: true });
     expect(beside.note).toContain("Started beside Test Planner 1");
-    expect(beside.note).toContain("busy with a context of 300k");
-    expect(
-      canStart({ kind: "planner", now, usage, sessions: [one("busy", 100, "planner")] as never }),
-    ).toMatchObject({ refuse: true });
+    expect(beside.note).toContain("busy with a context of 300k (its context is 300k tokens");
+    const waited = canStart({
+      kind: "planner",
+      now,
+      usage,
+      sessions: [one("busy", 100, "planner")] as never,
+    });
+    expect(waited).toMatchObject({ wait: true });
+    expect(waited.why).toContain("its Stop hook names the next brief waiting, so nothing is sent");
   });
 
   it("describeSession shows the context and its warmth", () => {
@@ -4213,7 +4351,7 @@ describe("the cache-aware queue", () => {
     });
   });
 
-  it("canStart messages a busy planner at 300k for a related brief, starts beside it for another, and replaces it idle", () => {
+  it("canStart waits for a busy planner at 300k for a related brief, starts beside it for another, and replaces it idle", () => {
     const usage = {
       at: now / 1000,
       five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
@@ -4233,9 +4371,12 @@ describe("the cache-aware queue", () => {
       ceiling: planner,
       sessions: [held("busy", true)] as never,
     });
-    expect(messaged).toMatchObject({ refuse: true });
-    expect(messaged.why).toContain("A planner is alive");
-    expect(messaged.why).toContain("Send it the brief with SendMessage");
+    // Busy: nothing is sent; its Stop hook names the brief (plans/briefs-reach-a-free-planner.md).
+    expect(messaged).toMatchObject({ wait: true });
+    expect(messaged.why).toContain(
+      "Test Planner 1 [planner-] is busy, with room for plans/next.md (its context is 300k tokens, under the reuse ceiling of 480k for a related brief): its Stop hook names the next brief waiting, so nothing is sent.",
+    );
+    expect(messaged.why).not.toContain("SendMessage");
     const beside = canStart({
       kind: "planner",
       now,
@@ -4291,7 +4432,7 @@ describe("the cache-aware queue", () => {
     });
     expect(
       canStart({ kind: "planner", now, usage, name: "Test", sessions: [compacted(true)] as never }),
-    ).toMatchObject({ refuse: true });
+    ).toMatchObject({ wait: true, why: expect.stringContaining("is idle with room") });
   });
 
   it("canStart keeps an executor between its two ceilings for related plans only (Codex C1)", () => {
@@ -4554,6 +4695,192 @@ describe("the cache-aware queue", () => {
       rmSync(repo, { recursive: true, force: true });
       rmSync(projects, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * **A brief reaches a planner that can plan it now** (plans/briefs-reach-a-
+ * free-planner.md): a planner is judged at `plans start` by what it can do
+ * now, a busy one is never messaged, and a brief left with a live planner is
+ * leased to it for thirty minutes.
+ */
+describe("a brief reaches a free planner", () => {
+  const MIN = 60_000;
+  const now = Date.UTC(2026, 10, 6, 4, 25);
+  const hhmm = (at: number) => new Date(at).toTimeString().slice(0, 5);
+  const until = hhmm(now + 30 * MIN);
+  const usage = {
+    at: now / 1000,
+    five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
+  };
+  const ceiling = { any: 160_000, related: 480_000 };
+  const planner = (
+    n: number,
+    status: string,
+    k: number | null,
+    { on = "", related = false, id = "" } = {},
+  ) => ({
+    kind: "planner",
+    sessionId: id || `planner-${n}-0000`,
+    id: "",
+    name: `Docs Planner ${n}`,
+    status,
+    usage: k === null ? null : { context: k * 1000, at: now - MIN },
+    ceiling,
+    where: "checkout",
+    branch: "",
+    holdsLock: false,
+    retired: false,
+    on,
+    holds: [],
+    related,
+  });
+  const facts = (sessions: object[], brief: string, more: object = {}) => ({
+    kind: "planner" as const,
+    now,
+    usage,
+    name: "Docs",
+    ceiling,
+    brief,
+    sessions: sessions as never,
+    taken: sessions.map((one) => (one as { name: string }).name),
+    ...more,
+  });
+  const over230 =
+    "its context is 230k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it";
+  const blockedWhy =
+    "it is waiting for Javi's answer to a question, and takes nothing until he answers";
+
+  it("canStart starts beside a busy planner at 230k with a brief under way and an unrelated brief, saying why", () => {
+    const busy = planner(34, "busy", 230, { on: "plans/own.md" });
+    const decision = canStart(facts([busy], "plans/a.md"));
+    expect(decision).toMatchObject({ start: true, name: "Docs Planner 35" });
+    expect(decision.note).toBe(
+      `Started beside Docs Planner 34 [planner-], which is busy with a context of 230k (${over230}).`,
+    );
+    expect(decision.replace).toBeUndefined();
+  });
+
+  it("canStart starts beside a planner waiting for input whatever its context, saying it waits for Javi's answer", () => {
+    for (const k of [10, 230, null]) {
+      for (const on of ["", "plans/own.md"]) {
+        const blocked = planner(34, "waiting for input", k, { on, related: true });
+        const decision = canStart(facts([blocked], "plans/a.md"));
+        expect(decision).toMatchObject({ start: true });
+        expect(decision.note).toContain(
+          `Started beside Docs Planner 34 [planner-], which is waiting for input with a context of ${k ?? 0}k (${blockedWhy}).`,
+        );
+        expect(decision.replace).toBeUndefined();
+      }
+    }
+  });
+
+  it("canStart waits for an idle planner with room: the message to send, and the time it has", () => {
+    const idle = planner(35, "idle", 50);
+    const decision = canStart(facts([idle], "plans/b.md"));
+    expect(decision).toEqual({
+      wait: true,
+      why: `Docs Planner 35 [planner-] is idle with room for plans/b.md (its context is 50k tokens, under the reuse ceiling of 160k): send it the brief with SendMessage, one message per brief: ${plannerPrompt("plans/b.md")} It has until ${until} to take it; then a fresh planner is started on it.`,
+      lease: `handed to Docs Planner 35 [planner-] at ${hhmm(now)} by message`,
+    });
+  });
+
+  it("canStart waits for a busy planner with room, and nothing is sent", () => {
+    const busy = planner(35, "busy", null, { on: "plans/y.md" });
+    const decision = canStart(facts([busy], "plans/b.md"));
+    expect(decision).toEqual({
+      wait: true,
+      why: `Docs Planner 35 [planner-] is busy, planning plans/y.md, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
+      lease: `waiting for Docs Planner 35 [planner-] since ${hhmm(now)}, planning plans/y.md`,
+    });
+    expect(decision.why).not.toContain("SendMessage");
+  });
+
+  it("canStart, unwatched, replaces an idle planner under its ceiling and starts beside a blocked one", () => {
+    const idle = planner(35, "idle", 50, { id: "planner-35-idle" });
+    const blocked = planner(34, "waiting for input", 230, { id: "planner-34-blocked" });
+    const decision = canStart(facts([blocked, idle], "plans/b.md", { unwatched: true }));
+    expect(decision).toMatchObject({
+      start: true,
+      name: "Docs Planner 36",
+      replace: [
+        {
+          sessionId: "planner-35-idle",
+          why: "idle while a brief's thirty minutes ran out, and the queue cannot message it",
+        },
+      ],
+    });
+    expect(decision.note).toContain(
+      `Started beside Docs Planner 34 [planner-], which is waiting for input with a context of 230k (${blockedWhy}).`,
+    );
+  });
+
+  it("canStart starts beside an idle planner over its ceiling with a brief under way, and never retires it", () => {
+    const idle = planner(34, "idle", 230, { on: "plans/own.md" });
+    const decision = canStart(facts([idle], "plans/a.md"));
+    expect(decision).toMatchObject({ start: true });
+    expect(decision.replace).toBeUndefined();
+    expect(decision.note).toContain("Started beside Docs Planner 34 [planner-], which is idle");
+  });
+
+  // The six steps of 6 November, replayed in order (part 6).
+  it("replays 6 November: five briefs reach a planner that can plan them, none waits behind a question", () => {
+    const p34 = planner(34, "busy", 230, {
+      on: "plans/headless-ui-popovers.md",
+      id: "8f8eb02c-0000",
+    });
+    // 1. Planner 34 mid-brief at 230k: a fresh planner beside it for brief a.
+    const first = canStart(facts([p34], "plans/a.md"));
+    expect(first).toMatchObject({ start: true, name: "Docs Planner 35" });
+    expect(first.note).toBe(
+      `Started beside Docs Planner 34 [8f8eb02c], which is busy with a context of 230k (${over230}).`,
+    );
+    // 2. Planner 35 alive and busy, no usage yet: brief b waits for it, nothing sent.
+    const p35 = planner(35, "busy", null, { id: "35350000-0000" });
+    const second = canStart(facts([p34, p35], "plans/b.md"));
+    expect(second).toMatchObject({
+      wait: true,
+      lease: `waiting for Docs Planner 35 [35350000] since ${hhmm(now)}`,
+    });
+    expect(second.why).toBe(
+      `Docs Planner 35 [35350000] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
+    );
+    // 3. Planner 34 asks Javi: brief c still waits for Planner 35, which has room;
+    // with Planner 35 gone, a fresh planner starts beside the blocked one.
+    const asking = { ...p34, status: "waiting for input" };
+    expect(canStart(facts([asking, p35], "plans/c.md"))).toMatchObject({
+      wait: true,
+      why: expect.stringContaining("Docs Planner 35 [35350000] is busy"),
+    });
+    const alone = canStart(facts([asking], "plans/c.md"));
+    expect(alone).toMatchObject({ start: true, name: "Docs Planner 35" });
+    expect(alone.note).toContain(
+      `which is waiting for input with a context of 230k (${blockedWhy})`,
+    );
+    // 4. The lease's timer, unwatched: Planner 34 blocked, Planner 35 idle under
+    // its ceiling: a fresh planner, Planner 35 replaced.
+    const idle35 = { ...p35, status: "idle", usage: { context: 90_000, at: now - 2 * MIN } };
+    const timer = canStart(facts([asking, idle35], "plans/b.md", { unwatched: true }));
+    expect(timer).toMatchObject({
+      start: true,
+      name: "Docs Planner 36",
+      replace: [
+        {
+          name: "Docs Planner 35",
+          why: "idle while a brief's thirty minutes ran out, and the queue cannot message it",
+        },
+      ],
+    });
+    // 5. The fresh planner, after its first plan, with four briefs waiting
+    // and none told: names the oldest.
+    const waiting = ["b", "c", "d", "e"].map((x) => ({ path: `plans/${x}.md`, related: false }));
+    expect(
+      decidePlannerStop({ waiting, usage: { context: 80_000, at: now - MIN }, now }),
+    ).toMatchObject({ refuse: true, told: ["plans/b.md"] });
+    // 6. Planner 34, its question answered, with the briefs all under way or planned.
+    expect(
+      decidePlannerStop({ waiting: [], usage: { context: 240_000, at: now - MIN }, now }),
+    ).toBeNull();
   });
 });
 

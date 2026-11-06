@@ -1312,8 +1312,9 @@ export const ANSWER_WINDOW = 30 * MINUTE;
  * a millisecond early, and a start that still found the plan held would drop it.
  */
 const WINDOW_SLACK = 5000;
-/** The agent a deferral's timer starts. */
-const agentOfDeferral = (file) => (file === "planner" ? "planner" : "executor");
+/** The agent a deferral's timer starts: a brief's lease (`handed`) is a planner's. */
+const agentOfDeferral = (file) =>
+  file === "planner" || file === "handed" ? "planner" : "executor";
 
 /**
  * **A session's context and its age, from its transcript**: the last
@@ -1694,7 +1695,7 @@ export function decideStop({
 /** The Stop hook's words when a plan's brief for its project is not in that project's `plans/`. */
 export function briefMissingWords({ path, project, file, checkout }) {
   const there = checkout.replace(/\/+$/, "");
-  return `${path} leaves work for ${project} (its section "For ${project}: ${file}") and ${there}/${file} is not written. Write the brief there from the section, by your agent file, and start that queue: cd ${there} && plans start --agent planner ${file}, or the message it prints for a live planner; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.`;
+  return `${path} leaves work for ${project} (its section "For ${project}: ${file}") and ${there}/${file} is not written. Write the brief there from the section, by your agent file, and start that queue: cd ${there} && plans start --agent planner ${file}, or what its line says to do; then say so in "Built". A change the plugin leaves for the project it came from goes back as a brief.`;
 }
 
 /** The Stop hook's words when a plan's `For` section has no `From` line naming its project. */
@@ -1819,49 +1820,81 @@ export function canStart({
   // it. A busy executor, or any session still worth reusing, refuses as before.
   // A planner is judged by the brief's relatedness to its plans (`related`,
   // set by `startHere`; plans/reuse-ceiling-per-agent.md, part 4).
-  // A session with a plan or a brief under way (its Building or Planning
-  // line) is never stale: replacing it would orphan that work.
+  // An executor with a plan under way (its Building line) is never stale:
+  // replacing it would orphan that work.
+  // **A planner is judged by what it can do now** (plans/briefs-reach-a-
+  // free-planner.md, part 1): one waiting on the owner's answer takes nothing
+  // until he answers, and one mid-brief over its ceiling for this brief would
+  // be retired at its next stop, so either gets a fresh planner beside it.
   // **A start nobody is watching** (`unwatched`, a timer's) replaces an idle
-  // executor whatever its warmth: no command can message a session, so the
-  // plans it is started for would otherwise wait on a chat nobody prompts.
+  // session whatever its warmth: no command can message a session, so the
+  // work it is started for would otherwise wait on a chat nobody prompts.
   const idle = (one) => /^idle\b/.test(one.status || "");
+  const work = kind === "planner" ? "brief" : "plan";
   const stale = (one) =>
-    one.on
-      ? { reuse: true }
-      : unwatched && idle(one)
-        ? {
-            reuse: false,
-            why: "idle while a plan's thirty minutes ran out, and the queue cannot message it",
-          }
-        : mayReuse({
-            compactions: one.compactions || 0,
-            usage: one.usage,
-            related: Boolean(one.related),
-            now,
-            ceiling,
-            kind,
-          });
+    kind === "planner" && one.status === "waiting for input"
+      ? {
+          reuse: false,
+          why: `it is waiting for ${owner()}'s answer to a question, and takes nothing until he answers`,
+        }
+      : kind !== "planner" && one.on
+        ? { reuse: true }
+        : unwatched && idle(one)
+          ? {
+              reuse: false,
+              why: `idle while a ${work}'s thirty minutes ran out, and the queue cannot message it`,
+            }
+          : mayReuse({
+              compactions: one.compactions || 0,
+              usage: one.usage,
+              related: Boolean(one.related),
+              now,
+              ceiling,
+              kind,
+            });
   let replace = [];
   let beside = [];
   if (sessions.length && sessions.every((one) => !stale(one).reuse)) {
-    const busy = sessions.filter((one) => !idle(one));
+    // An idle planner with a brief under way is started beside, not
+    // replaced: retiring it would orphan that brief.
+    const kept = (one) => !idle(one) || Boolean(one.on);
+    const busy = sessions.filter(kept);
     if (!busy.length || kind === "planner") {
-      replace = sessions.filter(idle).map((one) => ({ ...one, why: stale(one).why }));
-      beside = busy;
+      replace = sessions
+        .filter((one) => !kept(one))
+        .map((one) => ({ ...one, why: stale(one).why }));
+      beside = busy.map((one) => ({ ...one, why: stale(one).why }));
       sessions = [];
     }
   }
   if (sessions.length) {
     const first = sessions[0];
     const alive = sessions.map(describeSession).join("; ");
-    // **A brief reaches a live planner by message** (plans/planner-continues.md,
-    // part 4): its hooks decide whether it has room, and a tired one's Stop
-    // hook starts the fresh planner.
-    if (kind === "planner")
-      return {
-        refuse: true,
-        why: `A planner is alive: ${alive}. Send it the brief with SendMessage, one message per brief: ${brief ? plannerPrompt(brief) : "Plan plans/<topic>.md: it is a brief."}`,
-      };
+    // **A brief left with a live planner is leased to it** (plans/briefs-
+    // reach-a-free-planner.md, parts 1 and 2): an idle one with room is sent
+    // the brief by message, which starts its turn and its prompt hook; a busy
+    // one is sent nothing, since a message reaches a busy chat between its
+    // tool calls, where no hook judges it, and its Stop hook names the next
+    // brief. Either way it has thirty minutes to take it.
+    if (kind === "planner") {
+      const room = sessions.filter((one) => stale(one).reuse);
+      const taker = room.find(idle) || room[0];
+      const path = brief || "plans/<topic>.md";
+      const who = `${taker.name} [${String(taker.sessionId).slice(0, 8)}]`;
+      const until = ` It has until ${hhmm(now + ANSWER_WINDOW)} to take it; then a fresh planner is started on it.`;
+      const planning = taker.on ? `, planning ${taker.on}` : "";
+      return idle(taker)
+        ? {
+            wait: true,
+            why: `${who} is idle with room for ${path} (${stale(taker).why}): send it the brief with SendMessage, one message per brief: ${plannerPrompt(path)}${until}`,
+            lease: `handed to ${who} at ${hhmm(now)} by message`,
+          }
+        : {
+            wait: true,
+            why: `${who} is ${taker.status}${planning}, with room for ${path} (${stale(taker).why}): its Stop hook names the next brief waiting, so nothing is sent.${until}`,
+            lease: `waiting for ${who} since ${hhmm(now)}${planning}`,
+          };
+    }
     // Archiving in the Claude app hides the chat and leaves the process
     // running, so the id an agent ends it by stays.
     return {
@@ -1920,7 +1953,7 @@ export function canStart({
   const besideNote = beside
     .map(
       (one) =>
-        `Started beside ${one.name} [${String(one.sessionId).slice(0, 8)}], which is ${one.status} with a context of ${Math.round((one.usage?.context || 0) / 1000)}k.`,
+        `Started beside ${one.name} [${String(one.sessionId).slice(0, 8)}], which is ${one.status} with a context of ${Math.round((one.usage?.context || 0) / 1000)}k (${one.why}).`,
     )
     .join(" ");
   return {
@@ -2473,9 +2506,10 @@ function defer(until, why, paths, replace = "", agent = "executor", file = agent
   // deferral never drops a pending one; and never in the past, so a timer
   // cannot fire straight into another deferral. The window's is at the
   // earlier time: its start re-arms the plans still held, each at its own.
+  // So is a brief's lease, so a later hand-off never pushes an earlier one back.
   const all = [...new Set([...(old?.paths || []), ...paths])];
   const when =
-    file === "asking"
+    file === "asking" || file === "handed"
       ? Math.max(Math.min(until, old?.until || Infinity), Date.now() + MINUTE)
       : Math.max(until, old?.until || 0, Date.now() + MINUTE);
   const stop = replace || old?.replace || "";
@@ -2640,6 +2674,17 @@ function startHere(
       if (!paths.length) return "Nothing is waiting in the queue.";
     }
   }
+  if (kind === "planner" && timer) {
+    // **A lease's timer takes only what is still a brief** (plans/briefs-reach-
+    // a-free-planner.md, part 4): one planned or under way since the hand-off
+    // is dropped, and the oldest left, in the plans' order, is started on.
+    const still = plans.filter((p) => p.state === "brief" && paths.includes(p.path));
+    if (!still.length) return "Nothing is waiting in the queue.";
+    paths = still.map((p) => p.path);
+  }
+  // The briefs a lease's timer started for and does not start on: leased to
+  // the planner started, or to the one that still has room.
+  const leftOver = kind === "planner" && timer ? paths.slice(1) : [];
   if (kind === "planner") {
     // A planner is started on one brief, waiting or left by a session that is gone.
     const asked = paths[0];
@@ -2707,23 +2752,40 @@ function startHere(
         ceiling,
         taken: liveNames(),
         machine: machine().name,
-        // Only the window's timer: a usage limit's restart refuses beside a live executor as before.
-        unwatched: timer && deferral === "asking",
+        // Only the window's and a lease's timer: a usage limit's restart
+        // refuses beside a live executor as before.
+        unwatched: timer && (deferral === "asking" || deferral === "handed"),
       });
   if (decision.refuse) return decision.why;
+  // **A brief left with a live planner is leased to it for thirty minutes**
+  // (part 3): `plans` says who holds it and since when, and the timer starts
+  // a fresh planner on it if its Planning line has not ended the lease.
+  if (decision.wait) {
+    if (!dry)
+      defer(
+        Date.now() + ANSWER_WINDOW,
+        decision.lease,
+        [...paths, ...leftOver],
+        "",
+        "planner",
+        "handed",
+      );
+    return decision.why;
+  }
   // An assistant is never deferred: its items wait in the plan for the next start.
   if (decision.defer && kind === "assistant")
     return `No assistant chat was started: ${decision.why}.`;
   // The window's start, deferred by usage, stays the window's, so at the reset
   // it still replaces an idle executor.
+  // So does a lease's, with every brief it held (Codex C2, C3).
   if (decision.defer)
     return defer(
       decision.until,
       decision.why,
-      paths,
+      [...paths, ...leftOver],
       replace,
       kind,
-      deferral === "asking" ? "asking" : kind,
+      deferral === "asking" || deferral === "handed" ? deferral : kind,
       why,
     );
   const prompt = probe
@@ -2787,7 +2849,8 @@ function startHere(
     return seen;
   }
   // The deferrals keep the paths this start did not take, and their timers.
-  for (const file of { executor: ["executor", "asking"], planner: ["planner"] }[kind] || [])
+  for (const file of { executor: ["executor", "asking"], planner: ["planner", "handed"] }[kind] ||
+    [])
     dropDeferred(file, paths);
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
@@ -2822,6 +2885,19 @@ function startHere(
   // A planner started by the assistant, with nothing to replace, still ends
   // the retired planners' chats: the next planner starting is their cut-off.
   if (kind === "planner") stopRetiredPlanners(live, { except: replace });
+  // A lease's timer started on the oldest brief: the rest are the new
+  // planner's at its stops, leased to it so `plans` still says who holds them.
+  if (leftOver.length) {
+    const id = liveSessions({ fresh: true })?.find((row) => row.name === decision.name)?.sessionId;
+    defer(
+      Date.now() + ANSWER_WINDOW,
+      `waiting for ${decision.name}${id ? ` [${String(id).slice(0, 8)}]` : ""} since ${hhmm(Date.now())}, started on ${paths[0]}`,
+      leftOver,
+      "",
+      "planner",
+      "handed",
+    );
+  }
   return [
     `${decision.name} was started on: ${paths.join(", ")}.${unread}${decision.note ? ` ${decision.note}` : ""}`,
     ...retiredWords,
@@ -4150,6 +4226,25 @@ function leaveAsking(input) {
   if (decided.length) dropDeferred("asking", decided);
 }
 
+/**
+ * **A Planning line ends a brief's lease** (plans/briefs-reach-a-free-
+ * planner.md, part 3): the brief written, or with a shell command every brief
+ * the lease holds, that any session now has under way (or has planned, or is
+ * gone) leaves the `handed`
+ * deferral, so `plans` no longer says it waits on anyone.
+ */
+function leaveHanded(input) {
+  const written = planPath(input.tool_input?.file_path);
+  const held = written
+    ? [written]
+    : input.tool_name === "Bash"
+      ? readJson(files.deferred("handed"))?.paths || []
+      : [];
+  // Under way, or past it: a plan written over the brief is no brief either.
+  const taken = held.filter((path) => stateOf(planText(path))?.state !== "brief");
+  if (taken.length) dropDeferred("handed", taken);
+}
+
 function plannerHook(mode, input, sessionId, statePath) {
   // **A decided plan stops asking**: the write that gives it a "Decided"
   // covering every decision takes it out of the asking deferral, so `plans`
@@ -4157,6 +4252,7 @@ function plannerHook(mode, input, sessionId, statePath) {
   // A shell command names no file, so every plan the deferral holds is read.
   if (mode === "wrote") {
     leaveAsking(input);
+    leaveHanded(input);
     return;
   }
   let state = readState(sessionId);

@@ -514,7 +514,7 @@ Which tools read code and docs here, if the project has a rule.
  * `executor.started` and `planner.started` under the same names. A kind
  * here is a deferral; `QUEUE_IGNORES` keeps all of their files out of git.
  */
-export const QUEUE_KINDS = ["executor", "planner", "asking"];
+export const QUEUE_KINDS = ["executor", "planner", "asking", "handed"];
 
 /**
  * What git must not see in a project's `.claude/`: the queue's own files,

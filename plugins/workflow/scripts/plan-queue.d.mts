@@ -68,6 +68,9 @@ export type StartDecision = {
   defer?: true;
   until?: number;
   refuse?: true;
+  /** A live planner may take the brief: `why` is the line to say, `lease` the hand-off's deferral why. */
+  wait?: true;
+  lease?: string;
   why?: string;
   replace?: (Session & { why: string })[];
 };
@@ -424,7 +427,7 @@ export function canStart(facts: {
   ceiling?: Ceiling;
   taken?: string[];
   machine?: string;
-  /** A timer's start: an idle executor is replaced whatever its warmth. */
+  /** A timer's start: an idle session is replaced whatever its warmth. */
   unwatched?: boolean;
   /** This project's assistant chats open on this machine, by name: an assistant start is refused beside one. */
   open?: string[];

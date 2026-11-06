@@ -825,12 +825,13 @@ to a Claude session left out>
   said in "Built", and that name is the one started and recorded. Then
   `cd <path> && plans start --agent planner plans/<the file written>`;
   when it prints
-  the message for a live planner, send that session the message with
-  `SendMessage`, once; when it refuses (paused, the window, an untrusted
+  a message to send, send that session the message with `SendMessage`,
+  once; when it says a planner takes it at its next stop, nothing is
+  sent and the line is the record; when it refuses (paused, the window, an untrusted
   folder, no project file), the file stands and the refusal is the
   record. One line in "Built" per section: `For <Project>:
   <path>/plans/<topic>.md written; <planner started as <name> | handed
-  to <name> by message | already there, written by hand | not started:
+  to <name> by message | leased to <name> | already there, written by hand | not started:
   <the command's line>>.` A `For` section with no `From` line on the plan
   is a "Needs a decision" item sized assistant, naming the project the
   section names. The Stop hook holds the first stop until each named

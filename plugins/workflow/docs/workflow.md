@@ -483,8 +483,12 @@ start --agent planner` starts a planner under the executor's bounds.
 **A planner with room left takes the next brief**: none compacted and
 under 160k, the oldest; under 480k, or compacted once, the oldest brief
 related to its plans (one that names a file they name, or one of them);
-else it retires, and `plans start` sends a brief to a live planner only
-when it is under its ceiling for that brief. A chat holds every plan it
+else it retires, and `plans start` leaves a brief with a live planner only
+when it is under its ceiling for that brief and not waiting on a
+question, by message when it is idle and by its Stop hook when it is
+busy, leased for thirty minutes: `plans` says who holds it, its Planning
+line ends the lease, and the timer starts a fresh planner on it otherwise
+(decisions.md#brief-leased). A chat holds every plan it
 wrote until a Building line takes it.
 (decisions.md#planner-takes-next-brief)
 
@@ -497,7 +501,8 @@ says in its chat to build it now (his word goes in "Decided" first), and
 the tool hook refuses a Building line on it. The planner writes "Decided"
 only once every decision is answered, which lets the plan go at once, and
 sends it to the executor. Talking does not restart the window; another
-question does. Past it, or once the planner's chat has ended, the executor
+question does. A brief waiting on the planner's chat is not held by its
+question: it goes to a fresh planner within the window. Past it, or once the planner's chat has ended, the executor
 builds each undecided decision by its recommended option and writes it in
 "Decided" as taken for the owner, unanswered; a later, different answer is
 a follow-up plan. A planner the owner opened himself holds nothing.
