@@ -180,8 +180,8 @@ In a project that lands by pull request (`land: pull-request`), one
 question more, header `Issues`: "Should topics here become GitHub issues
 that the project's Claude writes and the people comment on?", with the
 options `Yes, topics become issues` (Writes an Issues heading in the
-project file and the app's two variables beside GH_TOKEN; you register a
-GitHub App once, on GitHub) and `No, not here` (Nothing changes; plans
+project file and mounts your private secrets file, read only; you
+register a GitHub App once, on GitHub) and `No, not here` (Nothing changes; plans
 stay in plans/ alone). Yes writes the heading at the end of the project
 file's body:
 
@@ -192,12 +192,31 @@ Topics here are GitHub issues the project's Claude writes (the workflow
 docs, "A topic the people discuss is a GitHub issue").
 ```
 
-with a `Detail:` or `Check:` line only when the person names one, and
-`"WORKFLOW_APP_ID": "${localEnv:WORKFLOW_APP_ID}"` and
-`"WORKFLOW_APP_KEY": "${localEnv:WORKFLOW_APP_KEY}"`, and for the app's
-webhook `"WORKFLOW_WEBHOOK_SECRET": "${localEnv:WORKFLOW_WEBHOOK_SECRET}"`
-and `"WORKFLOW_WEBHOOK_PORT": "${localEnv:WORKFLOW_WEBHOOK_PORT}"`, into
-the same `containerEnv`, the same way as `GH_TOKEN`.
+with a `Detail:` or `Check:` line only when the person names one. With a
+`.devcontainer/devcontainer.json`, it writes the app's key as a file,
+never as a variable, so only the commands that need it read it
+(decisions.md#push-token): beside `GH_TOKEN`,
+`"WORKFLOW_SECRETS_FILE": "/run/secrets/workflow.env"` into the same
+`containerEnv`, and a read-only bind mount of the host's file,
+`"source=${localEnv:WORKFLOW_SECRETS_FILE},target=/run/secrets/workflow.env,type=bind,readonly"`,
+into `mounts`: into the array when there is one, else a new `"mounts"`
+key after `containerEnv`, by Edit the same way as `GH_TOKEN`, a mount
+already there with that target left alone. A configuration that names a
+`dockerComposeFile` ignores `mounts`, so there the mount goes into the
+service's `volumes` in that Compose file instead,
+`- ${WORKFLOW_SECRETS_FILE}:/run/secrets/workflow.env:ro`, by Edit the
+same way. None of `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY`,
+`WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` goes into
+`containerEnv`. The final message says, in a line, that the host's file,
+whose absolute path `WORKFLOW_SECRETS_FILE` names on the host, is a
+dotenv file readable by its owner only, holding `WORKFLOW_APP_ID`,
+`WORKFLOW_APP_KEY` (the PEM's text, in double quotes), and for the
+webhook `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` (8789 when
+left out), and that a rebuild of the container mounts it, so a host
+without the variable or the file cannot start the container until it
+has both. Without a `.devcontainer/`, nothing is written, and the final
+message says the names, or `WORKFLOW_SECRETS_FILE`, must be in the shell
+that starts the queue's chats.
 
 ## 7. Say what is on and what it costs
 
@@ -221,11 +240,18 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `GitHub: no .devcontainer here; GH_TOKEN must be in the shell that starts the queue's chats.`
 - With an Issues heading, one `GitHub App:` line:
   - `GitHub App: WORKFLOW_APP_ID and WORKFLOW_APP_KEY reach this container.`,
-    when both are set in this shell.
+    when each is set in this shell or the file `WORKFLOW_SECRETS_FILE`
+    names holds it, read by the queue's own reader, which prints whether
+    each is set and never a value:
+
+    ```bash
+    Q="${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs" node --input-type=module -e 'const { secret } = await import(process.env.Q); for (const name of ["WORKFLOW_APP_ID", "WORKFLOW_APP_KEY", "WORKFLOW_WEBHOOK_SECRET"]) console.log(name, secret(name) ? "set" : "not set");'
+    ```
+
   - `GitHub App: not set; plans gh says what to register.`
 - With an Issues heading, one `Webhook:` line:
-  - `Webhook: secret and port reach this container.`, when both are set
-    in this shell.
+  - `Webhook: secret and port reach this container.`, when the secret is
+    set, read the same way; the port is 8789 when neither has it.
   - `Webhook: not set; plans webhook says what to turn on.`
 
 Then: `/context in a chat here shows the numbers.`
