@@ -1610,7 +1610,6 @@ export function decideStop({
   usage = null,
   ceiling = REUSE_DEFAULT.executor,
   now = Date.now(),
-  land = "push",
   carry = [],
 }) {
   if (retired) return null;
@@ -1692,15 +1691,11 @@ export function decideStop({
   const taken = verdict.related ? fresh.filter((plan) => plan.related) : fresh;
   if (!taken.length) return null;
   const paths = taken.map((plan) => plan.path);
-  const how =
-    land === "pull-request"
-      ? `each by its Lands line: a fix into the day's fixes pull request, or pushed straight to origin/${branch()} and its run read, a topic's plans on the topic's branch and its pull request when the topic is ready (a plan resting on an open draft of this queue's own lands in that draft, and is stacked only on one marked ready or another person's), Building lines, the suites before each plan's push or pull request, one commit per plan`
-      : `a new branch off origin/${branch()}, Building lines, the suites once at the end, one commit per plan, the push`;
   return {
     refuse: true,
     told: paths,
     kept: { paths, why: verdict.why },
-    reason: `Plans are waiting and this session can take them: ${taken.map(annotate).join(", ")} (${verdict.why}). Build them as a new batch by your agent file: ReadNotifications first, ${how}. If ${owner()} told you to stop after this batch, say so in your final message and stop.`,
+    reason: `Plans are waiting and this session can take them: ${taken.map(annotate).join(", ")} (${verdict.why}). Build them as a new batch.`,
   };
 }
 
@@ -2089,9 +2084,12 @@ function plannedAt(plans) {
   return newest;
 }
 
-/** What a planner the queue starts is told: the brief, and its agent file's way through it. */
+/**
+ * What a planner the queue starts is told: the brief's path and what it is;
+ * the agent file says the rest (plans/simpler-agents.md, part 3).
+ */
 export function plannerPrompt(path) {
-  return `Plan ${path}: it is a brief. Read it whole, then your agent file: research the products, ground it in the project's docs and code, write the plan over the brief, put what research cannot settle to ${owner()} with the question tool in the same turn, and hand the plan to the executor by "The final message". ${owner()} reads this chat in Remote Control.`;
+  return `Plan ${path}: it is a brief.`;
 }
 
 /**
@@ -2099,16 +2097,16 @@ export function plannerPrompt(path) {
  * (`executor.md`, "After"), which a start beside an open chat prints.
  */
 export function followUpsMessage(path) {
-  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items.`;
+  return assistantPrompt(path);
 }
 
 /**
  * What an assistant chat the queue starts is told
  * (plans/project-follow-ups-reach-the-project.md, part 6): the plan whose
- * "Built" holds the items, and its agent file's way through them.
+ * "Built" holds the items; the agent file says the way through them.
  */
 export function assistantPrompt(path) {
-  return `Follow-ups ready: ${path}, "Built", "Needs a decision", the items marked assistant and planner. Read the plan whole, write a short plan for the assistant items and a brief for the planner items, hand each on by your agent file, and end this chat by "The final message". ${owner()} reads this chat in Remote Control.`;
+  return `Follow-ups ready: ${path}.`;
 }
 
 /**
@@ -2163,12 +2161,11 @@ function liveIds(live) {
   return live ? live.map((row) => row.sessionId) : null;
 }
 
-function startPrompt(paths, plans) {
+/** An executor's first prompt: the plans, or the handed plan to resume (plans/simpler-agents.md, part 3). */
+export function startPrompt(paths, plans) {
   const handed = plans.find((plan) => plan.state === "handed" && paths.includes(plan.path));
-  if (handed) {
-    return `Resume ${handed.path} from its "Handing over" section on branch ${handed.branch || "(named in the section)"}: check out the branch, read the plan whole and the section, then go on from the step it names. Then the queue, by your agent file.`;
-  }
-  return `Build the plans waiting in the queue, oldest first: ${paths.join(", ")}. Then go on by your agent file's "Going on". ${owner()} reads this chat in Remote Control; the plans are the instructions.`;
+  if (handed) return `Resume ${handed.path} from its "Handing over" section.`;
+  return `Build ${paths.join(", then ")}.`;
 }
 
 /**
@@ -4098,7 +4095,7 @@ export function decidePlannerStop({
     refuse: true,
     told: [next.path],
     kept: { paths: [next.path], why: verdict.why },
-    reason: `A brief is waiting and this session can take it: ${next.path} (${verdict.why}). Plan it by your agent file: the Planning line as your first edit, the research, the plan written over the brief, its decisions through the question tool in the same turn, the hand-off to the executor. What you wrote above this line was not a final message: the final message leads with every plan this session wrote, each with where it is and what it decides.`,
+    reason: `A brief is waiting and this session can take it: ${next.path} (${verdict.why}). Plan it; what you wrote above this line was not a final message.`,
   };
 }
 
@@ -4272,13 +4269,13 @@ function planText(path) {
 }
 
 /** A brief named in a prompt: a start prompt, or a message inside its wrapper. */
-const PLANNER_PROMPT = /\bPlan (plans\/\S+\.md): it is a brief/;
+export const PLANNER_PROMPT = /\bPlan (plans\/\S+\.md): it is a brief/;
 
 /**
  * **What a planner holding plans is told on every prompt**, retired or not
  * (plans/planner-continues.md, part 5): where each of its plans stands, read
- * from the file at that moment, then where changes go, then whether it may
- * take the next brief.
+ * from the file at that moment, a line each; a retired one is told so
+ * (plans/simpler-agents.md, part 3: the state, the rules in the agent file).
  */
 export function plannerContext(state, live = null, textOf = planText, options = {}) {
   const lines = (state?.plans || []).map((path) => {
@@ -4286,31 +4283,20 @@ export function plannerContext(state, live = null, textOf = planText, options = 
     if (!text) return `${path} is no longer in plans/.`;
     const dropped = droppedOf(text);
     if (dropped)
-      return `${path} is dropped${dropped.droppedDay ? ` (${dropped.droppedDay})` : ""}: it stands as the record of why; nothing more is done with it.`;
+      return `${path} is dropped${dropped.droppedDay ? ` (${dropped.droppedDay})` : ""}.`;
     if (/^## Built(?:,|\s*$)/m.test(text)) return `${path} is ${whoTook(text, live)}.`;
     if (planTaken(text))
-      return `${path} was taken by ${whoTook(text, live)}: it is the executor's, and no edit to it passes.`;
-    const yours = `${path} is in the queue and still yours: talk it through with ${owner()} here and revise any section with Edit; an answer he gives goes in Decided with its reason; the executor reads the file when it starts it, so do not message it again. This chat ends on its own an hour after it goes quiet (the plan stands in the queue without it; a question left open keeps the chat alive, and the plan with it for thirty minutes).`;
+      return `${path} was taken by ${whoTook(text, live)}: it is the executor's.`;
+    const yours = `${path} is in the queue and still yours.`;
     // **Asked once**: the plan's question holds it for thirty minutes.
     const plan = { path, ...stateOf(text, { mtime: mtimeOf(path) }) };
     if (!ASKS_STATES.includes(plan.state) || !plan.asks) return yours;
     const asking = askingIn(plan, live, options);
     return asking
-      ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`
-      : `${yours} Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is ${state?.retired ? "a change sent to the assistant's chat by message" : "a follow-up plan you write yourself"}.`;
+      ? `${yours} It asks ${owner()} until ${hhmm(asking.until)}.`
+      : `${yours} Its question went unanswered for thirty minutes.`;
   });
-  // **The chat he said it in writes it**: a retired chat writes nothing new,
-  // so its change goes to the assistant's chat by message, as a new topic does.
-  lines.push(
-    state?.retired
-      ? `A change to a taken or built plan of this chat, or a new topic, is the assistant's chat's: send it there ${byMessage()}, headed Change from ${owner()} or New topic from ${owner()}, and say so; never text for him to paste.`
-      : `A change to a taken or built plan of this chat is a follow-up plan you write yourself, plans/<x>-follow-up.md, handed over as any plan; a new topic is the assistant's chat's: send it there ${byMessage()} and say so. A message from an Assistant headed Change from ${owner()} is put to him with the question tool before it goes in Decided.`,
-  );
-  lines.push(
-    state?.retired
-      ? "This session is retired: it plans nothing more, and the next brief has a planner of its own."
-      : "This session may take the next brief: one reaches it as a message, Plan plans/<x>.md: it is a brief, or the Stop hook names one that is waiting.",
-  );
+  if (state?.retired) lines.push("This session is retired: it plans nothing more.");
   return lines.join("\n");
 }
 
@@ -4494,7 +4480,7 @@ function plannerHook(mode, input, sessionId, statePath) {
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
               permissionDecision: "deny",
-              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session. ${state.retired ? `A retired session writes nothing new: say so, and send the change to the assistant's chat ${byMessage()}, its first line Change from ${owner()}: ${target}.` : `Say so, and write the change as a follow-up plan, ${target.replace(/\.md$/, "")}-follow-up.md (or another name not yet in plans/), handed over as any plan.`}`,
+              permissionDecisionReason: `${takenBy(target, text, null)}: the plan is the executor's now, and nothing in it changes from this session (your agent file, "A change to a taken plan").`,
             },
           }),
         );
@@ -4530,7 +4516,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       lines.push(
         state.plans.length
           ? plannerContext(state, live)
-          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. Answer from what you know; a new topic or a change goes to the assistant's chat ${byMessage()}, headed New topic from ${owner()} or Change from ${owner()}, never as text for him to paste.`,
+          : `This session is retired before it wrote its plan: its brief went to the next planner, and nothing in plans/ is this session's to change. A change or a new topic goes to the assistant's chat ${byMessage()}.`,
       );
       hookOutput("UserPromptSubmit", lines.join("\n"));
       return;
@@ -4565,7 +4551,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     ];
     if (tired)
       lines.push(
-        `This session is tired for ${named} (${tired}): do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.`,
+        `This session is too full for ${named} (${tired}): do not plan it; say so and stop.`,
       );
     if (relatedText) lines.push(relatedText);
     if (state.plans.length) lines.push(plannerContext(state, live));
@@ -4656,10 +4642,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     // this planner unretired then, so the chat is stopped here.
     if (state.plans.length && state.plans.every((path) => doneWith(planText(path))))
       stopPlannersOn(state.plans[0], live);
-    hookOutput(
-      "Stop",
-      `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not plan again in this session. This chat stays its plans': ${owner()} may go on discussing them here, and you revise each with Edit until an executor starts it, the next planner starts, or the chat has been quiet an hour, when this chat is stopped (its plans stand in the queue; a question left open keeps the chat alive, and the plan with it for thirty minutes).`,
-    );
+    hookOutput("Stop", `Retired: ${why}. ${said}`);
   }
 }
 
@@ -4987,7 +4970,6 @@ function hook(mode, input) {
       refusedRun: state.runRefused ?? null,
       usage: sessionUsage(input.transcript_path),
       ceiling: proj().reuse.executor,
-      land: proj().land,
     });
     if (!decision) {
       armEnd(sessionId, live);
@@ -5013,17 +4995,15 @@ function hook(mode, input) {
     release(sessionId);
     state.retired = true;
     writeJson(statePath, state);
-    const why = decision.handover
-      ? `${decision.handover.path} was handed over`
-      : decision.why;
+    const why = decision.handover ? `${decision.handover.path} was handed over` : decision.why;
     const said = start(paths, { replace: sessionId, why });
     armEnd(sessionId, live);
     const started = /was started on/.test(said);
     hookOutput(
       "Stop",
       started
-        ? `Retired: ${why}. ${said} Say so as the first line of your final message, send it as a push notification when PushNotification is in this session, and do not build again in this session.`
-        : `Retired: ${why}, but no executor was started: ${said} Put that line in your final message for ${owner()}, as a push notification too when PushNotification is in this session, and do not build again in this session.`,
+        ? `Retired: ${why}. ${said}`
+        : `Retired: ${why}, but no executor was started: ${said}`,
     );
   }
 }
@@ -5323,7 +5303,7 @@ async function slugOf(seen, env = process.env) {
 
 /** The prompt of an assistant started on a note. */
 export function githubPrompt(path) {
-  return `GitHub: ${path}. Read the note, and every other note under plans/github/ with an event not handled, and act on each event not handled yet, by your agent file's "What reaches you from GitHub", then end this chat by "The final message". ${owner()} reads this chat in Remote Control.`;
+  return `GitHub: ${path}.`;
 }
 
 /**

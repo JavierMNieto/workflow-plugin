@@ -405,8 +405,7 @@ name in the same turn. (decisions.md#recognized-three-places)
 rules, loaded always; a catalogue file's `paths` and `signals` (a one-file
 catalogue with no `paths` governs every `ui` path), which
 `scripts/catalogue-context.mjs` matches before an edit or a `tools` call,
-each entry, and the hook's instruction, shown once per session and again
-after a compaction; and, for an edit whose text draws a control or carries
+each entry, and the hook's instruction, shown once per session; and, for an edit whose text draws a control or carries
 words a person could read, a small model's naming of the catalogue's files
 or sections it touches, loaded beside them (one call per distinct text,
 about 1.5k tokens and seven seconds a call, sixty a session, twenty
@@ -445,15 +444,14 @@ the author answers with a `Related` line.
 another's edits are refused. Its Stop hook holds the stop on a red or
 unfinished run of its push, or pull request of the checkout, whose fix
 is pushed where the red one was, before anything else, then names
-the waiting plans to a session it may reuse (no compaction, or one and a
-waiting plan naming a file the batch changed; a context under its
-ceiling (the project file's `reuse`: 200k for an executor by default); a
-cache still warm), else retires it and starts the
-next executor, judged at every stop while plans wait, the plans it was
-named included, so a session under the ceiling when named and over it
-when it next stops is retired then, at zero compactions too. At a third compaction inside one plan the session hands
-it over (work committed, a "Handing over" section, stop), up to six times
-a plan; twice at the same step, the owner is asked.
+the waiting plans to a session it may reuse (a context under its
+ceiling, the project file's `reuse`, 200k for an executor by default,
+for the work's relatedness; a cache still warm), else retires it and
+starts the next executor, judged at every stop while plans wait, the
+plans it was named included. A plan the usage limit cuts off, or `plans
+end --now` ends, is handed over (work committed, a "Handing over"
+section, stop); twice at the same step, or six times, the owner is
+asked.
 (decisions.md#one-executor, decisions.md#context-cost)
 
 **Starts are bounded**: one executor at a time; none while the five-hour
@@ -509,9 +507,8 @@ taken by the planner's `## Planning, <date>, session <id>` line; `plans
 start --agent planner` starts a planner under the executor's bounds.
 (decisions.md#briefs-queued)
 
-**A planner with room left takes the next brief**: none compacted and
-under 160k, the oldest; under 480k, or compacted once, the oldest brief
-related to its plans (one that names a file they name, or one of them);
+**A planner with room left takes the next brief**: under 160k, the
+oldest; under 480k, the oldest brief related to its plans (one that names a file they name, or one of them);
 else it retires, and `plans start` leaves a brief with a live planner only
 when it is under its ceiling for that brief and not waiting on a
 question, by message when it is idle and by its Stop hook when it is

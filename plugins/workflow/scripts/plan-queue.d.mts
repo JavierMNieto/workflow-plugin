@@ -313,6 +313,9 @@ export function plannerPrompt(path: string): string;
 export function assistantPrompt(path: string): string;
 /** The executor's `Follow-ups ready` message, which a start beside an open assistant chat prints. */
 export function followUpsMessage(path: string): string;
+export function startPrompt(paths: string[], plans: { state: string; path: string }[]): string;
+export function githubPrompt(path: string): string;
+export const PLANNER_PROMPT: RegExp;
 export function fromOf(text?: string): { project: string; path: string } | null;
 export function carriesOf(text?: string): { project: string; file: string }[];
 export function briefThere(
@@ -366,7 +369,6 @@ export function decideStop(facts: {
   usage?: SessionUsage | null;
   ceiling?: Ceiling;
   now?: number;
-  land?: string;
   /** The briefs this session's built plans owe their projects. */
   carry?: Carry[];
 }): StopDecision;

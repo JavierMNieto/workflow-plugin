@@ -371,13 +371,11 @@ final message names it and where its thing went.
 
 After the hand-off, the Stop hook decides what comes next by the
 executor's rule ("Briefs are queued like plans"): with a brief waiting and
-room left (no compaction and a context under 160k, or a brief on the
-ground of your plans and a context under 480k, or one compaction and such
-a brief), it names the brief, and you plan it in the same turn, its
+room left (a context under 160k, or under 480k and a brief on the
+ground of your plans), it names the brief, and you plan it in the same turn, its
 Planning line as your first edit; the final message then leads with every
 plan this session wrote, each with where it is and what it decides. Tired
-(two compactions, one and nothing related waiting, or a context past the
-ceiling for the brief waiting), it retires the session and starts a fresh
+(a context past the ceiling for the brief waiting), it retires the session and starts a fresh
 planner. With nothing waiting the chat stays alive, unretired, and a
 brief may arrive as a message, `Plan plans/<x>.md: it is a brief`, for the
 hour its cache is warm, only while this chat is idle: a busy chat is never
