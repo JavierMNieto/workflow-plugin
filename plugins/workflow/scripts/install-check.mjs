@@ -23,6 +23,7 @@ export const FILES = [
   "agents/reviewer.md",
   "bin/plans",
   "docs/decisions.md",
+  "docs/landing.md",
   "docs/workflow.md",
   "hooks/hooks.json",
   "scripts/catalogue-context.mjs",

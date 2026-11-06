@@ -316,7 +316,7 @@ describe("the plugin's queue in any project", () => {
   it("keeps another person's commit on a topic's branch, and says what a change is related to", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
     const text = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
-    const executor = text("agents/executor.md");
+    const executor = text("docs/landing.md");
     expect(executor).toContain(
       "the squash going back to the tip the branch had when this plan started",
     );
@@ -369,7 +369,7 @@ describe("the plugin's queue in any project", () => {
   // plans/try-it-is-one-line.md.
   it("keeps a pull request's To try it to the one line of how to try it", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8").replace(/\s+/g, " ");
     expect(executor).not.toContain("(plans/ is not tracked)");
     expect(executor).not.toContain("Checks: <the checks workflow's name>");
     expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
@@ -378,8 +378,8 @@ describe("the plugin's queue in any project", () => {
   // plans/pull-request-description-standard.md.
   it("a pull request's description is the catalogue's diff", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8");
-    const mode = executor.slice(executor.indexOf("### In pull request mode"));
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8");
+    const mode = executor.slice(executor.indexOf("# Landing by pull request"));
     const [topic, fixes] = [...mode.matchAll(/^```\n([\s\S]*?)^```$/gm)]
       .map((m) => m[1])
       .filter((block) => block.includes("## To try it"));
@@ -407,7 +407,7 @@ describe("the plugin's queue in any project", () => {
   // plans/no-session-link-in-pull-requests.md.
   it("leaves the link to a Claude session out of a pull request's description", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8").replace(/\s+/g, " ");
     const ending =
       "<the attribution lines the session gives for a pull request, with any link to a Claude session left out>";
     expect(executor.split(ending)).toHaveLength(3);
@@ -1826,8 +1826,8 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     readFileSync(new URL(`../plugins/workflow/${path}`, import.meta.url), "utf8");
 
   it("has the executor stack on use, never on a shared file, and refresh a conflicting pull request", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     expect(mode).not.toContain("--name-only");
     expect(mode).toContain("one whose additions it uses");
@@ -1845,12 +1845,12 @@ describe("a pull request stacked only on one it cannot be built without", () => 
 
   // plans/refresh-by-merge.md: a branch is brought up to date by merging, never force-pushed.
   it("has the executor merge a branch up to date and never force-push", () => {
-    const text = read("agents/executor.md");
-    const flat = text.replace(/\s+/g, " ");
+    const text = read("docs/landing.md");
+    const flat = read("agents/executor.md").replace(/\s+/g, " ");
     expect(text).not.toContain("--force-with-lease");
     expect(text).not.toContain("git rebase --onto");
     expect(flat).toContain("nothing is force-pushed, ever");
-    const mode = /### In pull request mode[\s\S]*?\n\*\*The description\*\*/
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*The description\*\*/
       .exec(text)![0]
       .replace(/\s+/g, " ");
     const part = (from: string, to: string) => {
@@ -1890,8 +1890,8 @@ describe("a pull request stacked only on one it cannot be built without", () => 
 
   // plans/refresh-only-your-own.md: only this person's pull requests, with the checks alone.
   it("has the executor refresh and retarget only its own person's pull requests, with the checks", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     // plans/plans-as-github-issues.md: the pull requests open as the project's
     // app, so the plans' naming, never a Related line's, tells the queue's own.
@@ -1923,8 +1923,8 @@ describe("a pull request stacked only on one it cannot be built without", () => 
   // plans/draft-takes-its-follow-ups.md: a plan resting on an open draft of
   // the queue's own lands in it, listed with that draft's topic, not a new one.
   it("lands a plan resting on the queue's own open draft in that draft, and stacks it on any other", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     const rests = mode.slice(
       mode.indexOf("**A plan that rests on an open pull request**"),
@@ -1976,8 +1976,8 @@ describe("a pull request per topic", () => {
     );
 
   it("has the executor land a fix in the day's pull request or straight, and a topic when it is ready", () => {
-    const text = read("agents/executor.md");
-    const mode = /### In pull request mode[\s\S]*?## After /.exec(text)![0];
+    const text = read("docs/landing.md");
+    const mode = /# Landing by pull request[\s\S]*/.exec(text)![0];
     // A fix: the day's branch and title.
     expect(mode).toContain("**A fix**, `Lands: fix.`");
     expect(mode).toContain("`fixes-<yyyy-mm-dd>`");

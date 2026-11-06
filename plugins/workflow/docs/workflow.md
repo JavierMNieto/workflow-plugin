@@ -240,7 +240,7 @@ maker then commits nothing; it reads no `land`. (decisions.md#compact-form)
 where it lands in a `Lands` line under its header paragraph; absent the
 key, the executor pushes everything to the branch and the line means
 nothing. A topic's pull request is a draft until the owner has reviewed
-it (below); the executor's "In pull request mode" holds the steps.
+it (below); `docs/landing.md` holds the executor's steps.
 (decisions.md#land-by-pull-request)
 
 - **A topic** (`Lands: topic <name>, ready.` or `, waiting.`): one
