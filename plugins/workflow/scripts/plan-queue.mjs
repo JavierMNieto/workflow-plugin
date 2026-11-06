@@ -21,9 +21,6 @@
 //                            Building line stops the retired planner of it;
 //                            one a shell wrote on a plan still asking is
 //                            taken out again
-//   plan-queue.mjs compact   on PostCompact: counts the session's compactions
-//   plan-queue.mjs resumed   on SessionStart after a compaction: asks for a
-//                            handover at the third inside one plan
 //   plan-queue.mjs cutoff    on StopFailure (rate_limit): hands the plan over
 //                            and starts its resumption at the window's reset
 //   plan-queue.mjs start     `plans start`: the one thing that starts
@@ -94,7 +91,7 @@ import { costWords, measure } from "./cost.mjs";
 export { machine, owner, REUSE_DEFAULT };
 
 /** The modes Claude Code runs as hooks, from `hooks/hooks.json`. */
-const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "compact", "resumed", "cutoff", "session"];
+const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "cutoff", "session"];
 
 /**
  * The project: for a hook, `CLAUDE_PROJECT_DIR`, which Claude Code sets for
@@ -145,7 +142,6 @@ const MINUTE = 60_000;
 const QUICK_DEATH = 10 * MINUTE;
 const USAGE_STALE = 30 * MINUTE;
 const TRIPWIRE = 24;
-const HANDOVER_AT = 3;
 const MAX_HANDOVERS = 6;
 /** Seconds after a window's reset that a deferred start runs. */
 const AFTER_RESET = 120;
@@ -965,7 +961,6 @@ export function sessionsOf(
                   ),
                 ]),
               ),
-              compactions: state?.compactions || 0,
             }
           : {}),
       };
@@ -1072,7 +1067,6 @@ export function describeSession(one) {
       .join(", ");
   if (one.kind === "planner") {
     const holds = one.holds || [];
-    const n = one.compactions || 0;
     return [
       `${one.name} [${String(one.sessionId).slice(0, 8)}]`,
       one.status,
@@ -1081,7 +1075,6 @@ export function describeSession(one) {
       !one.retired && one.on ? `planning ${one.on}` : "",
       keptWords(one),
       !one.retired && holds.length ? `holds ${heldWords(one)}` : "",
-      !one.retired && n ? `${n} compaction${n === 1 ? "" : "s"}` : "",
       one.retired
         ? holds.length
           ? `retired, its plan${holds.length === 1 ? "" : "s"} ${heldWords(one)}`
@@ -1286,7 +1279,6 @@ function writeJson(path, value) {
 
 function readState(sessionId) {
   return withPlans({
-    compactions: 0,
     told: [],
     retired: false,
     ...readJson(files.state(sessionId)),
@@ -1301,15 +1293,6 @@ function readState(sessionId) {
 export function withPlans(state) {
   if (state?.agent !== "planner") return state;
   return { ...state, plans: state.plans ?? (state.planned && state.brief ? [state.brief] : []) };
-}
-
-/** One compaction, counted once though PostCompact and SessionStart both report it. */
-export function countCompaction(state, now = Date.now()) {
-  if (!state.lastCompactAt || now - state.lastCompactAt > MINUTE) {
-    state.compactions = (state.compactions || 0) + 1;
-    state.lastCompactAt = now;
-  }
-  return state;
 }
 
 function blockReason(lock) {
@@ -1533,18 +1516,18 @@ function askingWords(plan) {
 /**
  * **One reuse rule, each agent held to its own ceiling**
  * (plans/reuse-ceiling-per-agent.md): a finished session takes the next plan
- * or brief when its compactions allow it, its context is under its ceiling
+ * or brief when its context is under its ceiling
  * for that work (`ceiling`, a number or the agent's `{ any, related }` pair:
  * `related` when the work waiting is related to its own), and its cache is
  * warm or its context small; every turn re-reads the whole context at the
  * cache-read price, and a fresh session writes its start and the reading it
- * shares at the write price. With no usage known, the compactions alone.
+ * shares at the write price. With no usage known, it is kept
+ * (plans/simpler-agents.md).
  * `{ reuse, why }` either way; a keep's `related` says only related work may
- * be taken (the context is over `any`, or it has compacted once). `kind`
+ * be taken (the context is over `any`). `kind`
  * names the work: a plan for the executor, a brief for the planner.
  */
 export function mayReuse({
-  compactions = 0,
   related = false,
   usage = null,
   now = Date.now(),
@@ -1552,11 +1535,6 @@ export function mayReuse({
   kind = "executor",
 }) {
   const work = kind === "planner" ? "brief" : "plan";
-  if (compactions >= 2 || (compactions === 1 && !related))
-    return {
-      reuse: false,
-      why: `this session has compacted ${compactions} time${compactions === 1 ? "" : "s"}${compactions === 1 ? ", and nothing waiting is related" : ""}`,
-    };
   const pair = pairOf(ceiling);
   const equal = pair.any === pair.related;
   const limit = ceilingOf(pair, related);
@@ -1575,10 +1553,8 @@ export function mayReuse({
     reuse: true,
     why: usage
       ? `its context is ${kTokens(usage.context)} tokens, under the reuse ceiling of ${overAny ? `${kTokens(pair.related)} for a related ${work}` : kTokens(pair.any)}`
-      : compactions === 1
-        ? `it has compacted once, and a related ${work} waits`
-        : "no context known, and it has not compacted",
-    related: overAny || compactions === 1,
+      : "no context known",
+    related: overAny,
   };
 }
 
@@ -1622,7 +1598,6 @@ export function decideEnd({
  * of them, told or not; the plans not yet told are named only when it says yes.
  */
 export function decideStop({
-  compactions = 0,
   waiting = [],
   handed = [],
   run = null,
@@ -1705,7 +1680,6 @@ export function decideStop({
   if (!waiting.length) return null;
   const fresh = waiting.filter((plan) => !told.includes(plan.path));
   const verdict = mayReuse({
-    compactions,
     related: (fresh.length ? fresh : waiting).some((plan) => plan.related),
     usage,
     now,
@@ -1776,12 +1750,6 @@ export function carryOf(plans, { read } = {}) {
       return { path: plan.path, project, file, checkout, missing };
     }),
   );
-}
-
-/** The words after a compaction: hand the plan over at the third, unless it is stuck (the Stop hook says what then). */
-export function decideResumed({ compactions = 0, plan = null }) {
-  if (compactions < HANDOVER_AT || !plan || plan.stuck) return "";
-  return `This session has compacted ${compactions} times inside ${plan.path}. Hand it over: finish the step in hand, commit what is done on the branch (a work commit is fine; the next executor squashes), write a "Handing over, ${today()}" section after the plan's header paragraph (its "Short plan" or "Plan only" lines, not between the title and the header) whose first line is "Step in hand: <n>" in the plan's "Building it" numbering (then the branch, the steps done, the step in progress and what failed in it, what is left, the specs run and their counts), take out the Building line, and stop. The hook starts a fresh executor on it.`;
 }
 
 /** The windows above their threshold that have not reset yet: a number written before its reset says nothing after it. */
@@ -1883,7 +1851,6 @@ export function canStart({
               why: `idle while a ${work}'s thirty minutes ran out, and the queue cannot message it`,
             }
           : mayReuse({
-              compactions: one.compactions || 0,
               usage: one.usage,
               related: Boolean(one.related),
               now,
@@ -4100,8 +4067,8 @@ function release(sessionId) {
  * one brief per planner). Nothing while a brief carries this session's live
  * Planning line (`current`), while paused, or when retired. With briefs
  * waiting that this session was not told of: under its ceiling for any
- * brief and not compacted, it takes the oldest; under its ceiling for a
- * related brief, or compacted once, the oldest related to its plans; else it
+ * brief, it takes the oldest; under its ceiling for a related brief, the
+ * oldest related to its plans; else it
  * is retired for a fresh planner (plans/reuse-ceiling-per-agent.md). With
  * nothing waiting it stays alive, idle and unretired, and a brief reaches it
  * by message.
@@ -4109,7 +4076,6 @@ function release(sessionId) {
 export function decidePlannerStop({
   current = null,
   waiting = [],
-  compactions = 0,
   told = [],
   paused = false,
   retired = false,
@@ -4125,7 +4091,7 @@ export function decidePlannerStop({
   if (!fresh.length)
     return waiting.length ? { retire: true, related: false, declined: true } : null;
   const related = fresh.some((brief) => brief.related);
-  const verdict = mayReuse({ compactions, related, usage, now, ceiling, kind: "planner" });
+  const verdict = mayReuse({ related, usage, now, ceiling, kind: "planner" });
   if (!verdict.reuse) return { retire: true, related, why: verdict.why };
   const next = verdict.related ? fresh.find((brief) => brief.related) : fresh[0];
   return {
@@ -4357,8 +4323,8 @@ function byMessage() {
 /**
  * Why a planner is too tired for `brief`, or "": the reuse rule with the
  * brief's relatedness to its plans (plans/reuse-ceiling-per-agent.md, part
- * 4): two compactions, or one and the brief on other ground, or a context
- * over its ceiling for that brief, or a cold cache over a small context.
+ * 4): a context over its ceiling for that brief, or a cold cache over a
+ * large context.
  */
 export function tiredFor(
   state,
@@ -4367,14 +4333,7 @@ export function tiredFor(
 ) {
   const plans = state.plans || [];
   const related = relatedBrief(textOf(brief), plans.map(textOf), plans);
-  const verdict = mayReuse({
-    compactions: state.compactions || 0,
-    related,
-    usage,
-    now,
-    ceiling,
-    kind: "planner",
-  });
+  const verdict = mayReuse({ related, usage, now, ceiling, kind: "planner" });
   return verdict.reuse ? "" : verdict.why;
 }
 
@@ -4602,7 +4561,7 @@ function plannerHook(mode, input, sessionId, statePath) {
       ...(found?.read ? { relatedSaid: [...said, named] } : {}),
     });
     const lines = [
-      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times.`,
+      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}.`,
     ];
     if (tired)
       lines.push(
@@ -4611,11 +4570,6 @@ function plannerHook(mode, input, sessionId, statePath) {
     if (relatedText) lines.push(relatedText);
     if (state.plans.length) lines.push(plannerContext(state, live));
     hookOutput("UserPromptSubmit", lines.join("\n\n"));
-    return;
-  }
-  if (mode === "resumed") {
-    countCompaction(state);
-    writeJson(statePath, state);
     return;
   }
   const plans = readPlans(join(root, "plans"), liveIds(live));
@@ -4661,7 +4615,6 @@ function plannerHook(mode, input, sessionId, statePath) {
     const decision = decidePlannerStop({
       current,
       waiting,
-      compactions: state.compactions,
       told: state.told,
       paused: Boolean(pausedSince()),
       retired: state.retired,
@@ -4694,11 +4647,9 @@ function plannerHook(mode, input, sessionId, statePath) {
     state.retired = true;
     state.planned = state.plans.length > 0;
     writeJson(statePath, state);
-    const n = state.compactions;
     const why = decision.declined
       ? "the brief named at the last stop is still waiting, untaken"
-      : decision.why ||
-        `this session has compacted ${n} time${n === 1 ? "" : "s"}${n === 1 && !decision.related ? ", and the brief waiting is on other ground" : ""}`;
+      : decision.why;
     const said = start([], { agent: "planner", replace: sessionId, why });
     armEnd(sessionId, live);
     // An executor can take a plan before this Stop: its Building line found
@@ -4787,14 +4738,6 @@ function hook(mode, input) {
   // if it has any, run alone (a project moving onto the plugin keeps its old
   // queue until its file lands).
   if (!proj().found) return;
-  // A compaction drops the catalogue's rules from the context, so the
-  // edit-time hook shows them in full again (in both forms).
-  if (mode === "compact")
-    try {
-      unlinkSync(join(tmpdir(), `workflow-catalogue-${input.session_id}.json`));
-    } catch {
-      // None shown yet.
-    }
   // **The compact form has no queue**: the maker is one chat, and the queue's
   // hooks do nothing (the catalogue's hooks run in both forms).
   if (proj().form === "compact") return;
@@ -4806,10 +4749,6 @@ function hook(mode, input) {
   const sessionId = input.session_id;
   const executor = kindOf(input) === "executor";
   const statePath = files.state(sessionId);
-  if (mode === "compact") {
-    writeJson(statePath, countCompaction(readState(sessionId)));
-    return;
-  }
   // Only an executor's Building line takes a plan, and only a planner's
   // "Decided" lets one go; any other session's edit returns at once.
   if (mode === "wrote" && kindOf(input) === "assistant") {
@@ -4971,17 +4910,8 @@ function hook(mode, input) {
       });
     hookOutput(
       "UserPromptSubmit",
-      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}. It has compacted ${state.compactions} times; the rule is in your agent file under "Going on".`,
+      `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}.`,
     );
-    return;
-  }
-  if (mode === "resumed") {
-    countCompaction(state);
-    writeJson(statePath, state);
-    const plans = readPlans(join(root, "plans"), liveIds(live));
-    const plan = plans.find((p) => p.state === "building" && p.session === sessionId) || null;
-    const text = decideResumed({ compactions: state.compactions, plan });
-    if (text) hookOutput("SessionStart", text);
     return;
   }
   if (mode === "cutoff") {
@@ -5037,7 +4967,6 @@ function hook(mode, input) {
     const decision = decideStop({
       carry,
       current: plans.find((p) => p.state === "building" && p.session === sessionId) || null,
-      compactions: state.compactions,
       waiting,
       handed,
       // The pull request mode reads its pull requests' checks, then the run a
@@ -5086,7 +5015,7 @@ function hook(mode, input) {
     writeJson(statePath, state);
     const why = decision.handover
       ? `${decision.handover.path} was handed over`
-      : decision.why || `this session has compacted ${state.compactions} times`;
+      : decision.why;
     const said = start(paths, { replace: sessionId, why });
     armEnd(sessionId, live);
     const started = /was started on/.test(said);
