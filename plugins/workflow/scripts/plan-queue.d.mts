@@ -71,6 +71,9 @@ export type StartDecision = {
   /** A live planner may take the brief: `why` is the line to say, `lease` the hand-off's deferral why. */
   wait?: true;
   lease?: string;
+  /** The planner the brief is leased to, and whether it was sent the brief by message. */
+  holder?: string;
+  held?: boolean;
   why?: string;
   replace?: (Session & { why: string })[];
 };
@@ -432,6 +435,29 @@ export function canStart(facts: {
   /** This project's assistant chats open on this machine, by name: an assistant start is refused beside one. */
   open?: string[];
 }): StartDecision;
+/** A brief's lease (plans/brief-lease-per-brief.md): its own end, why, holder and whether it was sent by message. */
+export type Lease = { until: number; why: string; holder: string; held: boolean };
+/** The leases of `.claude/handed.deferred`, by brief; `{}` with no file. */
+export function leases(): Record<string, Lease>;
+/** Leases a brief, replacing its earlier lease, and arms the one timer at the earliest end. */
+export function lease(
+  path: string,
+  options: { until: number; why: string; holder?: string; held?: boolean },
+): void;
+/** Ends the leases of `paths`; the file goes with the last. */
+export function releaseLease(paths: string[]): void;
+/** The briefs waiting, less those sent by message to another live, unretired planner. */
+export function freeBriefs<P extends { path: string; state: string }>(
+  plans: P[],
+  options?: {
+    live?: { sessionId: string; name?: string; kind?: string }[] | null;
+    self?: string;
+    replace?: string;
+    table?: Record<string, Lease>;
+    stateFor?: (sessionId: string) => { agent?: string; retired?: boolean } | null;
+    now?: number;
+  },
+): P[];
 export function cutoffEdit(
   text: string,
   options: { sessionId: string; branch: string; day?: string },

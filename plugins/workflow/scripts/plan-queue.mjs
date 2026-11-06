@@ -1936,16 +1936,23 @@ export function canStart({
       const who = `${taker.name} [${String(taker.sessionId).slice(0, 8)}]`;
       const until = ` It has until ${hhmm(now + ANSWER_WINDOW)} to take it; then a fresh planner is started on it.`;
       const planning = taker.on ? `, planning ${taker.on}` : "";
+      // **Each brief its own lease** (plans/brief-lease-per-brief.md, part
+      // 1): its holder, whether it was sent by message, and the time printed.
+      const leased = { holder: taker.sessionId, until: now + ANSWER_WINDOW };
       return idle(taker)
         ? {
             wait: true,
             why: `${who} is idle with room for ${path} (${stale(taker).why}): send it the brief with SendMessage, one message per brief: ${plannerPrompt(path)}${until}`,
             lease: `handed to ${who} at ${hhmm(now)} by message`,
+            ...leased,
+            held: true,
           }
         : {
             wait: true,
             why: `${who} is ${taker.status}${planning}, with room for ${path} (${stale(taker).why}): its Stop hook names the next brief waiting, so nothing is sent.${until}`,
             lease: `waiting for ${who} since ${hhmm(now)}${planning}`,
+            ...leased,
+            held: false,
           };
     }
     // Archiving in the Claude app hides the chat and leaves the process
@@ -2559,10 +2566,10 @@ function defer(until, why, paths, replace = "", agent = "executor", file = agent
   // deferral never drops a pending one; and never in the past, so a timer
   // cannot fire straight into another deferral. The window's is at the
   // earlier time: its start re-arms the plans still held, each at its own.
-  // So is a brief's lease, so a later hand-off never pushes an earlier one back.
+  // A brief's lease is not here: each has its own (`lease`).
   const all = [...new Set([...(old?.paths || []), ...paths])];
   const when =
-    file === "asking" || file === "handed"
+    file === "asking"
       ? Math.max(Math.min(until, old?.until || Infinity), Date.now() + MINUTE)
       : Math.max(until, old?.until || 0, Date.now() + MINUTE);
   const stop = replace || old?.replace || "";
@@ -2598,6 +2605,124 @@ function defer(until, why, paths, replace = "", agent = "executor", file = agent
   return held
     ? `Deferred until ${hhmm}, held while the queue is paused: ${why}; ${all.join(", ")}.`
     : `Deferred until ${hhmm}: ${why}; ${all.join(", ")}.`;
+}
+
+/**
+ * **Each brief left with a planner has its own lease**
+ * (plans/brief-lease-per-brief.md, part 1): `.claude/handed.deferred` is a
+ * table, one entry per brief with its own `until`, `why`, `holder` (the
+ * planner's session id) and `held` (sent by message), as SQS gives each
+ * message its own visibility timeout. `until`, `pid` and `paths` stay at the
+ * top, so `pause`, `resume` and `list` read it as the other deferrals.
+ */
+export function leases() {
+  return readJson(files.deferred("handed"))?.leases || {};
+}
+
+/** Kills a deferral's timer, and only one: never this process, never a pid reused since. */
+function killDeferTimer(pid) {
+  if (!pid || pid === process.pid) return;
+  if (!/plan-queue\.mjs start --timer /.test(commandOf(pid))) return;
+  try {
+    process.kill(pid);
+  } catch {
+    // The old timer is gone already.
+  }
+}
+
+/**
+ * Writes the lease table and arms its one timer at the earliest `until`,
+ * never under a minute from now, as `defer` does; paused, no timer. With no
+ * lease left the file goes, and its timer with it.
+ */
+function writeLeases(table) {
+  const old = readJson(files.deferred("handed"));
+  killDeferTimer(old?.pid);
+  const paths = Object.keys(table);
+  if (!paths.length) {
+    try {
+      unlinkSync(files.deferred("handed"));
+    } catch {
+      // Gone already.
+    }
+    return;
+  }
+  const earliest = Math.min(...paths.map((path) => table[path].until));
+  const when = Math.max(earliest, Date.now() + MINUTE);
+  // The timer runs as the command, so its root is said: this project's.
+  const pid = pausedSince()
+    ? null
+    : detached(
+        process.execPath,
+        [
+          join(here, "plan-queue.mjs"),
+          "start",
+          "--timer",
+          String(when),
+          "--agent",
+          "planner",
+          "--deferral",
+          "handed",
+          ...paths,
+        ],
+        { ...process.env, WORKFLOW_ROOT: root },
+      );
+  writeJson(files.deferred("handed"), { until: earliest, pid, paths, leases: table });
+}
+
+/** Leases `path` to `holder` until `until`; a second lease on the same brief replaces the first. */
+export function lease(path, { until, why, holder = "", held = false }) {
+  writeLeases({ ...leases(), [path]: { until, why, holder, held: Boolean(held) } });
+}
+
+/** Ends the leases of `paths`; the rest keep their own times, and the file goes with the last. */
+export function releaseLease(paths) {
+  const table = leases();
+  if (!paths.some((path) => path in table)) return;
+  writeLeases(Object.fromEntries(Object.entries(table).filter(([path]) => !paths.includes(path))));
+}
+
+/** One line per lease, in `until` order, as `plans` prints the other deferrals. */
+function leaseLines(deferred) {
+  return Object.entries(deferred?.leases || {})
+    .sort(([, a], [, b]) => a.until - b.until)
+    .map(
+      ([path, one]) =>
+        `Deferred until ${hhmm(one.until)}: ${one.why ? `${one.why}; ` : ""}${path}${deferred.pid || deferred.firing ? "" : ", held while the queue is paused"}`,
+    );
+}
+
+/**
+ * **A brief sent by message is its planner's for the lease**
+ * (plans/brief-lease-per-brief.md, part 3), as an acknowledged incident is
+ * its responder's: the briefs waiting, less those whose lease is `held` by a
+ * live, unretired planner other than `self` and `replace`, and not yet ended.
+ * A lease waiting for a busy planner leaves its brief free, so whichever
+ * planner stops first with room takes it. With the sessions unread, a held
+ * lease is kept: its timer settles it.
+ */
+export function freeBriefs(
+  plans,
+  {
+    live = null,
+    self = "",
+    replace = "",
+    table = leases(),
+    stateFor = readState,
+    now = Date.now(),
+  } = {},
+) {
+  const heldBy = (path) => {
+    const one = table[path];
+    if (!one?.held || !one.holder || one.until <= now) return "";
+    if (one.holder === self || one.holder === replace) return "";
+    if (!live) return one.holder;
+    const row = live.find((r) => r.sessionId === one.holder);
+    if (!row) return "";
+    const state = stateFor(one.holder);
+    return isSession("planner", row, state, null) && !state?.retired ? one.holder : "";
+  };
+  return plans.filter((p) => p.state === "brief" && !heldBy(p.path));
 }
 
 /**
@@ -2680,11 +2805,12 @@ function startHere(
   // executor every plan waiting.
   if (!paths.length && kind === "assistant")
     return "A built plan's path is needed: plans start --agent assistant plans/<x>.md; plans shows the built plans.";
+  // The default pick never takes a brief sent by message to another live
+  // planner (plans/brief-lease-per-brief.md, part 3).
   if (!paths.length)
     paths =
       kind === "planner"
-        ? plans
-            .filter((p) => p.state === "brief")
+        ? freeBriefs(plans, { live, replace })
             .slice(0, 1)
             .map((p) => p.path)
         : plans
@@ -2727,22 +2853,46 @@ function startHere(
       if (!paths.length) return "Nothing is waiting in the queue.";
     }
   }
-  if (kind === "planner" && timer) {
-    // **A lease's timer takes only what is still a brief** (plans/briefs-reach-
-    // a-free-planner.md, part 4): one planned or under way since the hand-off
-    // is dropped, and the oldest left, in the plans' order, is started on.
+  // **A lease's timer reads the table** (plans/brief-lease-per-brief.md, part
+  // 2): a lease whose brief is no longer one ends, the due ones are those
+  // past their own `until`, and the oldest due, in the plans' order, is the
+  // one started on; the rest keep their own times.
+  const leaseTimer = kind === "planner" && timer && deferral === "handed";
+  let due = [];
+  if (leaseTimer) {
+    const table = leases();
+    const gone = Object.keys(table).filter(
+      (path) => !plans.some((p) => p.path === path && p.state === "brief"),
+    );
+    if (!dry) releaseLease(gone);
+    const by = Date.now() + WINDOW_SLACK;
+    due = plans
+      .filter((p) => p.state === "brief" && table[p.path] && table[p.path].until <= by)
+      .map((p) => p.path);
+    if (!due.length) {
+      // This timer's file with nothing due keeps a timer for the rest.
+      if (!dry && readJson(files.deferred("handed"))?.firing === process.pid) writeLeases(leases());
+      return "Nothing is waiting in the queue.";
+    }
+    paths = due;
+  } else if (kind === "planner" && timer) {
+    // A usage limit's deferred start takes only what is still a brief.
     const still = plans.filter((p) => p.state === "brief" && paths.includes(p.path));
     if (!still.length) return "Nothing is waiting in the queue.";
     paths = still.map((p) => p.path);
   }
-  // The briefs a lease's timer started for and does not start on: leased to
-  // the planner started, or to the one that still has room.
-  const leftOver = kind === "planner" && timer ? paths.slice(1) : [];
   if (kind === "planner") {
     // A planner is started on one brief, waiting or left by a session that is gone.
     const asked = paths[0];
     if (!plans.some((p) => p.path === asked && p.state === "brief"))
       return `${asked} is not a brief waiting for a planner; plans shows the briefs.`;
+    // **A brief sent by message is its holder's for the lease** (part 3):
+    // named by path, it is refused while another live planner holds it.
+    if (!leaseTimer && !freeBriefs(plans, { live, replace }).some((p) => p.path === asked)) {
+      const one = leases()[asked];
+      const name = live?.find((row) => row.sessionId === one.holder)?.name || "a planner";
+      return `${asked} was sent to ${name} [${String(one.holder).slice(0, 8)}] at ${hhmm(one.until - ANSWER_WINDOW)} and is its until ${hhmm(one.until)}; plans shows the briefs.`;
+    }
     paths = [asked];
   }
   if (kind === "assistant") {
@@ -2809,36 +2959,57 @@ function startHere(
         // refuses beside a live executor as before.
         unwatched: timer && (deferral === "asking" || deferral === "handed"),
       });
-  if (decision.refuse) return decision.why;
+  if (decision.refuse) {
+    // A refused timer's start leaves the due briefs free, under Briefs in `plans`.
+    if (leaseTimer && !dry) releaseLease(due);
+    return decision.why;
+  }
   // **A brief left with a live planner is leased to it for thirty minutes**
-  // (part 3): `plans` says who holds it and since when, and the timer starts
-  // a fresh planner on it if its Planning line has not ended the lease.
+  // (plans/brief-lease-per-brief.md, parts 1 and 2), the one brief its own
+  // lease: `plans` says who holds it and until when, its Planning line ends
+  // the lease, and at its end the timer starts a fresh planner on it unless
+  // its holder is still busy with room, when the lease renews (Javi, 6
+  // November). The other due briefs keep their leases, judged a minute on.
   if (decision.wait) {
     if (!dry)
-      defer(
-        Date.now() + ANSWER_WINDOW,
-        decision.lease,
-        [...paths, ...leftOver],
-        "",
-        "planner",
-        "handed",
-      );
+      lease(paths[0], {
+        until: decision.until,
+        why: decision.lease,
+        holder: decision.holder,
+        held: decision.held && !leaseTimer,
+      });
     return decision.why;
   }
   // An assistant is never deferred: its items wait in the plan for the next start.
   if (decision.defer && kind === "assistant")
     return `No assistant chat was started: ${decision.why}.`;
+  // A lease's start, deferred by usage, stays a lease's, each due brief to
+  // the reset with its holder (Codex C2, C3).
+  if (decision.defer && leaseTimer) {
+    if (!dry) {
+      const table = leases();
+      writeLeases({
+        ...table,
+        ...Object.fromEntries(
+          due.map((path) => [
+            path,
+            { ...table[path], until: decision.until, why: decision.why, held: false },
+          ]),
+        ),
+      });
+    }
+    return `Deferred until ${hhmm(decision.until)}: ${decision.why}; ${due.join(", ")}.`;
+  }
   // The window's start, deferred by usage, stays the window's, so at the reset
   // it still replaces an idle executor.
-  // So does a lease's, with every brief it held (Codex C2, C3).
   if (decision.defer)
     return defer(
       decision.until,
       decision.why,
-      [...paths, ...leftOver],
+      paths,
       replace,
       kind,
-      deferral === "asking" || deferral === "handed" ? deferral : kind,
+      deferral === "asking" ? deferral : kind,
       why,
     );
   const prompt = probe
@@ -2899,12 +3070,16 @@ function startHere(
       writeJson(files.state(old.sessionId), state);
       if (lock?.sessionId === old.sessionId) writeJson(files.lock(), lock);
     }
+    // A lease's timer that failed to launch leaves its due briefs free, as a refusal does.
+    if (leaseTimer) releaseLease(due);
     return seen;
   }
   // The deferrals keep the paths this start did not take, and their timers.
-  for (const file of { executor: ["executor", "asking"], planner: ["planner", "handed"] }[kind] ||
-    [])
+  for (const file of { executor: ["executor", "asking"], planner: ["planner"] }[kind] || [])
     dropDeferred(file, paths);
+  // The brief started on ends its lease; a timer's other due briefs are left
+  // free, the new planner's at its stops as any planner's (part 2).
+  if (kind === "planner") releaseLease([...paths, ...due]);
   const unread =
     seen === "unread" ? " claude agents could not be read, so it is not confirmed." : "";
   const retiredWords = replaced.map(
@@ -2938,19 +3113,6 @@ function startHere(
   // A planner started by the assistant, with nothing to replace, still ends
   // the retired planners' chats: the next planner starting is their cut-off.
   if (kind === "planner") stopRetiredPlanners(live, { except: replace });
-  // A lease's timer started on the oldest brief: the rest are the new
-  // planner's at its stops, leased to it so `plans` still says who holds them.
-  if (leftOver.length) {
-    const id = liveSessions({ fresh: true })?.find((row) => row.name === decision.name)?.sessionId;
-    defer(
-      Date.now() + ANSWER_WINDOW,
-      `waiting for ${decision.name}${id ? ` [${String(id).slice(0, 8)}]` : ""} since ${hhmm(Date.now())}, started on ${paths[0]}`,
-      leftOver,
-      "",
-      "planner",
-      "handed",
-    );
-  }
   return [
     `${decision.name} was started on: ${paths.join(", ")}.${unread}${decision.note ? ` ${decision.note}` : ""}`,
     ...retiredWords,
@@ -3209,7 +3371,9 @@ export function list({ all = false, live, related = true, readers = null } = {})
     out.push(`The queue is paused since ${paused} ("resume the queue" in any session lifts it).`);
   for (const kind of QUEUE_KINDS) {
     const deferred = readJson(files.deferred(kind));
-    if (deferred)
+    // A brief's lease, one line each (plans/brief-lease-per-brief.md, part 1).
+    if (deferred && kind === "handed") out.push(...leaseLines(deferred));
+    else if (deferred)
       out.push(
         `Deferred until ${new Date(deferred.until).toTimeString().slice(0, 5)}: ${deferred.why ? `${deferred.why}; ` : ""}${deferred.paths.join(", ")}${deferred.pid ? "" : ", held while the queue is paused"}`,
       );
@@ -4299,14 +4463,10 @@ function leaveAsking(input) {
  */
 function leaveHanded(input) {
   const written = planPath(input.tool_input?.file_path);
-  const held = written
-    ? [written]
-    : input.tool_name === "Bash"
-      ? readJson(files.deferred("handed"))?.paths || []
-      : [];
+  const held = written ? [written] : input.tool_name === "Bash" ? Object.keys(leases()) : [];
   // Under way, or past it: a plan written over the brief is no brief either.
   const taken = held.filter((path) => stateOf(planText(path))?.state !== "brief");
-  if (taken.length) dropDeferred("handed", taken);
+  if (taken.length) releaseLease(taken);
 }
 
 function plannerHook(mode, input, sessionId, statePath) {
@@ -4492,9 +4652,12 @@ function plannerHook(mode, input, sessionId, statePath) {
     // A planner the queue gave nothing (the owner's own) is left alone.
     if (!state.brief && !state.plans.length) return;
     const ownTexts = state.plans.map((path) => planText(path));
-    const waiting = plans
-      .filter((p) => p.state === "brief")
-      .map((p) => ({ ...p, related: relatedBrief(p.text, ownTexts, state.plans) }));
+    // A brief sent by message to another live planner is that planner's
+    // (plans/brief-lease-per-brief.md, part 3), so two never plan one brief.
+    const waiting = freeBriefs(plans, { live, self: sessionId }).map((p) => ({
+      ...p,
+      related: relatedBrief(p.text, ownTexts, state.plans),
+    }));
     const decision = decidePlannerStop({
       current,
       waiting,
@@ -5864,6 +6027,12 @@ export function main(args = process.argv.slice(2)) {
     for (const kind of QUEUE_KINDS) {
       const deferred = readJson(files.deferred(kind));
       if (!deferred) continue;
+      // The leases' one timer, at the earliest of their own times.
+      if (kind === "handed") {
+        writeLeases(deferred.leases || {});
+        armed.push(deferredWords(readJson(files.deferred(kind)) || deferred));
+        continue;
+      }
       // A timer at the later of its time and a minute from now.
       defer(
         deferred.until,
@@ -5898,13 +6067,18 @@ export function main(args = process.argv.slice(2)) {
       // The deferred start: a wait and then the same start, nothing else.
       // **A timer clears only its own deferral**: one whose plans were all
       // decided or taken lost its file, and a newer deferral with another
-      // timer may stand there now.
+      // timer may stand there now. **The leases' file stays**: the start
+      // reads each lease's own time (plans/brief-lease-per-brief.md, part 2).
       setTimeout(
         () => {
           const file = files.deferred(
             options.deferral || (options.agent === "planner" ? "planner" : "executor"),
           );
-          if (readJson(file)?.pid === process.pid)
+          // A lease timer that fires takes its pid out of the table, so a
+          // lease written while it starts a planner never kills it (Codex C1).
+          if (options.deferral === "handed" && readJson(file)?.pid === process.pid)
+            writeJson(file, { ...readJson(file), pid: null, firing: process.pid });
+          else if (readJson(file)?.pid === process.pid)
             try {
               unlinkSync(file);
             } catch {

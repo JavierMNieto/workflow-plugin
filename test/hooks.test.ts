@@ -39,6 +39,7 @@ import {
   marksReady,
   agentEffort,
   canStart,
+  freeBriefs,
   changedFiles,
   checksVerdict,
   decidePlannerStop,
@@ -2517,6 +2518,66 @@ describe("the planner queue", () => {
     }
   });
 
+  // plans/brief-lease-per-brief.md, part 3: two planners never plan one brief.
+  it("never names at a stop a brief sent by message to another live planner, and names it at the holder's", () => {
+    const id = `stopping-${process.pid}`;
+    const holder = `holding-${process.pid}`;
+    const files = [id, holder].map((one) => join(tmpdir(), `workflow-queue-${one}.json`));
+    const deferred = join(repo, ".claude", "handed.deferred");
+    put("own-plan.md", "# Own\n\nPlan only, 6 November 2026, for Javi.\n");
+    put("sent-brief.md", brief("6 November 2026"));
+    const fresh = () => {
+      for (const file of files)
+        writeFileSync(
+          file,
+          JSON.stringify({ agent: "planner", brief: "plans/own-plan.md", plans: [] }),
+        );
+    };
+    const env = {
+      WORKFLOW_LIVE: JSON.stringify([
+        { sessionId: id, name: "Planner 9", kind: "background", cwd: repo },
+        { sessionId: holder, name: "Planner 10", kind: "background", cwd: repo },
+      ]),
+    };
+    const stop = (session: string) =>
+      run(
+        join(here, "plan-queue.mjs"),
+        ["stop"],
+        { session_id: session, agent_type: "planner" },
+        env,
+      );
+    const named = (said: string) => /can take it: (plans\/[^\s]+\.md) \(/.exec(said)?.[1] || "";
+    try {
+      fresh();
+      const first = named(stop(id));
+      expect(first).not.toBe("");
+      // The brief it would name is sent by message to the other planner.
+      writeFileSync(
+        deferred,
+        JSON.stringify({
+          until: Date.now() + ANSWER_WINDOW,
+          pid: null,
+          paths: [first],
+          leases: {
+            [first]: {
+              until: Date.now() + ANSWER_WINDOW,
+              why: "handed to Planner 10 [holding-] at 10:25 by message",
+              holder,
+              held: true,
+            },
+          },
+        }),
+      );
+      fresh();
+      expect(named(stop(id))).not.toBe(first);
+      // The planner it was sent to takes it.
+      fresh();
+      expect(named(stop(holder))).toBe(first);
+    } finally {
+      for (const file of [...files, deferred]) rmSync(file, { force: true });
+    }
+  });
+
   it("says a plan is taken by a Building, Built, Handing over or Resumed line", () => {
     const head = "# X\n\nPlan only, 26 October 2026, for Javi.\n\n";
     expect(planTaken(`# X\n\n## Building, 26 October 2026, session a\n\n${head}`)).toBe(true);
@@ -3948,10 +4009,72 @@ if (args[0] === "agents") {
         "Started Seen Executor 1 (lab)",
       );
     });
-    // plans/briefs-reach-a-free-planner.md, parts 3 and 4.
+    // plans/brief-lease-per-brief.md, part 1.
+    it(
+      "keeps a lease per brief: two entries, one timer at the earlier, and the file goes with the last",
+      { timeout: 30_000 },
+      () => {
+        const dir = fixture("Leases");
+        const file = join(dir, ".claude", "handed.deferred");
+        const call = (code: string) =>
+          execFileSync(
+            "node",
+            [
+              "--input-type=module",
+              "-e",
+              `import * as q from ${JSON.stringify(join(here, queue))};\n${code}`,
+            ],
+            { encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: dir } },
+          );
+        const timers: number[] = [];
+        const read = () => {
+          const table = JSON.parse(readFileSync(file, "utf8"));
+          timers.push(table.pid);
+          return table;
+        };
+        const armedAt = (pid: number) =>
+          readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ");
+        const now = Date.now();
+        const b = { until: now + 40 * 60_000, why: "waiting for B", holder: "h-b", held: false };
+        const c = { until: now + 35 * 60_000, why: "handed to C", holder: "h-c", held: true };
+        try {
+          expect(call("console.log(JSON.stringify(q.leases()));").trim()).toBe("{}");
+          call(`q.lease("plans/b.md", ${JSON.stringify(b)});`);
+          call(`q.lease("plans/c.md", ${JSON.stringify(c)});`);
+          // leases() reads both, each with its own until, why, holder and held.
+          expect(JSON.parse(call("console.log(JSON.stringify(q.leases()));"))).toEqual({
+            "plans/b.md": b,
+            "plans/c.md": c,
+          });
+          // One timer, at the earlier until.
+          const both = read();
+          expect(both.paths).toEqual(["plans/b.md", "plans/c.md"]);
+          expect(both.until).toBe(c.until);
+          if (existsSync("/proc")) expect(armedAt(both.pid)).toContain(`--timer ${c.until} `);
+          // Releasing one leaves the other, its timer at its own time.
+          call(`q.releaseLease(["plans/c.md"]);`);
+          const one = read();
+          expect(one.leases).toEqual({ "plans/b.md": b });
+          expect(one.until).toBe(b.until);
+          if (existsSync("/proc")) expect(armedAt(one.pid)).toContain(`--timer ${b.until} `);
+          // The last one takes the file with it.
+          call(`q.releaseLease(["plans/b.md"]);`);
+          expect(existsSync(file)).toBe(false);
+        } finally {
+          for (const pid of timers)
+            try {
+              process.kill(pid);
+            } catch {
+              // Gone already.
+            }
+        }
+      },
+    );
+    // plans/briefs-reach-a-free-planner.md, parts 3 and 4, and
+    // plans/brief-lease-per-brief.md, parts 1 and 2.
     it(
       "leases a brief left with a busy planner, ends the lease at its Planning line, and starts a fresh planner at its end",
-      { timeout: 60_000 },
+      { timeout: 90_000 },
       () => {
         const dir = fixture("Lease");
         const brief = (title: string) =>
@@ -3959,9 +4082,9 @@ if (args[0] === "agents") {
         writeFileSync(join(dir, "plans", "b.md"), brief("B"));
         writeFileSync(join(dir, "plans", "c.md"), brief("C"));
         const projects = temp("queue-lease-projects-");
-        const row = (status: object) => ({
-          sessionId: "lease-planner-1",
-          name: "Lease Planner 1 (lab)",
+        const row = (n: number, status: object) => ({
+          sessionId: `lease-planner-${n}`,
+          name: `Lease Planner ${n} (lab)`,
           kind: "background",
           cwd: dir,
           ...status,
@@ -3971,40 +4094,17 @@ if (args[0] === "agents") {
           WORKFLOW_PROJECTS: projects,
           WORKFLOW_STARTS_LOG: join(dir, ".claude", "starts.log"),
           WORKFLOW_USAGE_FILE: join(dir, ".claude", "usage.json"),
-          WORKFLOW_LIVE: JSON.stringify([row({ status: "busy" })]),
+          WORKFLOW_LIVE: JSON.stringify([row(1, { status: "busy" })]),
         };
         const timers: number[] = [];
-        try {
-          // A dry run says the same line and writes nothing.
-          const dry = runIn(dir, ["start", "--dry", "--agent", "planner", "plans/b.md"], env);
-          expect(dry).toContain(
-            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ",
-          );
-          expect(existsSync(deferred)).toBe(false);
-          const before = Date.now();
-          const said = runIn(dir, ["start", "--agent", "planner", "plans/b.md"], env);
-          expect(said).toContain(
-            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md",
-          );
-          const lease = JSON.parse(readFileSync(deferred, "utf8"));
-          timers.push(lease.pid);
-          expect(lease.paths).toEqual(["plans/b.md"]);
-          expect(lease.why).toMatch(
-            /^waiting for Lease Planner 1 \(lab\) \[lease-pl\] since \d\d:\d\d$/,
-          );
-          expect(lease.until).toBeGreaterThanOrEqual(before + 30 * 60_000);
-          expect(lease.until).toBeLessThanOrEqual(Date.now() + 30 * 60_000);
-          expect(said).toContain(
-            `It has until ${new Date(lease.until).toTimeString().slice(0, 5)}`,
-          );
-          // A second brief joins the lease at the earlier time.
-          runIn(dir, ["start", "--agent", "planner", "plans/c.md"], env);
-          const both = JSON.parse(readFileSync(deferred, "utf8"));
-          timers.push(both.pid);
-          expect(both.paths).toEqual(["plans/b.md", "plans/c.md"]);
-          expect(both.until).toBe(lease.until);
-          // `plans` says who holds them and until when.
-          const listed = execFileSync(
+        const read = () => {
+          const table = JSON.parse(readFileSync(deferred, "utf8"));
+          timers.push(table.pid);
+          return table;
+        };
+        const at = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
+        const listed = () =>
+          execFileSync(
             "node",
             [
               "--input-type=module",
@@ -4014,27 +4114,17 @@ if (args[0] === "agents") {
             ],
             { encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env } },
           );
-          expect(listed).toContain(
-            `Deferred until ${new Date(lease.until).toTimeString().slice(0, 5)}: ${both.why}; plans/b.md, plans/c.md`,
-          );
-          // The planner's Planning line on b ends b's lease.
-          writeFileSync(
-            join(dir, "plans", "b.md"),
-            `## Planning, 6 November 2026, session lease-planner-1\n\n${brief("B")}`,
-          );
-          runIn(dir, ["wrote"], env, {
-            session_id: "lease-planner-1",
-            agent_type: "planner",
-            tool_name: "Edit",
-            tool_input: { file_path: join(dir, "plans", "b.md") },
-          });
-          expect(JSON.parse(readFileSync(deferred, "utf8")).paths).toEqual(["plans/c.md"]);
-          // The lease's end: the planner named waits on a question, so a fresh
-          // planner is started beside it on c, and the lease is gone.
-          const { script, rows } = stub();
-          writeFileSync(rows, JSON.stringify([row({ status: "idle", state: "blocked" })]));
-          const { WORKFLOW_LIVE: _, ...rest } = process.env;
-          const started = execFileSync(
+        // A lease's end brought forward, as the clock would bring it.
+        const due = (path: string) => {
+          const table = JSON.parse(readFileSync(deferred, "utf8"));
+          table.leases[path].until = Date.now() - 1000;
+          writeFileSync(deferred, JSON.stringify(table));
+        };
+        const { script, rows } = stub();
+        const { WORKFLOW_LIVE: _, ...rest } = process.env;
+        const timer = (paths: string[], live: object[]) => {
+          writeFileSync(rows, JSON.stringify(live));
+          return execFileSync(
             "node",
             [
               join(here, queue),
@@ -4045,7 +4135,7 @@ if (args[0] === "agents") {
               "planner",
               "--deferral",
               "handed",
-              "plans/c.md",
+              ...paths,
             ],
             {
               encoding: "utf8",
@@ -4059,14 +4149,102 @@ if (args[0] === "agents") {
               },
             },
           );
-          expect(existsSync(deferred)).toBe(false);
-          expect(readFileSync(join(dir, ".claude", "starts.log"), "utf8")).toContain(
-            '"name":"Lease Planner 2 (lab)","paths":["plans/c.md"]',
+        };
+        try {
+          // A dry run says the same line and writes nothing.
+          const dry = runIn(dir, ["start", "--dry", "--agent", "planner", "plans/b.md"], env);
+          expect(dry).toContain(
+            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ",
           );
-          expect(started).toBe("");
+          expect(existsSync(deferred)).toBe(false);
+          const before = Date.now();
+          const said = runIn(dir, ["start", "--agent", "planner", "plans/b.md"], env);
+          expect(said).toContain(
+            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md",
+          );
+          const first = read();
+          const b = first.leases["plans/b.md"];
+          expect(first.paths).toEqual(["plans/b.md"]);
+          expect(b).toMatchObject({ holder: "lease-planner-1", held: false });
+          expect(b.why).toMatch(
+            /^waiting for Lease Planner 1 \(lab\) \[lease-pl\] since \d\d:\d\d$/,
+          );
+          expect(b.until).toBeGreaterThanOrEqual(before + 30 * 60_000);
+          expect(b.until).toBeLessThanOrEqual(Date.now() + 30 * 60_000);
+          expect(said).toContain(`It has until ${at(b.until)}`);
+          // A second brief, left with a second planner, idle: its own lease,
+          // held by message, beside the first.
+          const two = {
+            ...env,
+            WORKFLOW_LIVE: JSON.stringify([row(1, { status: "busy" }), row(2, { status: "idle" })]),
+          };
+          const saidC = runIn(dir, ["start", "--agent", "planner", "plans/c.md"], two);
+          expect(saidC).toContain(
+            "Lease Planner 2 (lab) [lease-pl] is idle with room for plans/c.md",
+          );
+          const both = read();
+          const c = both.leases["plans/c.md"];
+          expect(both.paths).toEqual(["plans/b.md", "plans/c.md"]);
+          expect(both.leases["plans/b.md"]).toEqual(b);
+          expect(c).toMatchObject({ holder: "lease-planner-2", held: true });
+          expect(c.why).toMatch(
+            /^handed to Lease Planner 2 \(lab\) \[lease-pl\] at \d\d:\d\d by message$/,
+          );
+          expect(saidC).toContain(`It has until ${at(c.until)}`);
+          expect(both.until).toBe(b.until);
+          // A brief sent by message is its holder's: named by path, refused.
+          expect(runIn(dir, ["start", "--agent", "planner", "plans/c.md"], two)).toContain(
+            `plans/c.md was sent to Lease Planner 2 (lab) [lease-pl] at ${at(c.until - 30 * 60_000)} and is its until ${at(c.until)}; plans shows the briefs.\n`,
+          );
+          // `plans` says who holds each and until when, a line per brief.
+          const lines = listed();
+          expect(lines).toContain(`Deferred until ${at(b.until)}: ${b.why}; plans/b.md\n`);
+          expect(lines).toContain(`Deferred until ${at(c.until)}: ${c.why}; plans/c.md\n`);
+          // b's end: its planner waits on a question, so a fresh planner is
+          // started beside it on b alone (numbered by the live and the log,
+          // where the second is gone), and c keeps its own lease.
+          due("plans/b.md");
+          expect(
+            timer(["plans/b.md", "plans/c.md"], [row(1, { status: "idle", state: "blocked" })]),
+          ).toBe("");
+          expect(readFileSync(join(dir, ".claude", "starts.log"), "utf8")).toContain(
+            '"name":"Lease Planner 2 (lab)","paths":["plans/b.md"]',
+          );
           expect(readFileSync(join(dir, ".claude", "planner.started"), "utf8")).toContain(
             "Started Lease Planner 2 (lab)",
           );
+          const left = read();
+          expect(left.leases).toEqual({ "plans/c.md": c });
+          expect(left.until).toBe(c.until);
+          // c's end with its holder busy with room: the lease renews thirty
+          // minutes, the same words with the new time, and `plans` names it.
+          due("plans/c.md");
+          const renewing = Date.now();
+          expect(timer(["plans/c.md"], [row(2, { status: "busy" })])).toBe("");
+          const renewed = read().leases["plans/c.md"];
+          expect(renewed).toMatchObject({ holder: "lease-planner-2", held: false });
+          expect(renewed.until).toBeGreaterThanOrEqual(renewing + 30 * 60_000);
+          expect(renewed.why).toBe(
+            `waiting for Lease Planner 2 (lab) [lease-pl] since ${at(renewed.until - 30 * 60_000)}`,
+          );
+          expect(listed()).toContain(
+            `Deferred until ${at(renewed.until)}: ${renewed.why}; plans/c.md\n`,
+          );
+          expect(readFileSync(join(dir, ".claude", "starts.log"), "utf8")).not.toContain(
+            '"paths":["plans/c.md"]',
+          );
+          // Its Planning line on c ends c's lease, and the file with it.
+          writeFileSync(
+            join(dir, "plans", "c.md"),
+            `## Planning, 6 November 2026, session lease-planner-2\n\n${brief("C")}`,
+          );
+          runIn(dir, ["wrote"], env, {
+            session_id: "lease-planner-2",
+            agent_type: "planner",
+            tool_name: "Edit",
+            tool_input: { file_path: join(dir, "plans", "c.md") },
+          });
+          expect(existsSync(deferred)).toBe(false);
         } finally {
           for (const pid of timers)
             try {
@@ -4829,6 +5007,9 @@ describe("a brief reaches a free planner", () => {
       wait: true,
       why: `Docs Planner 35 [planner-] is idle with room for plans/b.md (its context is 50k tokens, under the reuse ceiling of 160k): send it the brief with SendMessage, one message per brief: ${plannerPrompt("plans/b.md")} It has until ${until} to take it; then a fresh planner is started on it.`,
       lease: `handed to Docs Planner 35 [planner-] at ${hhmm(now)} by message`,
+      holder: "planner-35-0000",
+      until: now + 30 * MIN,
+      held: true,
     });
   });
 
@@ -4839,6 +5020,9 @@ describe("a brief reaches a free planner", () => {
       wait: true,
       why: `Docs Planner 35 [planner-] is busy, planning plans/y.md, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
       lease: `waiting for Docs Planner 35 [planner-] since ${hhmm(now)}, planning plans/y.md`,
+      holder: "planner-35-0000",
+      until: now + 30 * MIN,
+      held: false,
     });
     expect(decision.why).not.toContain("SendMessage");
   });
@@ -4860,6 +5044,56 @@ describe("a brief reaches a free planner", () => {
     expect(decision.note).toContain(
       `Started beside Docs Planner 34 [planner-], which is waiting for input with a context of 230k (${blockedWhy}).`,
     );
+    // plans/brief-lease-per-brief.md (Decided): a busy planner with room keeps
+    // the brief at the lease's end, and the lease renews.
+    const busy = planner(37, "busy", 50, { id: "planner-37-busy", on: "plans/y.md" });
+    expect(canStart(facts([blocked, idle, busy], "plans/b.md", { unwatched: true }))).toMatchObject(
+      {
+        wait: true,
+        holder: "planner-37-busy",
+        held: false,
+        lease: `waiting for Docs Planner 37 [planner-] since ${hhmm(now)}, planning plans/y.md`,
+      },
+    );
+  });
+
+  // plans/brief-lease-per-brief.md, part 3: a brief sent by message is its
+  // holder's for the lease; one waiting for a busy planner is anyone's.
+  it("freeBriefs leaves out a brief held by message by another live planner, and keeps the rest", () => {
+    const plans = ["a", "b", "c", "d", "e", "f"]
+      .map((x) => ({ path: `plans/${x}.md`, state: "brief" }))
+      .concat({ path: "plans/r.md", state: "ready" });
+    const later = now + 30 * MIN;
+    const table = {
+      "plans/a.md": { until: later, why: "", holder: "other", held: true },
+      "plans/b.md": { until: later, why: "", holder: "other", held: false },
+      "plans/c.md": { until: later, why: "", holder: "self", held: true },
+      "plans/d.md": { until: later, why: "", holder: "old", held: true },
+      "plans/e.md": { until: later, why: "", holder: "gone", held: true },
+      "plans/f.md": { until: now - MIN, why: "", holder: "other", held: true },
+    };
+    const live = ["other", "self", "old"].map((sessionId, n) => ({
+      sessionId,
+      name: `Docs Planner ${n + 1}`,
+      kind: "background",
+    }));
+    const free = (stateFor: (id: string) => object) =>
+      freeBriefs(plans, { live, self: "self", replace: "old", table, stateFor, now } as never).map(
+        (p) => p.path,
+      );
+    expect(free(() => ({ agent: "planner" }))).toEqual([
+      "plans/b.md",
+      "plans/c.md",
+      "plans/d.md",
+      "plans/e.md",
+      "plans/f.md",
+    ]);
+    // A retired holder holds nothing.
+    expect(free((id) => ({ agent: "planner", retired: id === "other" }))).toContain("plans/a.md");
+    // With the sessions unread, a held lease is kept until its timer settles it.
+    expect(
+      freeBriefs(plans, { live: null, self: "self", table, now } as never).map((p) => p.path),
+    ).not.toContain("plans/e.md");
   });
 
   // plans/briefs-reach-a-free-planner-follow-up.md: "A chat holds every plan

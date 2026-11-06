@@ -488,9 +488,12 @@ related to its plans (one that names a file they name, or one of them);
 else it retires, and `plans start` leaves a brief with a live planner only
 when it is under its ceiling for that brief and not waiting on a
 question, by message when it is idle and by its Stop hook when it is
-busy, leased for thirty minutes: `plans` says who holds it, its Planning
-line ends the lease, and the timer starts a fresh planner on it otherwise
-(decisions.md#brief-leased). A chat holds every plan it
+busy, leased for thirty minutes, each brief its own lease: `plans` says
+who holds it and until when, its Planning line ends the lease, a brief
+sent by message is named by no other planner's stop while its holder
+lives, and at the lease's end the timer starts a fresh planner on it
+unless its holder is still busy with room, which takes it at its stop
+while the lease renews (decisions.md#brief-leased). A chat holds every plan it
 wrote until a Building line takes it.
 (decisions.md#planner-takes-next-brief)
 
