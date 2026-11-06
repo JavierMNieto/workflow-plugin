@@ -34,6 +34,8 @@ import {
   ceilingsLine,
   REUSE_CAP,
   reuseInputs,
+  REUSE_REFRESH,
+  hookRun,
   sharedTokens,
   lastFreshLines,
   tiredFor,
@@ -7488,6 +7490,120 @@ describe("the reuse inputs are cached", () => {
       ),
       "",
     ].join("\n");
+
+  it("from a hook with no summary reads no transcript, and the ceiling is the default, said so", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      for (const name of ["a", "b", "c", "d", "e"])
+        writeFileSync(join(dir, `${name}.jsonl`), session("executor", 50_000, 3));
+      const file = join(base, "reuse", "-checkout.json");
+      const reads: string[] = [];
+      const read = (path: string) => {
+        reads.push(path);
+        return measureFile(path);
+      };
+      for (const mode of ["prompt", "tool", "stop", "wrote"]) {
+        const cachedOnly = hookRun(["node", "plan-queue.mjs", mode]);
+        expect(cachedOnly).toBe(true);
+        const inputs = reuseInputs({ cachedOnly, dir, file, read });
+        expect(inputs).toEqual({});
+        const verdict = ceilingFor({ kind: "executor", inputs });
+        expect(verdict.history).toBe(false);
+        expect(verdict.why).toBe("the ceiling of 200k (no history yet: today's numbers)");
+      }
+      expect(reads).toEqual([]);
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("from a hook takes a summary older than the hour as it is and reads nothing", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 3));
+      const file = join(base, "reuse", "-checkout.json");
+      const t0 = Date.parse("2026-11-06T12:00:00Z");
+      const measured = reuseInputs({ refresh: true, now: t0, dir, file, read: measureFile });
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 6));
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 3));
+      let reads = 0;
+      const inputs = reuseInputs({
+        cachedOnly: hookRun(["node", "plan-queue.mjs", "stop"]),
+        now: t0 + 3 * REUSE_REFRESH,
+        dir,
+        file,
+        read: () => (reads++, null),
+      });
+      expect(reads).toBe(0);
+      expect(inputs).toEqual(measured);
+      expect(JSON.parse(readFileSync(file, "utf8")).measuredAt).toBe(t0);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("plans and plans start from the command line measure an hour-old summary and write it", () => {
+    for (const mode of [undefined, "list", "start", "cost"])
+      expect(hookRun(["node", "plan-queue.mjs", ...(mode ? [mode] : [])])).toBe(false);
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 3));
+      const file = join(base, "reuse", "-checkout.json");
+      const t0 = Date.parse("2026-11-06T12:00:00Z");
+      reuseInputs({ refresh: true, now: t0, dir, file, read: measureFile });
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 3));
+      const reads: string[] = [];
+      const read = (path: string) => (reads.push(basename(path)), measureFile(path));
+      const now = t0 + REUSE_REFRESH + 1;
+      const inputs = reuseInputs({
+        cachedOnly: hookRun(["node", "x", "start"]),
+        now,
+        dir,
+        file,
+        read,
+      });
+      expect(reads).toEqual(["b.jsonl"]);
+      expect(inputs.planner?.sessions).toBe(2);
+      expect(JSON.parse(readFileSync(file, "utf8")).measuredAt).toBe(now);
+
+      // `plans` itself, run as the command is: the summary written under the data folder.
+      const checkout = join(base, "checkout");
+      mkdirSync(join(checkout, ".claude"), { recursive: true });
+      execFileSync("git", ["init", "-q"], { cwd: checkout });
+      writeFileSync(join(checkout, ".claude", "workflow.md"), "---\nname: Docs\n---\n");
+      const projects = join(base, "projects");
+      const folder = join(projects, checkout.replace(/[^a-zA-Z0-9]/g, "-"));
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, "a.jsonl"), session("planner", 30_000, 3));
+      const data = join(base, "data");
+      const env = {
+        ...process.env,
+        WORKFLOW_ROOT: checkout,
+        CLAUDE_PROJECT_DIR: checkout,
+        WORKFLOW_PROJECTS: projects,
+        WORKFLOW_DATA: data,
+        WORKFLOW_LIVE: "[]",
+      };
+      execFileSync("node", [join(here, "plan-queue.mjs")], {
+        cwd: checkout,
+        env,
+        encoding: "utf8",
+      });
+      const summary = JSON.parse(
+        readFileSync(join(data, "reuse", `${basename(folder)}.json`), "utf8"),
+      );
+      expect(Object.keys(summary.rows)).toEqual(["a"]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 
   it("keeps a changed transcript's row when it cannot be read", () => {
     const base = mkdtempSync(join(tmpdir(), "reuse-"));

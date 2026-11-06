@@ -102,9 +102,7 @@ const HOOK_MODES = ["prompt", "tool", "stop", "wrote", "cutoff", "session"];
  * a hook never reads `WORKFLOW_ROOT`.
  */
 const root =
-  (HOOK_MODES.includes(process.argv[2]) ? "" : process.env.WORKFLOW_ROOT) ||
-  process.env.CLAUDE_PROJECT_DIR ||
-  process.cwd();
+  (hookRun() ? "" : process.env.WORKFLOW_ROOT) || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -1508,7 +1506,7 @@ export function transcriptsDir(
   return join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
-/** How long a hook takes the cached reuse inputs as they are. */
+/** How long a command takes the cached reuse inputs as they are; a hook, at any age. */
 export const REUSE_REFRESH = 60 * MINUTE;
 
 /**
@@ -1518,18 +1516,26 @@ export const REUSE_REFRESH = 60 * MINUTE;
  * <id>: row }, inputs }`, this machine's and never the checkout's. A
  * transcript whose `mtime` or `size` differs from its row, or has none, is
  * measured alone (`read`), keeping its row when that read fails; the rows of
- * files gone are dropped; the file is written atomically. From a hook (`refresh` false) a summary measured under
- * `REUSE_REFRESH` ago is taken as it is, nothing listed; `plans cost` passes
- * `refresh`. No folder, or a read that fails: what the cache holds, or none.
+ * files gone are dropped; the file is written atomically. From a command
+ * (`refresh` false) a summary measured under `REUSE_REFRESH` ago is taken as
+ * it is, nothing listed; `plans cost` passes `refresh`. A hook passes
+ * `cachedOnly` (`hookRun`) and takes the summary as it is, whatever its age,
+ * listing and reading nothing: a hook never measures,
+ * and with no summary the ceilings are the defaults, said as such; `plans`,
+ * `plans start` and `plans cost` keep the summary fresh
+ * (plans/reuse-measured-outside-hooks.md). No folder, or a read that fails:
+ * what the cache holds, or none.
  */
 export function reuseInputs({
   refresh = false,
+  cachedOnly = false,
   now = Date.now(),
   dir = transcriptsDir(),
   file = join(data(), "reuse", `${basename(dir)}.json`),
   read = measureFile,
 } = {}) {
   const cached = readJson(file);
+  if (cachedOnly) return cached?.inputs || {};
   const rows = cached?.rows && typeof cached.rows === "object" ? cached.rows : {};
   if (!refresh && cached?.measuredAt && now - cached.measuredAt < REUSE_REFRESH)
     return cached.inputs || {};
@@ -1572,10 +1578,18 @@ export function reuseInputs({
   return inputs;
 }
 
+/** Whether this run is one of Claude Code's hooks, by the mode `hooks.json` gives it. */
+export function hookRun(argv = process.argv) {
+  return HOOK_MODES.includes(argv[2]);
+}
+
 let reuseRead = null;
-/** The reuse inputs, read once a run, as a hook reads them (`reuseInputs`, cached). */
+/**
+ * The reuse inputs, read once a run: a hook's from the summary alone, a
+ * command's measured when the summary is an hour old (`reuseInputs`).
+ */
 function reuseNow() {
-  if (!reuseRead) reuseRead = reuseInputs();
+  if (!reuseRead) reuseRead = reuseInputs({ cachedOnly: hookRun() });
   return reuseRead;
 }
 

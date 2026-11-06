@@ -546,6 +546,8 @@ on the machine that planned them.
   stat per transcript when nothing changed, a re-read of the changed
   ones otherwise, at most hourly from a hook and always from plans
   cost. plans/adaptive-reuse.md.
+  6 November: a hook never measures; the plans commands refresh the
+  summary. plans/reuse-measured-outside-hooks.md.
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel
