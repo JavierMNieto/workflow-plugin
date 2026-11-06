@@ -4865,17 +4865,60 @@ describe("a brief reaches a free planner", () => {
   // plans/briefs-reach-a-free-planner-follow-up.md: "A chat holds every plan
   // it wrote until a Building line takes it", at the timer too.
   it("canStart, unwatched, starts beside an idle planner that holds a plan not yet building", () => {
-    const holding = {
-      ...planner(35, "idle", 50, { id: "planner-35-holds" }),
-      holds: ["plans/p.md"],
-      standing: { "plans/p.md": "ready, for the executor" },
-    };
-    const decision = canStart(facts([holding], "plans/b.md", { unwatched: true }));
-    expect(decision).toMatchObject({ start: true, name: "Docs Planner 36" });
-    expect(decision.replace).toBeUndefined();
-    expect(decision.note).toBe(
-      "Started beside Docs Planner 35 [planner-], which is idle with a context of 50k (idle while a brief's thirty minutes ran out, and the queue cannot message it).",
-    );
+    // plans/planner-holds-unread-plan.md: a plan the queue cannot read is held too.
+    for (const stands of ["ready, for the executor", "not read by the queue"]) {
+      const holding = {
+        ...planner(35, "idle", 50, { id: "planner-35-holds" }),
+        holds: ["plans/p.md"],
+        standing: { "plans/p.md": stands },
+      };
+      const decision = canStart(facts([holding], "plans/b.md", { unwatched: true }));
+      expect(decision).toMatchObject({ start: true, name: "Docs Planner 36" });
+      expect(decision.replace).toBeUndefined();
+      expect(decision.note).toBe(
+        "Started beside Docs Planner 35 [planner-], which is idle with a context of 50k (idle while a brief's thirty minutes ran out, and the queue cannot message it).",
+      );
+    }
+  });
+
+  // plans/planner-holds-unread-plan.md: a held plan the queue cannot read is
+  // told from one whose file is gone.
+  it("says a held plan with no header is not read by the queue, and gone once deleted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-unread-held-"));
+    mkdirSync(join(dir, "plans"));
+    writeFileSync(join(dir, "plans", "h.md"), "# H\n\nNotes, the header misplaced.\n");
+    const held = () =>
+      describeSession(
+        sessionsOf(
+          "planner",
+          [
+            {
+              sessionId: "p1000000-0000",
+              name: "Docs Planner 1",
+              kind: "background",
+              status: "idle",
+            },
+          ],
+          null,
+          {
+            trees: [],
+            plans: [],
+            checkout: dir,
+            stateFor: () => ({ agent: "planner", plans: ["plans/h.md"] }),
+            usageFor: () => null,
+          } as never,
+        )[0],
+      );
+    try {
+      expect(held()).toContain("holds plans/h.md (not read by the queue)");
+      // Built or dropped all the same, it is not held (/code-review).
+      writeFileSync(join(dir, "plans", "h.md"), "# H\n\n## Built, 6 November 2026\n\nDone.\n");
+      expect(held()).toContain("holds plans/h.md (built)");
+      rmSync(join(dir, "plans", "h.md"));
+      expect(held()).toContain("holds plans/h.md (gone)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("canStart, unwatched, replaces an idle planner whose only plan is built, building or gone", () => {

@@ -917,6 +917,7 @@ export function sessionsOf(
     stateFor = readState,
     usageFor = (row) => sessionUsage(transcriptOf(row)),
     ceiling = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+    checkout = root,
   } = {},
 ) {
   if (!live) return [];
@@ -960,7 +961,7 @@ export function sessionsOf(
                   standingOf(
                     plans.find((plan) => plan.path === path),
                     live,
-                    { self: row.sessionId, stateFor },
+                    { self: row.sessionId, stateFor, path, checkout },
                   ),
                 ]),
               ),
@@ -973,10 +974,23 @@ export function sessionsOf(
 
 /**
  * Where a planner's plan stands, as its line says it (plans/idle-chats-end.md,
- * part 5), so an idle planner's reason is read off the line.
+ * part 5), so an idle planner's reason is read off the line. A plan the queue
+ * did not read is `gone` when its file is not in the checkout, `built` when an
+ * executor's line or a drop is in it all the same (/code-review), and `not read
+ * by the queue` otherwise (plans/planner-holds-unread-plan.md), so the planner
+ * that can fix it is kept.
  */
-function standingOf(plan, live, { self = "", ...options } = {}) {
-  if (!plan) return "gone";
+function standingOf(plan, live, { self = "", path = "", checkout = root, ...options } = {}) {
+  if (!plan) {
+    if (!path) return "gone";
+    let text;
+    try {
+      text = readFileSync(join(checkout, path), "utf8");
+    } catch (error) {
+      return error.code === "ENOENT" ? "gone" : "not read by the queue";
+    }
+    return doneWith(text) ? "built" : "not read by the queue";
+  }
   if (ASKS_STATES.includes(plan.state) && plan.asks) {
     // "Asked once": the planner's own while its question is under thirty minutes old.
     const asking = "askingIn" in plan ? plan.askingIn : askingIn(plan, live, options);
@@ -1887,7 +1901,9 @@ export function canStart({
     // free-planner-follow-up.md).
     // A plan whose standing is not known is not counted: every path a
     // planner holds has one where the queue reads its sessions. An old plan
-    // no Building line will take either (/code-review).
+    // no Building line will take either (/code-review). A plan whose file the
+    // queue cannot read (`not read by the queue`) is held, by the same rule:
+    // no Building line has taken it (plans/planner-holds-unread-plan.md).
     const untaken = (state) =>
       Boolean(state) &&
       !["built", "dropped", "gone", "old"].includes(state) &&
