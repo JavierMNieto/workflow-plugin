@@ -5198,6 +5198,24 @@ export function secret(name, env = process.env) {
   }
 }
 
+/** Setup's read-only mount of the host's secrets file (skills/setup, step 6). */
+const SETUP_SECRETS = "/run/secrets/workflow.env";
+
+/**
+ * **Where a refusal says to set** `names` (decisions.md#push-token): inside a
+ * container setup made, whose `WORKFLOW_SECRETS_FILE` is the read-only mount
+ * nobody can write from there, the host's `~/.config/workflow/<project>.env`
+ * (the project file's `name` in lower case, spaces as hyphens, as setup
+ * writes it) and the rebuild that reads it; anywhere else, beside `GH_TOKEN`
+ * or in the file `WORKFLOW_SECRETS_FILE` names.
+ */
+function setWhere(names, env = process.env, project = proj().name) {
+  if (env.WORKFLOW_SECRETS_FILE !== SETUP_SECRETS)
+    return `set ${names} where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.`;
+  const file = String(project).toLowerCase().replace(/ /g, "-");
+  return `set ${names} in ~/.config/workflow/${file}.env on the host, then rebuild the container.`;
+}
+
 /** The port the listener takes: `WORKFLOW_WEBHOOK_PORT`, else 8789. */
 const webhookPort = (env = process.env) => Number(secret("WORKFLOW_WEBHOOK_PORT", env)) || 8789;
 
@@ -5207,8 +5225,8 @@ export function hasIssues(body = proj().body || "") {
 }
 
 /** `plans webhook`'s refusal with no secret here. */
-export function noSecretWords() {
-  return "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.";
+export function noSecretWords(env = process.env, project = proj().name) {
+  return `The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and ${setWhere("WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT", env, project)}`;
 }
 
 /** The listener's record, when its process is alive; null else. */
@@ -5697,7 +5715,7 @@ export async function webhookCommand(args = [], env = process.env) {
     return { said: "The webhook: stopped.", status: 0 };
   }
   const webhookSecret = secret("WORKFLOW_WEBHOOK_SECRET", env);
-  if (!webhookSecret) return { said: noSecretWords(), status: 1 };
+  if (!webhookSecret) return { said: noSecretWords(env), status: 1 };
   const alive = webhookAlive();
   if (alive) return { said: webhookLine(alive), status: 0 };
   if (!args.includes("--serve")) {
@@ -5754,8 +5772,8 @@ export async function webhookCommand(args = [], env = process.env) {
 }
 
 /** `plans gh`'s refusal with no app here (plans/plans-as-github-issues.md, part 1). */
-export function noAppWords(repo = "") {
-  return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.`;
+export function noAppWords(repo = "", env = process.env, project = proj().name) {
+  return `The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on ${repo || "this repository"}, and ${setWhere("WORKFLOW_APP_ID and WORKFLOW_APP_KEY", env, project)}`;
 }
 
 /**
@@ -5801,7 +5819,7 @@ export async function ghCommand(
   if (marksReady(quoted.join(" "))) return { said: READY_REFUSED, status: 1 };
   const id = secret("WORKFLOW_APP_ID", env);
   const key = secret("WORKFLOW_APP_KEY", env);
-  if (!id || !key) return { said: noAppWords(repo ?? repoHere(run, env, false)), status: 1 };
+  if (!id || !key) return { said: noAppWords(repo ?? repoHere(run, env, false), env), status: 1 };
   const name = repo ?? repoHere(run, env);
   const [owner, repository] = name.split("/");
   if (!owner || !repository)

@@ -99,6 +99,8 @@ import {
   today,
   unreadPlans,
   withoutStatus,
+  noAppWords,
+  noSecretWords,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
 import { appJwt, repoOfRemote } from "../plugins/workflow/scripts/github-app.mjs";
@@ -6831,6 +6833,27 @@ describe("plans gh", () => {
     });
     expect(runs).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  it("in a container setup made, names the host's file and the rebuild", () => {
+    const mounted = { WORKFLOW_SECRETS_FILE: "/run/secrets/workflow.env" };
+    expect(noAppWords("o/r", mounted, "Docs")).toBe(
+      "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY in ~/.config/workflow/docs.env on the host, then rebuild the container.",
+    );
+    expect(noSecretWords(mounted, "Docs")).toBe(
+      "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT in ~/.config/workflow/docs.env on the host, then rebuild the container.",
+    );
+    expect(noAppWords("o/r", mounted, "My Docs")).toContain("~/.config/workflow/my-docs.env");
+  });
+
+  it("with any other secrets file, says where GH_TOKEN is set as before", () => {
+    const other = { WORKFLOW_SECRETS_FILE: ".secrets/workflow.env" };
+    expect(noAppWords("o/r", other, "Docs")).toBe(
+      "The project's Claude has no GitHub App here: register one on GitHub (Settings, Developer settings, GitHub Apps; Issues and Pull requests read and write), install it on o/r, and set WORKFLOW_APP_ID and WORKFLOW_APP_KEY where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.",
+    );
+    expect(noSecretWords(other, "Docs")).toBe(
+      "The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and set WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT where GH_TOKEN is set, or in the file WORKFLOW_SECRETS_FILE names.",
+    );
   });
 
   it("refuses gh pr ready as the hook does, and allows --undo", async () => {
