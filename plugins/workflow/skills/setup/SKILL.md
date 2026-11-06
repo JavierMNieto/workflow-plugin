@@ -213,8 +213,13 @@ source is missing, so setup also writes an `initializeCommand`, which
 runs on the host before the container is created, that makes the folder
 and, only when no file is there, an empty file its owner alone reads:
 `mkdir -p "$HOME/.config/workflow" && { [ -e "$HOME/.config/workflow/<project>.env" ] || (umask 077 && : > "$HOME/.config/workflow/<project>.env"); }`,
-joined with ` && ` after an `initializeCommand` already there, never
-replacing it. None of `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY`,
+never replacing an `initializeCommand` already there: after a string
+one, joined with ` && `; an array one becomes an object,
+`{"project": <the array>, "workflow-secrets": "<the command>"}`, and an
+object one gains the `"workflow-secrets"` key. A mount to
+`/run/secrets/workflow.env` already there is the project's own: setup
+then writes no `initializeCommand`, and the final message names that
+mount's source instead of the fixed place. None of `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY`,
 `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` goes into
 `containerEnv`. The final message says, in a line, that the app's id and
 key (and the webhook's secret and port) go in
