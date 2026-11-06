@@ -249,8 +249,9 @@ Say it at the end of every topic, as one of four, with the reason:
 
    Then `plans start --agent
    planner plans/<topic>.md`, which starts a fresh planner on it in
-   Remote Control, beside a planner that is busy, over its ceiling for
-   the brief or waiting on a question; when it prints a message to send
+   Remote Control when no live planner can take it now (each is over its
+   ceiling for the brief or waiting on a question; a busy one is left to
+   finish, the fresh one beside it); when it prints a message to send
    (a planner is idle with room for it), send that session the message
    with `SendMessage`, once; when it says a planner takes it at its next
    stop, nothing is sent. Either way the brief is leased to that planner

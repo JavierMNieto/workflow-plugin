@@ -4862,6 +4862,42 @@ describe("a brief reaches a free planner", () => {
     );
   });
 
+  // plans/briefs-reach-a-free-planner-follow-up.md: "A chat holds every plan
+  // it wrote until a Building line takes it", at the timer too.
+  it("canStart, unwatched, starts beside an idle planner that holds a plan not yet building", () => {
+    const holding = {
+      ...planner(35, "idle", 50, { id: "planner-35-holds" }),
+      holds: ["plans/p.md"],
+      standing: { "plans/p.md": "ready, for the executor" },
+    };
+    const decision = canStart(facts([holding], "plans/b.md", { unwatched: true }));
+    expect(decision).toMatchObject({ start: true, name: "Docs Planner 36" });
+    expect(decision.replace).toBeUndefined();
+    expect(decision.note).toBe(
+      "Started beside Docs Planner 35 [planner-], which is idle with a context of 50k (idle while a brief's thirty minutes ran out, and the queue cannot message it).",
+    );
+  });
+
+  it("canStart, unwatched, replaces an idle planner whose only plan is built, building or gone", () => {
+    for (const stands of ["built", "building, Docs Executor 3 (lab)", "gone", "dropped", "old"]) {
+      const done = {
+        ...planner(35, "idle", 50, { id: "planner-35-done" }),
+        holds: ["plans/p.md"],
+        standing: { "plans/p.md": stands },
+      };
+      const decision = canStart(facts([done], "plans/b.md", { unwatched: true }));
+      expect(decision).toMatchObject({
+        start: true,
+        replace: [
+          {
+            sessionId: "planner-35-done",
+            why: "idle while a brief's thirty minutes ran out, and the queue cannot message it",
+          },
+        ],
+      });
+    }
+  });
+
   it("canStart starts beside an idle planner over its ceiling with a brief under way, and never retires it", () => {
     const idle = planner(34, "idle", 230, { on: "plans/own.md" });
     const decision = canStart(facts([idle], "plans/a.md"));

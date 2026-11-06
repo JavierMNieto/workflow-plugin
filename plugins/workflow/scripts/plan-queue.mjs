@@ -1880,8 +1880,21 @@ export function canStart({
   let beside = [];
   if (sessions.length && sessions.every((one) => !stale(one).reuse)) {
     // An idle planner with a brief under way is started beside, not
-    // replaced: retiring it would orphan that brief.
-    const kept = (one) => !idle(one) || Boolean(one.on);
+    // replaced: retiring it would orphan that brief. So is one that holds a
+    // plan no Building line has taken yet, at the timer too: "A chat holds
+    // every plan it wrote until a Building line takes it" (docs/workflow.md,
+    // "A planner with room left takes the next brief"; plans/briefs-reach-a-
+    // free-planner-follow-up.md).
+    // A plan whose standing is not known is not counted: every path a
+    // planner holds has one where the queue reads its sessions. An old plan
+    // no Building line will take either (/code-review).
+    const untaken = (state) =>
+      Boolean(state) &&
+      !["built", "dropped", "gone", "old"].includes(state) &&
+      !state.startsWith("building");
+    const holding = (one) =>
+      kind === "planner" && (one.holds || []).some((path) => untaken(one.standing?.[path]));
+    const kept = (one) => !idle(one) || Boolean(one.on) || holding(one);
     const busy = sessions.filter(kept);
     if (!busy.length || kind === "planner") {
       replace = sessions
