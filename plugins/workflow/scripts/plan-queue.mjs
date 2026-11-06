@@ -154,6 +154,10 @@ const files = {
   usage: () => process.env.WORKFLOW_USAGE_FILE || join(data(), "usage.json"),
   starts: () => process.env.WORKFLOW_STARTS_LOG || join(data(), "starts.log"),
   state: (sessionId) => join(tmpdir(), `workflow-queue-${sessionId || "unknown"}.json`),
+  // What the chat read or wrote of each file (plans/shared-file-share.md), apart
+  // from the state, so a tool call's count never writes back over a field
+  // another process set meanwhile, such as `retired` (/code-review).
+  seen: (sessionId) => join(tmpdir(), `workflow-seen-${sessionId || "unknown"}.json`),
   // The project's app's installation token and its end (plans/plans-as-github-issues.md).
   appToken: () => join(root, ".claude", "app-token.json"),
   // What GitHub's webhook brought, and what was made of it (plans/github-watched.md).
@@ -618,29 +622,92 @@ export function briefPaths(text) {
 
 /**
  * **What a plan or brief shares with a chat, in tokens**
- * (plans/adaptive-reuse.md, part 2): the paths `briefPaths` finds in `text`
- * that are in `ownPaths` (a planner's: its plans and the paths they name; an
- * executor's: the files its batch changed), each that is a file in
- * `checkout` counted at its size in bytes over four; 0 for none.
+ * (plans/shared-file-share.md, part 2; decisions.md#shared-is-what-is-held):
+ * for each path `briefPaths` finds in `text` that the chat read or wrote
+ * (`seen`, its tool hook's count) and that is a file in `checkout`, what the
+ * chat holds of it, at most the file's size in bytes over four; never the
+ * whole file for a few hunks of it; 0 for none.
  */
-export function sharedTokens(text = "", ownPaths = [], { checkout = root } = {}) {
-  const own = new Set(ownPaths);
-  let bytes = 0;
+export function sharedTokens(text = "", seen = {}, { checkout = root } = {}) {
+  let tokens = 0;
   for (const path of briefPaths(text || "")) {
-    if (!own.has(path)) continue;
+    if (!(seen?.[path] > 0)) continue;
     try {
       const stat = statSync(join(checkout, path));
-      if (stat.isFile()) bytes += stat.size;
+      if (stat.isFile()) tokens += Math.min(seen[path], stat.size / 4);
     } catch {
       // Named and gone: nothing to share.
     }
   }
-  return Math.round(bytes / 4);
+  return Math.round(tokens);
 }
 
-/** A planner's own paths, for `sharedTokens`: its plans and every path they name. */
-export function plannerOwn(plans = [], textOf = planText) {
-  return [...plans, ...plans.flatMap((path) => briefPaths(textOf(path) || ""))];
+/** An absolute path with an extension in a shell command, for `seenAfter`. */
+const ABSOLUTE_PATH = /(?<![\w/.:-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.\w+/g;
+
+/**
+ * `path`, resolved from `cwd`, relative to `checkout` when it is a file there,
+ * else "": a worktree's file under `.claude/worktrees/<name>/` by the path the
+ * plans name it by.
+ */
+function fileIn(path, checkout, cwd = checkout) {
+  if (typeof path !== "string" || !path) return "";
+  const full = resolve(cwd, path);
+  const rel = relative(checkout, full);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return "";
+  try {
+    if (!statSync(full).isFile()) return "";
+    return rel
+      .split(sep)
+      .join("/")
+      .replace(/^\.claude\/worktrees\/[^/]+\//, "");
+  } catch {
+    // Named and not there: a ref, a pattern, a file not yet written.
+    return "";
+  }
+}
+
+/**
+ * **What the chat holds of each file, counted by its tool hook**
+ * (plans/shared-file-share.md, part 1; decisions.md#shared-is-what-is-held):
+ * `seen` with this tool call's tokens added, characters over four, credited
+ * to the files its input names. A Read's text to its `file_path`; an Edit's
+ * `old_string` and `new_string`, a MultiEdit's over its edits, a Write's
+ * `content`, to their `file_path` (never the response, which may carry the
+ * whole file); a Bash command's stdout and stderr split evenly among the
+ * files the command names. A path counts when, resolved from the call's `cwd`
+ * and made relative to `checkout`, it is a file there. An image or a PDF read
+ * counts nothing: its text is not what the chat holds. The same object when
+ * nothing is counted. No transcript is read and nothing reaches the agent
+ * (decisions.md#reuse-check-cheap).
+ */
+export function seenAfter(seen = {}, input = {}, { checkout = root } = {}) {
+  const args = input.tool_input || {};
+  const response = input.tool_response;
+  const size = (value) =>
+    value == null ? 0 : typeof value === "string" ? value.length : JSON.stringify(value).length;
+  const edit = (one) => size(one?.old_string) + size(one?.new_string);
+  let chars = 0;
+  let named = [args.file_path];
+  const binary =
+    /^(image|pdf)$/.test(String(response?.type || "")) || response?.file?.base64 != null;
+  if (input.tool_name === "Read") chars = binary ? 0 : size(response?.file?.content ?? response);
+  else if (input.tool_name === "Edit") chars = edit(args);
+  else if (input.tool_name === "MultiEdit")
+    chars = (args.edits || []).reduce((sum, one) => sum + edit(one), 0);
+  else if (input.tool_name === "Write") chars = size(args.content);
+  else if (input.tool_name === "Bash") {
+    chars = size(response?.stdout) + size(response?.stderr);
+    const command = String(args.command || "");
+    named = [...briefPaths(command), ...(command.match(ABSOLUTE_PATH) || [])];
+  } else return seen;
+  const cwd = input.cwd || checkout;
+  const paths = [...new Set(named.map((path) => fileIn(path, checkout, cwd)).filter(Boolean))];
+  const each = paths.length ? Math.round(chars / 4 / paths.length) : 0;
+  if (!(each > 0)) return seen;
+  const next = { ...seen };
+  for (const path of paths) next[path] = (next[path] || 0) + each;
+  return next;
 }
 
 /** The plans under `plans/`, each with its path and state, the queue's order (handed over first, then oldest). */
@@ -930,6 +997,7 @@ export function sessionsOf(
     trees = worktrees(),
     plans = [],
     stateFor = readState,
+    seenFor = seenOf,
     usageFor = (row) => sessionUsage(transcriptOf(row)),
     fallback = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
     inputs = {},
@@ -968,6 +1036,8 @@ export function sessionsOf(
         endsAt: state?.end?.at || 0,
         // Why its Stop hook kept it for the work it took (plans/reuse-ceiling-per-agent.md).
         kept: state?.kept || null,
+        // What it read or wrote of each file, by its tool hook (plans/shared-file-share.md).
+        seen: seenFor(row.sessionId),
         // A planner's plans, which its chat still talks about, where each
         // stands, and how tired it is.
         ...(kind === "planner"
@@ -987,6 +1057,24 @@ export function sessionsOf(
           : {}),
       };
     });
+}
+
+/**
+ * **`plans` says what the oldest waiting work shares with each chat**
+ * (plans/shared-file-share.md, part 3): an executor's row against the oldest
+ * ready plan not asking, a planner's against the oldest brief free for it,
+ * each with `shared` and `sharedWith`; a row with nothing waiting is left as
+ * it is.
+ */
+function withShare(rows, kind, plans, live) {
+  const ready = plans.find((p) => p.state === "ready" && !p.askingIn);
+  return rows.map((one) => {
+    // A brief leased to this planner is free for it, so each planner's is its own.
+    const next = kind === "planner" ? freeBriefs(plans, { live, self: one.sessionId })[0] : ready;
+    return next
+      ? { ...one, shared: sharedTokens(next.text, one.seen), sharedWith: next.path }
+      : one;
+  });
 }
 
 /**
@@ -1041,9 +1129,11 @@ function endsWords(one, now = Date.now()) {
 }
 
 /**
- * "618k context, warm", "200k context, cold 130 min, over its ceiling", or ""
- * with no usage: over the warm ceiling `ceilingFor` works out for the row's
- * agent with what it shares (`shared`, 0 when no work is in hand). An
+ * "618k context, warm", "174k context, warm, shares 13k with plans/x.md, over
+ * its ceiling", "200k context, cold 130 min, over its ceiling", or "" with no
+ * usage: over the warm ceiling `ceilingFor` works out for the row's agent with
+ * what it shares (`shared`, 0 when no work is in hand), said with the work it
+ * shares it with (`sharedWith`, plans/shared-file-share.md, part 3). An
  * assistant has no ceiling: the queue never replaces one.
  */
 export function usageWords(one, now = Date.now()) {
@@ -1063,6 +1153,9 @@ export function usageWords(one, now = Date.now()) {
   return [
     `${kTokens(context)} context`,
     age <= WARM ? "warm" : `cold ${Math.round(age / MINUTE)} min`,
+    one.sharedWith && one.shared >= 500
+      ? `shares ${kTokens(one.shared)} with ${one.sharedWith}`
+      : "",
     over ? "over its ceiling" : "",
   ]
     .filter(Boolean)
@@ -1319,6 +1412,11 @@ function readState(sessionId) {
     retired: false,
     ...readJson(files.state(sessionId)),
   });
+}
+
+/** What the session read or wrote of each file, in tokens, by its tool hook (`seenAfter`). */
+function seenOf(sessionId) {
+  return readJson(files.seen(sessionId)) || {};
 }
 
 /**
@@ -3131,11 +3229,11 @@ function startHere(
                 .filter((one) => one.sessionId !== replace && !one.retired)
                 .map((one) => ({
                   ...one,
-                  // A planner shares what its plans name; an executor, its batch's files.
+                  // What the chat read or wrote of the files the work names.
                   shared:
                     kind === "planner"
-                      ? sharedTokens(briefText, plannerOwn(one.holds))
-                      : executorShared(one.sessionId, paths),
+                      ? sharedTokens(briefText, one.seen)
+                      : Math.max(0, ...paths.map((path) => sharedTokens(planText(path), one.seen))),
                 })),
         brief: kind === "executor" ? "" : paths[0],
         // This checkout's chats only: one in another checkout reads another queue (Codex).
@@ -3510,12 +3608,17 @@ export function list({ all = false, live, related = true, readers = null } = {})
   if (live)
     executor = sessionsLine(
       "executor",
-      sessionsOf("executor", live, lock, {
-        trees,
+      withShare(
+        sessionsOf("executor", live, lock, {
+          trees,
+          plans,
+          fallback: proj().reuse.executor,
+          inputs: reuseNow(),
+        }),
+        "executor",
         plans,
-        fallback: proj().reuse.executor,
-        inputs: reuseNow(),
-      }),
+        live,
+      ),
     );
   else if (lock && !lock.released)
     executor = `The executor: ${lock.name || nameOf(lock.sessionId)} [${String(lock.sessionId).slice(0, 8)}], status unknown.`;
@@ -3526,12 +3629,17 @@ export function list({ all = false, live, related = true, readers = null } = {})
     out.push(
       sessionsLine(
         "planner",
-        sessionsOf("planner", live, lock, {
-          trees,
+        withShare(
+          sessionsOf("planner", live, lock, {
+            trees,
+            plans,
+            fallback: proj().reuse.planner,
+            inputs: reuseNow(),
+          }),
+          "planner",
           plans,
-          fallback: proj().reuse.planner,
-          inputs: reuseNow(),
-        }),
+          live,
+        ),
       ),
     );
   // **The ceilings, and why the last fresh session of each kind started**
@@ -3755,51 +3863,6 @@ export function list({ all = false, live, related = true, readers = null } = {})
       `${here.rejected ? `The plugin's "machine" option, "${here.rejected}", is no label (letters, digits, underscores, dots and hyphens), so this machine` : "This machine"} is named by its hostname; the plugin's "machine" option names it: /plugin configure workflow in a chat, or echo '{"machine":"<label>"}' | claude plugin configure workflow@workflow --values-stdin.`,
     );
   return out.join("\n");
-}
-
-/**
- * **The files this session's batches changed**, which survive the push and the
- * detach: from `base`, the branch's tip when the session wrote its first
- * Building line (after the batch's fetch), else at its first prompt, to
- * HEAD and to `origin/<branch>` (one executor at a time pushes the branch, so
- * everything after `base` there is this session's), and the turn's writes.
- * With no `base`, the branch's diff to HEAD.
- */
-export function changedFiles(state, dir = root) {
-  const diff = (range) => {
-    try {
-      return execFileSync("git", ["diff", "--name-only", range], {
-        cwd: dir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      })
-        .split("\n")
-        .filter(Boolean);
-    } catch {
-      // No such ref here: judge by what else there is.
-      return [];
-    }
-  };
-  const changed = state.base
-    ? [...diff(`${state.base}..HEAD`), ...diff(`${state.base}..origin/${branch()}`)]
-    : diff(`origin/${branch()}...HEAD`);
-  const turn = readJson(join(tmpdir(), `workflow-turn-${state.sessionId}.json`));
-  return [...new Set([...changed, ...(turn?.wrote || [])])];
-}
-
-/** The most any of `paths` shares with the files the executor `sessionId`'s batch changed, in tokens. */
-function executorShared(sessionId, paths) {
-  const changed = changedFiles({ ...readState(sessionId), sessionId });
-  return Math.max(0, ...paths.map((path) => sharedTokens(planText(path), changed)));
-}
-
-/** The branch's tip, for a session's `base`; "" when the ref is missing. */
-function branchTip() {
-  try {
-    return git(["rev-parse", `origin/${branch()}`]);
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -4570,7 +4633,7 @@ export function tiredFor(
     checkout = root,
   } = {},
 ) {
-  const shared = sharedTokens(textOf(brief), plannerOwn(state.plans || [], textOf), { checkout });
+  const shared = sharedTokens(textOf(brief), state.seen, { checkout });
   const verdict = mayReuse({ usage, shared, inputs, fallback, now, kind: "planner" });
   return verdict.reuse ? "" : verdict.why;
 }
@@ -4777,7 +4840,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     // named while it is tired is not taken, and its Stop hook retires it for
     // a fresh planner.
     const tired = named
-      ? tiredFor({ ...state, agent: "planner" }, named, {
+      ? tiredFor({ ...state, agent: "planner", seen: seenOf(sessionId) }, named, {
           usage: sessionUsage(input.transcript_path),
           inputs: reuseNow(),
           fallback: proj().reuse.planner,
@@ -4844,12 +4907,11 @@ function plannerHook(mode, input, sessionId, statePath) {
   if (mode === "stop") {
     // A planner the queue gave nothing (the owner's own) is left alone.
     if (!state.brief && !state.plans.length) return;
-    const own = plannerOwn(state.plans);
     // A brief sent by message to another live planner is that planner's
     // (plans/brief-lease-per-brief.md, part 3), so two never plan one brief.
     const waiting = freeBriefs(plans, { live, self: sessionId }).map((p) => ({
       ...p,
-      shared: sharedTokens(p.text, own),
+      shared: sharedTokens(p.text, seenOf(sessionId)),
     }));
     const decision = decidePlannerStop({
       current,
@@ -4989,10 +5051,23 @@ function hook(mode, input) {
   // Only an executor's Building line takes a plan, and only a planner's
   // "Decided" lets one go; any other session's edit returns at once.
   if (mode === "wrote" && kindOf(input) === "assistant") {
-    leaveAsking(input);
+    // A Read writes nothing, so it leaves the asking state as it is.
+    if (input.tool_name !== "Read") leaveAsking(input);
     return;
   }
   if (mode === "wrote" && !executor && kindOf(input) !== "planner") return;
+  // **What a plan or brief shares with a chat is what the chat read or wrote
+  // of it** (plans/shared-file-share.md, part 1;
+  // decisions.md#shared-is-what-is-held, decisions.md#reuse-check-cheap): a
+  // planner's or an executor's tool call adds its tokens to its `seen` file,
+  // from the hook's own input. A subagent's call carries the subagent's
+  // `agent_type`, so it returned above. A Read writes nothing else.
+  if (mode === "wrote") {
+    const before = seenOf(sessionId);
+    const seen = seenAfter(before, input);
+    if (seen !== before) writeJson(files.seen(sessionId), seen);
+    if (input.tool_name === "Read") return;
+  }
   // **An assistant chat the queue started ends an hour after it goes quiet**
   // (plans/project-follow-ups-reach-the-project.md, part 6), by its numbered
   // name; the owner's own assistant chat is never the queue's to end.
@@ -5018,16 +5093,6 @@ function hook(mode, input) {
     // planner whose plan this is has its chat stopped (decision 1 of
     // plans/planner-talks-until-built.md). Anything else returns at once.
     const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
-    // **The batch starts at its first Building line**: written after the
-    // batch's fetch, so `origin/<branch>` is current there, with no hook
-    // touching the network. A later Building line leaves it alone, and a
-    // missing ref leaves the first prompt's.
-    const markBase = () => {
-      const state = readState(sessionId);
-      if (state.baseAt) return;
-      const tip = branchTip();
-      if (tip) writeJson(statePath, { ...state, base: tip, baseAt: "building" });
-    };
     // **Every plan this session took, kept past its Building line**
     // (plans/project-follow-ups-reach-the-project.md, part 4): "Built" takes
     // the line out, and the Stop hook still asks what the built plan owes.
@@ -5070,10 +5135,9 @@ function hook(mode, input) {
       }
       if (String(taken) !== String(state.taken || []))
         writeJson(statePath, { ...readState(sessionId), taken });
-      // The batch starts at a Building line that stays, and the plan stops
+      // A Building line that stays holds the plan, and the plan stops
       // asking; one the asking check took out is not this session's (/code-review).
       if (taken.length) hold(taken);
-      if (taken.length) markBase();
       if (newly.length) dropDeferred("asking", newly);
       if (said.length)
         process.stdout.write(JSON.stringify({ decision: "block", reason: said.join("\n") }));
@@ -5083,7 +5147,6 @@ function hook(mode, input) {
     if (!path) return;
     if (!building.test(planText(path))) return;
     hold([path]);
-    markBase();
     dropDeferred("asking", [path]);
     stopPlannersOn(path, liveSessions());
     return;
@@ -5136,15 +5199,8 @@ function hook(mode, input) {
       );
       return;
     }
-    // An executor the owner started by hand has no `Executor n` name; this
-    // marks it, and the first mark records where its batches start.
-    if (state.agent !== "executor")
-      writeJson(statePath, {
-        ...state,
-        agent: "executor",
-        // A base a Building line marked is the batch's: never moved back.
-        ...(state.baseAt ? {} : { base: branchTip() }),
-      });
+    // An executor the owner started by hand has no `Executor n` name; this marks it.
+    if (state.agent !== "executor") writeJson(statePath, { ...state, agent: "executor" });
     hookOutput(
       "UserPromptSubmit",
       `Plans in the queue (plans):\n${list({ live, related: false })}\n\nThis session's id is ${sessionId}.`,
@@ -5183,14 +5239,13 @@ function hook(mode, input) {
     // The sweep: a Building line written another way (a shell command, a
     // hook that failed) still stops the retired planner whose plan it took.
     stopTakenPlanners(live);
-    const changed = changedFiles({ ...state, sessionId });
     // "Asked once": a plan its planner is still asking about is not named.
     const waiting = withAsking(
       plans.filter((p) => p.state === "ready"),
       live,
     )
       .filter((p) => !p.askingIn)
-      .map((p) => ({ ...p, shared: sharedTokens(p.text, changed) }));
+      .map((p) => ({ ...p, shared: sharedTokens(p.text, seenOf(sessionId)) }));
     const handed = plans.filter((p) => p.state === "handed");
     const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
     const carry = carryOf(

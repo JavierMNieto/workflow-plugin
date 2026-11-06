@@ -530,7 +530,10 @@ on the machine that planned them.
   numbers serve only while an agent has under five sessions in the
   project, and 480k is the cap, the quality limit no price measures
   (Chroma's context rot, research.trychroma.com/context-rot).
-  plans/adaptive-reuse.md.
+  plans/adaptive-reuse.md. 6 November: the shared reading is what the
+  chat read or wrote of each file the work names, counted by its tool
+  hook, at most the file's size (shared-is-what-is-held).
+  plans/shared-file-share.md.
   - ~~A session's context is worth keeping only while it is cheaper than
     a fresh one, and the wash is each agent's: an executor retires past
     200k, a planner past 160k for a brief on other ground and past 480k
@@ -551,6 +554,19 @@ on the machine that planned them.
   6 November: a hook that finds the summary over an hour old starts
   `plans cost` in the background and does not wait.
   plans/hooks-refresh-reuse-in-background.md.
+  6 November: what a chat holds of each file is counted by the tool hook
+  from the tool's own result, never from a transcript
+  (shared-is-what-is-held). plans/shared-file-share.md.
+- `shared-is-what-is-held` **What a plan or brief shares with a chat is
+  what the chat read or wrote of each file it names, at most the file's
+  size, never the file's whole size.** (Javi, 6 November) A file counted
+  whole raised an executor's ceiling from 74k to 157k for a 331 KB test
+  file it had changed a few hunks of (13k tokens held of 83k); the share
+  is what a fresh chat would have to read again. The count is the tool
+  hook's, from each tool's result as the chat goes, into a file of the
+  session's beside its state, which the count never writes over: no
+  model call, no transcript read, nothing in the agent's context.
+  plans/shared-file-share.md.
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel

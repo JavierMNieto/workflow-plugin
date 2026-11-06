@@ -447,7 +447,8 @@ is pushed where the red one was, before anything else, then names
 the waiting plans to a session it may reuse (a context under the
 ceiling the queue works out for this project and agent: the wash of
 "context-cost" from inputs measured in its transcripts, raised by what
-the plan shares with the chat, the project file's `reuse` (200k for an
+the chat read or wrote of the files the plan names, the project
+file's `reuse` (200k for an
 executor, 160k for a planner by default) only while it has under five
 sessions of the agent, and never over 480k; a cache still warm), else
 retires it and starts the next executor, judged at every stop while
@@ -455,7 +456,8 @@ plans wait, the plans it was named included. A plan the usage limit cuts
 off, or `plans end --now` ends, is handed over (work committed, a
 "Handing over" section, stop); twice at the same step, or six times, the
 owner is asked.
-(decisions.md#one-executor, decisions.md#context-cost)
+(decisions.md#one-executor, decisions.md#context-cost,
+decisions.md#shared-is-what-is-held)
 
 **Starts are bounded**: one executor at a time; none while the five-hour
 window is above 80 percent or the seven-day above 95, deferred to the
@@ -513,7 +515,9 @@ start --agent planner` starts a planner under the executor's bounds.
 
 **A planner with room left takes the next brief**: the oldest brief it
 is under its ceiling for, the ceiling raised by what the brief shares
-with its plans (the files both name, in tokens); else it retires, and `plans start` leaves a brief with a live planner only
+with it (what the chat read or wrote of the files the brief names, in
+tokens, at most each file's size); else it retires, and `plans start`
+leaves a brief with a live planner only
 when it is under its ceiling for that brief and not waiting on a
 question, by message when it is idle and by its Stop hook when it is
 busy, leased for thirty minutes, each brief its own lease: `plans` says

@@ -125,7 +125,23 @@ export function takeLock(
   live: LiveRow[] | null,
   options?: { path?: string; alive?: ((lock: Lock) => boolean) | null },
 ): boolean;
-export function changedFiles(state: { sessionId: string; base?: string }, dir?: string): string[];
+/** What the chat read or wrote of each file, in tokens, after one tool call. */
+export function seenAfter(
+  seen: Record<string, number>,
+  input: {
+    tool_name?: string;
+    tool_input?: Record<string, unknown>;
+    tool_response?: unknown;
+    cwd?: string;
+  },
+  options?: { checkout?: string },
+): Record<string, number>;
+/** What `text`'s files share with a chat that holds `seen`, at most each file's size, in tokens. */
+export function sharedTokens(
+  text: string,
+  seen?: Record<string, number>,
+  options?: { checkout?: string },
+): number;
 export function related(text: string, changed: string[]): boolean;
 export function briefPaths(text: string): string[];
 export function relatedBrief(briefText: string, ownTexts?: string[], ownPaths?: string[]): boolean;
@@ -246,7 +262,7 @@ export function decidePlannerStop(facts: {
   | { refuse: true; told: string[]; reason: string; kept: Kept }
   | null;
 export function tiredFor(
-  state: { plans?: string[] },
+  state: { plans?: string[]; seen?: Record<string, number> },
   brief: string,
   options?: {
     usage?: SessionUsage | null;
