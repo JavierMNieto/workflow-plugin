@@ -23,6 +23,7 @@ export const FILES = [
   "agents/reviewer.md",
   "bin/plans",
   "docs/decisions.md",
+  "docs/landing.md",
   "docs/workflow.md",
   "hooks/hooks.json",
   "scripts/catalogue-context.mjs",
@@ -79,9 +80,9 @@ const OLDER = "This copy is an older version that new chats do not load: start a
  * the same way when this file is the one missing; a test holds the three.
  */
 export function fix(root) {
-  const cached = /^(.*)[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
+  const cached = cache(root);
   if (!cached) return FOLDER;
-  const [, plugins, marketplace, plugin, version] = cached;
+  const { plugins, marketplace, plugin, version } = cached;
   if (!installed(plugins, root)) return OLDER;
   const clone = join(plugins, "marketplaces", marketplace);
   let head = "";
@@ -99,6 +100,14 @@ export function fix(root) {
       ? `git -C "${clone}" archive ${version}:plugins/${plugin} | tar -x -C "${root}"`
       : `claude plugin update ${plugin}@${marketplace}`;
   return `The fix: ${command}, then start a new chat.`;
+}
+
+/** The parts of a root under `<plugins>/cache/<marketplace>/<plugin>/<version>`, or null. */
+function cache(root) {
+  const parts = /^(.*)[\\/]cache[\\/]([^\\/]+)[\\/]([^\\/]+)[\\/]([^\\/]+)$/.exec(root);
+  if (!parts) return null;
+  const [, plugins, marketplace, plugin, version] = parts;
+  return { plugins, marketplace, plugin, version };
 }
 
 /**
@@ -136,11 +145,55 @@ function installed(plugins, root) {
 }
 
 /** The line said when files are missing (plans/install-fix-every-path.md, The words, row 1). */
-export function message(root, gone) {
+export function message(root, gone, how = fix(root)) {
   return (
     `The workflow plugin's installed copy is incomplete: ${gone.length} of its ${FILES.length} ` +
     `files ${gone.length === 1 ? "is" : "are"} missing from ${root}, and what is missing does not run in this chat. ` +
-    `Missing: ${gone.join(", ")}. ${fix(root)}`
+    `Missing: ${gone.join(", ")}. ${how}`
+  );
+}
+
+/**
+ * What the agent does with the line, said once here rather than in each agent
+ * file (decisions.md#install-checks-itself): the question, its two options
+ * with the description for the fix this copy gets, the check to run after it
+ * and the words for each outcome. With no fix, say the line and stop.
+ */
+const QUESTION =
+  "Some of the workflow plugin's files are missing from this machine's copy, so the queue's hooks and checks do not run in chats started now. Install the workflow plugin again?";
+
+export function steps(root, how = fix(root)) {
+  const stop =
+    "Then stop: nothing else is done in this chat, since without the plugin's hooks there is " +
+    "no lock, no audit and no Stop hook; the plan or brief this chat was started on waits for a new chat.";
+  if (!how.startsWith("The fix: ")) return `Say this line to the owner in its own words. ${stop}`;
+  const git = how.startsWith("The fix: git ");
+  const { plugins, marketplace, plugin } = cache(root);
+  const yes = git
+    ? "Puts the missing files back into this copy from the marketplace's clone. Nothing is deleted, " +
+      "and chats already running on this copy work again from their next hook. Then start a new " +
+      "chat: this one may have loaded without the plugin's hooks."
+    : "Installs the newer version beside this copy, which stays as it is: chats running on it, this " +
+      "one too, keep failing at each hook until they are restarted. Nothing is deleted. Then start " +
+      "a new chat, which loads the new version.";
+  const after = git
+    ? `\`node "${join(root, "scripts", "install-check.mjs")}"\``
+    : `\`node <installPath>/scripts/install-check.mjs\`, the \`installPath\` that ` +
+      `${join(plugins, "installed_plugins.json")} gives \`${plugin}@${marketplace}\` once the update is done`;
+  const done = git
+    ? `Put back: all ${FILES.length} files are there in ${root}. Start a new chat; this one may have loaded without the plugin's hooks.`
+    : `Installed <version>: all <m> files are there in <installPath>. Start a new chat; this one keeps running on the old copy.`;
+  return (
+    "Say this line to the owner in its own words first. Then ask once with the question tool, " +
+    `headed "Install": "${QUESTION}", with the options "Yes, install it again (Recommended)" ` +
+    `(${yes}) and "No, leave it" (Nothing is changed. The workflow's hooks do not run until the ` +
+    `files are back.). On yes, run the fix, then ${after}. When it prints nothing, say "${done}"` +
+    (git
+      ? ""
+      : " (<version> the new copy's last path segment, <m> the count of `FILES` in its scripts/install-check.mjs)") +
+    '; when it prints a line, say "The fix ran, but the copy is still incomplete:", then that ' +
+    'line, then what the fix printed, a line each. On no, say "Left as it is. Start a new chat ' +
+    `once the files are back." ${stop}`
   );
 }
 
@@ -149,10 +202,15 @@ function main() {
     const root = join(here, "..");
     const gone = missing(root);
     if (!gone.length) return;
-    const text = message(root, gone);
+    const how = fix(root);
+    const text = message(root, gone, how);
+    // The owner sees the line; the agent gets the line and the steps.
     process.stdout.write(
       JSON.stringify({
-        hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: `${text}\n\n${steps(root, how)}`,
+        },
         systemMessage: text,
       }),
     );

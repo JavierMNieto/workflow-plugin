@@ -576,7 +576,9 @@ on the machine that planned them.
   `plans`, from the copy's own path; a copy that the install record does
   not name is an older version and gets no command; the yes option says
   what the line's fix does, and the recheck looks at the copy the fix
-  changed. plans/install-fix-every-path.md.
+  changed. plans/install-fix-every-path.md. 6 November: the line
+  carries the question and the steps, said once by the script; each
+  agent file keeps one sentence. plans/simpler-agent-files.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the

@@ -240,7 +240,7 @@ maker then commits nothing; it reads no `land`. (decisions.md#compact-form)
 where it lands in a `Lands` line under its header paragraph; absent the
 key, the executor pushes everything to the branch and the line means
 nothing. A topic's pull request is a draft until the owner has reviewed
-it (below); the executor's "In pull request mode" holds the steps.
+it (below); `docs/landing.md` holds the executor's steps.
 (decisions.md#land-by-pull-request)
 
 - **A topic** (`Lands: topic <name>, ready.` or `, waiting.`): one
@@ -666,9 +666,11 @@ session's first context and `plans`'s first line, with the files and
 the fix (the files put back from the marketplace's clone at the copy's
 commit, or the newer version installed when there is one; nothing is
 deleted; a copy loaded from a folder, or an older version than the
-installed one, gets no command, only a new chat); the agent says it to
-the owner first, asks once whether to install again, and does nothing
-else in that chat.
+installed one, gets no command, only a new chat). The session's context
+carries the line and the steps the check writes for it: the agent says
+the line to the owner first, asks once whether to install again, runs
+the fix and the check again on yes, and does nothing else in that chat;
+each agent file keeps one sentence pointing at the line.
 (decisions.md#install-checks-itself)
 
 **A push needs a token in the container**: a fine-grained `GH_TOKEN` on

@@ -27,7 +27,7 @@ import {
   pathsIn,
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
-import { FILES, missing } from "../plugins/workflow/scripts/install-check.mjs";
+import { FILES, missing, steps } from "../plugins/workflow/scripts/install-check.mjs";
 import {
   defaultBranch,
   frontmatter,
@@ -316,18 +316,15 @@ describe("the plugin's queue in any project", () => {
   it("keeps another person's commit on a topic's branch, and says what a change is related to", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
     const text = (path: string) => readFileSync(join(plugin, path), "utf8").replace(/\s+/g, " ");
-    const executor = text("agents/executor.md");
+    const executor = text("docs/landing.md");
     expect(executor).toContain(
-      "the squash going back to the tip the branch had when this plan started",
-    );
-    expect(executor).toContain(
-      "a commit another person pushed to the branch between the plans stays as theirs",
+      "squashed back to the plan's tip, so a commit another person pushed stays theirs",
     );
     expect(executor).toContain("Related: #<n>. <- plans with a Related line only");
     // plans/pull-request-description-standard-follow-up.md: the description lists it under Also.
     expect(executor).toContain("- <The commit's title.> (<author>)");
     expect(executor).not.toContain("credited by GitHub's commits list");
-    expect(executor).toContain("what it was marked related to in the same sentence");
+    expect(executor).toContain("its link and what it was marked related to");
     for (const agent of ["planner", "assistant"])
       expect(text(`agents/${agent}.md`), agent).toContain("`Related: #31.`");
     const doc = text("docs/workflow.md");
@@ -340,9 +337,7 @@ describe("the plugin's queue in any project", () => {
     expect(executor).toContain("`git log --first-parent <tip>..HEAD --format=%H`");
     expect(executor).toContain("a merge this plan made before its tip");
     expect(executor).toContain("Nothing is left out by author or by title.");
-    expect(executor).toContain(
-      'Every merge gets a line in the plan\'s "Built", `Merged <base> <date>, commit <sha>:',
-    );
+    expect(executor).toContain("`Merged <base> <date>, commit <sha>: <files or none>`");
     expect(executor).toContain("`Refreshed <date>: merged <base>, commit <sha>,");
     expect(executor).not.toContain("^<its headRefOid>");
     expect(executor).not.toContain("git fetch origin pull/<n>/head");
@@ -350,7 +345,7 @@ describe("the plugin's queue in any project", () => {
     expect(doc).toContain("**The plans account for the queue's commits.**");
     // plans/also-knows-whose-commit-follow-up.md: every merged base down the stack, read in pages.
     expect(executor).toContain("each merged pull request down the stack");
-    expect(executor).toContain("each found by the `Builds on #<n>` line its body opens with");
+    expect(executor).toContain("found by the `Builds on #<n>` line of its body");
     expect(executor).toContain(
       "`gh api --paginate repos/{owner}/{repo}/pulls/<n>/commits --jq '.[].sha'`",
     );
@@ -369,7 +364,7 @@ describe("the plugin's queue in any project", () => {
   // plans/try-it-is-one-line.md.
   it("keeps a pull request's To try it to the one line of how to try it", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8").replace(/\s+/g, " ");
     expect(executor).not.toContain("(plans/ is not tracked)");
     expect(executor).not.toContain("Checks: <the checks workflow's name>");
     expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
@@ -378,8 +373,8 @@ describe("the plugin's queue in any project", () => {
   // plans/pull-request-description-standard.md.
   it("a pull request's description is the catalogue's diff", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8");
-    const mode = executor.slice(executor.indexOf("### In pull request mode"));
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8");
+    const mode = executor.slice(executor.indexOf("# Landing by pull request"));
     const [topic, fixes] = [...mode.matchAll(/^```\n([\s\S]*?)^```$/gm)]
       .map((m) => m[1])
       .filter((block) => block.includes("## To try it"));
@@ -407,12 +402,12 @@ describe("the plugin's queue in any project", () => {
   // plans/no-session-link-in-pull-requests.md.
   it("leaves the link to a Claude session out of a pull request's description", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
-    const executor = readFileSync(join(plugin, "agents/executor.md"), "utf8").replace(/\s+/g, " ");
+    const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8").replace(/\s+/g, " ");
     const ending =
       "<the attribution lines the session gives for a pull request, with any link to a Claude session left out>";
     expect(executor.split(ending)).toHaveLength(3);
     expect(executor).not.toContain("<the attribution lines the session gives for a pull request>");
-    expect(executor).toContain("less any line that carries a `claude.ai/code/session_` address");
+    expect(executor).toContain("less any line with a `claude.ai/code/session_` address");
   });
 
   // plans/dropped-plan-state.md, part 3.
@@ -423,9 +418,7 @@ describe("the plugin's queue in any project", () => {
       expect(text(`agents/${agent}.md`), agent).toContain(
         "`Dropped on ${user_config.owner}'s word:",
       );
-    expect(text("agents/executor.md")).toContain(
-      "A plan whose file has a `## Dropped` section is nobody's to build, whoever names it",
-    );
+    expect(text("agents/executor.md")).toContain("A plan with a `## Dropped` section is nobody's");
     const doc = text("docs/workflow.md");
     const queue = doc.slice(doc.indexOf("## The queue"));
     expect(queue).toContain(
@@ -910,7 +903,9 @@ describe("the handbook holds every rule the plugin cites", () => {
   const bold = [...prose.matchAll(/\*\*([^*]+?)\*\*/g)].map((m) =>
     m[1].replace(/\s+/g, " ").replace(/\.$/, ""),
   );
-  const headings = [...handbook.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  // A cited section is a heading of the handbook or of the landing steps the executor reads.
+  const landing = readFileSync(join(plugin, "docs", "landing.md"), "utf8");
+  const headings = [...`${handbook}\n${landing}`.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
   // The names the agent files, the scripts, the skills and the tests cite in
   // quotation marks, collected by hand on 2 November (plans/docs-as-a-prompt.md).
   const NAMES = [
@@ -981,6 +976,30 @@ describe("the handbook holds every rule the plugin cites", () => {
   it("holds each cited section as a heading", () => {
     for (const section of SECTIONS) expect(headings, section).toContain(section);
   });
+
+  // plans/simpler-agent-files.md: an agent file cites a rule by its name, never by one gone.
+  it("every rule an agent file cites is in the handbook", () => {
+    const flatProse = prose.replace(/\s+/g, " ");
+    let cited = 0;
+    for (const agent of readdirSync(join(plugin, "agents"))) {
+      const text = readFileSync(join(plugin, "agents", agent), "utf8");
+      const flat = text.replace(/```[\s\S]*?```/g, "").replace(/\s+/g, " ");
+      const own = [
+        ...[...text.matchAll(/^## (.+)$/gm)].map((m) => m[1]),
+        ...[...flat.matchAll(/\*\*([^*]+?)\*\*/g)].map((m) => m[1]),
+      ];
+      for (const [, name] of flat.matchAll(/(?:the docs' |the handbook's |\()"([A-Z`][^"]+?)"/g)) {
+        cited++;
+        expect(
+          flatProse.includes(`**${name}`) ||
+            headings.includes(name) ||
+            own.some((lead) => lead.startsWith(name)),
+          `${agent}: "${name}"`,
+        ).toBe(true);
+      }
+    }
+    expect(cited).toBeGreaterThan(20);
+  });
 });
 
 describe("a brief or a plan is a prompt", () => {
@@ -1033,12 +1052,12 @@ describe("a brief or a plan is a prompt", () => {
   it("the executor's Built rule and its four-part rule, and the reviewer's second check, name Done when", () => {
     const executor = flat(agent("executor"));
     // Each rule read to its end: the Built bullet to the next bullet, the four-part rule to its last sentence.
-    const built = /\*\*The plan gets its "Built, <date>" section\*\*.*? - \*\*/.exec(executor)![0];
+    const built = /\*\*"Built"\*\*.*? - \*\*/.exec(executor)![0];
     expect(built).toContain('"Done when"');
-    const brief = /\*\*Every brief has four parts\*\*.*?not a result to paste\./.exec(executor)![0];
+    // The four parts, done when among them, are the handbook rule the brief names.
+    const brief = /A brief has the four parts of .*?three hundred words\./.exec(executor)![0];
     expect(brief).toContain("A brief or a plan is a prompt for the agent that reads it");
-    expect(brief).toMatch(/done when/i);
-    expect(executor).toContain('Its "Done when" is what you check before you write "Built".');
+    expect(executor).toContain('its "Done when" is what you check before "Built".');
     const reviewer = flat(agent("reviewer"));
     const second = /2\. \*\*([^*]+)\*\*/.exec(reviewer)![1];
     expect(second).toContain('"Done when"');
@@ -1076,10 +1095,10 @@ describe("a brief or a plan is a prompt", () => {
     expect(planner).toMatch(/4\. \*\*Done when\*\*[^*]*When <what they do>, then <what they see>/);
     expect(planner).toMatch(/Lead in plain words.{0,220}When <what he does>, then <what he sees>/);
     const executor = flat(agent("executor"));
-    expect(executor).toContain("**A test per scenario.**");
-    expect(executor).toMatch(
-      /\*\*The final message\*\* leads in plain words.{0,220}When <what he does>, then <what he sees>/,
+    expect(executor).toContain(
+      'Give each When … then … line of "Done when" the test it names, one per scenario',
     );
+    expect(executor).toMatch(/\*\*The final message\*\*.{0,120}as When … then …/);
     // The reviewer checks the scenarios rather than writing them: its check 2, to check 3.
     const check = flat(
       /2\. \*\*Every line of its "Done when"[^]*?(?=\n3\. )/.exec(agent("reviewer"))![0],
@@ -1087,14 +1106,14 @@ describe("a brief or a plan is a prompt", () => {
     expect(check).toContain("a When … then … line by the test it names");
     expect(check).toContain('the screenshot named for it, read with Read, shows its "then"');
     expect(check).toContain("is a gap when none is named");
-    const perScenario = /\*\*A test per scenario\.\*\*.*? - \*\*/.exec(executor)![0];
-    expect(perScenario).toContain("screenshotted, to `plans/<topic>/<file>.png`");
+    const perScenario = /Give each When … then … line.*? - /.exec(executor)![0];
+    expect(perScenario).toContain("screenshotted to `plans/<topic>/<file>.png`");
     expect(flat(agent("reviewer"))).toContain("a scenario's screenshot is check 2's");
     expect(rule).toContain(
       "for one looked at on screen the executor names the screenshot that shows it",
     );
     expect(executor).toContain(
-      "each screenshot sent in step 1 or taken for a scenario, by its path and what it shows, and the When … then … line it shows",
+      "each screenshot by path with what it shows and its When … then … line",
     );
   });
 });
@@ -1806,10 +1825,10 @@ describe("a plan still asking, whoever names it", () => {
     readFileSync(new URL(`../plugins/workflow/agents/${name}.md`, import.meta.url), "utf8");
 
   it("has the executor run plans before a plan named by a path, and wait on one asking", () => {
-    const sources = /\*\*The plans you build\*\*[\s\S]*?\n\n/.exec(agent("executor"))![0];
-    expect(sources).toContain(
-      "Before building a plan named by a path, by\n${user_config.owner} or in a message, run `plans`",
-    );
+    const sources = /## The plans you build\n\n[\s\S]*?\n\n/
+      .exec(agent("executor"))![0]
+      .replace(/\s+/g, " ");
+    expect(sources).toContain("Run `plans` before building a plan named by a path");
     expect(sources).toContain('"Asking ${user_config.owner}" waits until the time it prints');
   });
 
@@ -1826,31 +1845,29 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     readFileSync(new URL(`../plugins/workflow/${path}`, import.meta.url), "utf8");
 
   it("has the executor stack on use, never on a shared file, and refresh a conflicting pull request", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     expect(mode).not.toContain("--name-only");
-    expect(mode).toContain("one whose additions it uses");
+    expect(mode).toContain("it uses what an earlier plan adds");
     expect(mode).toContain(
       "only changes a file an open pull request changes is neither joined to it nor stacked on it",
     );
     expect(mode).toContain("`mergeable` `CONFLICTING`");
     // From the head as GitHub has it, its own base merged in, a plain push.
     expect(mode).toContain("`git switch -C <head branch> origin/<head branch>`");
-    expect(mode).toContain("Its own base, `origin/<baseRefName>`, is merged in");
-    expect(mode).toContain(
-      "`git push origin <head branch>`, a plain push to its own head branch only, never to the branch",
-    );
+    expect(mode).toContain("Merge its base, `origin/<baseRefName>`, in");
+    expect(mode).toContain("push it with `git push origin <head branch>`, never to the branch");
   });
 
   // plans/refresh-by-merge.md: a branch is brought up to date by merging, never force-pushed.
   it("has the executor merge a branch up to date and never force-push", () => {
-    const text = read("agents/executor.md");
-    const flat = text.replace(/\s+/g, " ");
+    const text = read("docs/landing.md");
+    const flat = read("agents/executor.md").replace(/\s+/g, " ");
     expect(text).not.toContain("--force-with-lease");
     expect(text).not.toContain("git rebase --onto");
     expect(flat).toContain("nothing is force-pushed, ever");
-    const mode = /### In pull request mode[\s\S]*?\n\*\*The description\*\*/
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*The description\*\*/
       .exec(text)![0]
       .replace(/\s+/g, " ");
     const part = (from: string, to: string) => {
@@ -1862,26 +1879,29 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     // One merge, defined once: no editor, the attribution, a plain push retried after a merge.
     const merge = part("**A branch is brought up to date by a merge**", "**A topic's branch**");
     expect(merge).toContain(
-      '`git merge --no-edit -m "Merge origin/<base> into <name>" -m "<the attribution lines the session gives>" origin/<base>`',
+      '`git merge --no-edit -m "Merge origin/<base> into <name>" -m "<the session\'s attribution lines>" origin/<base>`',
     );
     expect(merge).toContain("`git commit --no-edit`");
-    expect(merge).toContain("Its push is a plain push to that branch only");
-    expect(merge).toContain("the project's checks again on the merged tree");
+    expect(merge).toContain("Push it to that branch only");
+    expect(merge).toContain(
+      "merge `origin/<name>` the same way, run the checks and push once more",
+    );
     // The refresh, the waiting topic and the day's fixes branch merge, then push plainly.
-    const named = '("A branch is brought up to date by a merge"';
     const refresh = part("**Then a conflicting pull request is refreshed**", '**"Before the push"');
-    expect(refresh).toContain("`origin/<baseRefName>`, is merged in " + named);
-    expect(refresh).toContain("`git push origin <head branch>`, a plain push");
-    expect(refresh).toContain("`Refreshed <date>: merged <base>, commit <sha>, <the files"); // plans/also-knows-whose-commit.md
+    expect(refresh).toContain("Merge its base, `origin/<baseRefName>`, in");
+    expect(refresh).toContain("`git push origin <head branch>`, never to the branch");
+    expect(refresh).toContain("`Refreshed <date>: merged <base>, commit <sha>, <files>`"); // plans/also-knows-whose-commit.md
     const waiting = part("**A waiting branch**", "**An open pull request's branch**");
-    expect(waiting).toContain("merged in " + named);
+    expect(waiting).toContain("then its base merged in");
     expect(waiting).not.toContain("rebase");
     const topic = part("**A topic's plan**", "**Waiting, no pull request**");
-    expect(topic).toContain("`git push -u origin <name>`, a plain push");
+    expect(topic).toContain("`git push -u origin <name>`, retried as for a merge");
     const fixes = part("**A fix**, `Lands: fix.`", "**A fix wanted now**");
-    expect(fixes).toContain("`origin/<branch>` merged in after " + named);
-    expect(fixes).toContain("`git push -u origin fixes-<yyyy-mm-dd>`, a plain push");
-    expect(fixes).toContain("never to `origin/<branch>`");
+    expect(fixes).toContain("`origin/<branch>` merged in");
+    expect(fixes).toContain("one commit pushed with `git push -u origin fixes-<yyyy-mm-dd>`");
+    expect(fixes).toContain(
+      "The squash goes back to the tip the day's branch had once taken and merged",
+    );
     expect(fixes).not.toContain("rebase");
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
       "A branch is brought up to date by merging, never force-pushed",
@@ -1890,19 +1910,19 @@ describe("a pull request stacked only on one it cannot be built without", () => 
 
   // plans/refresh-only-your-own.md: only this person's pull requests, with the checks alone.
   it("has the executor refresh and retarget only its own person's pull requests, with the checks", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     // plans/plans-as-github-issues.md: the pull requests open as the project's
     // app, so the plans' naming, never a Related line's, tells the queue's own.
     const own =
-      "each open pull request of this queue (`gh pr list`, one a plan in this checkout's `plans/` names as its own: the pull request its \"Built\" opened or joined, or the branch of its `Lands` topic; a `Related` line names another's)";
+      "The queue's own pull requests are the open ones a plan in this checkout's `plans/` names as its own, by its \"Built\" or its `Lands` topic; a `Related` line names another's";
     const start = mode.slice(mode.indexOf("**At a batch's start**"));
     const refresh = mode.slice(mode.indexOf("**Then a conflicting pull request is refreshed**"));
     expect(start.slice(0, start.indexOf("**Then a conflicting"))).toContain(own);
-    expect(refresh).toContain(own);
+    expect(refresh).toContain("each of the queue's own that GitHub reports as conflicting");
     expect(refresh).toContain(
-      "The project's checks run again (not the suites; the pull request's CI runs on the push)",
+      "run the project's checks, not the suites, since its CI runs on the push",
     );
     expect(mode).not.toContain("checks and suites run again");
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
@@ -1923,36 +1943,30 @@ describe("a pull request stacked only on one it cannot be built without", () => 
   // plans/draft-takes-its-follow-ups.md: a plan resting on an open draft of
   // the queue's own lands in it, listed with that draft's topic, not a new one.
   it("lands a plan resting on the queue's own open draft in that draft, and stacks it on any other", () => {
-    const mode = /### In pull request mode[\s\S]*?\n- \*\*"Before the push"/
-      .exec(read("agents/executor.md"))![0]
+    const mode = /# Landing by pull request[\s\S]*?\n\*\*"Before the push"/
+      .exec(read("docs/landing.md"))![0]
       .replace(/\s+/g, " ");
     const rests = mode.slice(
       mode.indexOf("**A plan that rests on an open pull request**"),
       mode.indexOf("**No branch yet**"),
     );
     expect(rests).toContain("`gh pr view <n> --json isDraft,headRefName`");
+    expect(rests).toContain("**A draft of this queue's own** takes it");
     expect(rests).toContain(
-      "**A draft of this queue's own** (one a plan in this checkout's `plans/` names as its own",
-    );
-    expect(rests).toContain(
-      "the plan lands in that pull request whatever topic its `Lands` line names, its topic that head branch",
+      "the plan lands in that pull request whatever its `Lands` line names, its topic that head branch",
     );
     expect(rests).toContain("One marked ready, or another person's, is stacked on");
     // A plan written for a draft since marked ready gets a topic of its own, not the ready one.
     expect(rests).toContain(
-      "the plan built as `topic <the plan's file name without .md>` when its `Lands` line names that pull request's own topic, with `-2` after it when that too is the pull request's head branch",
+      "as `topic <the plan's file name without .md>` (with `-2` when that is the head branch) when its `Lands` line names that pull request's topic",
     );
     // The plan is listed where it lands, so its old topic is not taken for opened.
-    expect(rests).toContain(
-      "A plan sent to another topic than its `Lands` line names has that line rewritten to the topic it lands in, so `plans` lists it there",
-    );
+    expect(rests).toContain("A plan sent to another topic has its `Lands` line rewritten to it");
     const fresh = mode.slice(
       mode.indexOf("**No branch yet**"),
       mode.indexOf("**A waiting branch**"),
     );
-    expect(fresh).toContain(
-      "**Stacked** only when the plan rests on an open pull request marked ready, or another person's",
-    );
+    expect(fresh).toContain("Stacked: `git switch -c <name> <that head branch>`");
     expect(fresh).not.toContain("that plan's pull request is open: then");
     for (const agent of ["planner", "assistant"]) {
       const text = read(`agents/${agent}.md`).replace(/\s+/g, " ");
@@ -1976,8 +1990,8 @@ describe("a pull request per topic", () => {
     );
 
   it("has the executor land a fix in the day's pull request or straight, and a topic when it is ready", () => {
-    const text = read("agents/executor.md");
-    const mode = /### In pull request mode[\s\S]*?## After /.exec(text)![0];
+    const text = read("docs/landing.md");
+    const mode = /# Landing by pull request[\s\S]*/.exec(text)![0];
     // A fix: the day's branch and title.
     expect(mode).toContain("**A fix**, `Lands: fix.`");
     expect(mode).toContain("`fixes-<yyyy-mm-dd>`");
@@ -1985,9 +1999,7 @@ describe("a pull request per topic", () => {
     expect(mode).toContain("--head fixes-<yyyy-mm-dd>");
     // A fix after the day's pull request merged waits for tomorrow's (Javi, 30 October).
     expect(mode).toContain("the fix **waits for tomorrow**");
-    expect(mode).toContain(
-      "`fixes-<the next day's yyyy-mm-dd>`, pushed, and no pull request opens",
-    );
+    expect(mode).toContain("`fixes-<the next day's yyyy-mm-dd>`, pushed, no pull request");
     // A fix wanted now: the fast-forward push to the branch, then the Already on list.
     expect(mode).toContain("**A fix wanted now**, `Lands: fix, now.`");
     expect(mode).toContain("`git push origin HEAD:<branch>` as a fast-forward");
@@ -1995,14 +2007,12 @@ describe("a pull request per topic", () => {
     // A topic: its name is the branch, its pull request opens with the first ready plan.
     expect(mode).toContain("**A topic's branch** is the topic's name");
     expect(mode).toContain("written from every plan of the topic so far, oldest first");
-    expect(mode).toContain(
-      "converts it back with `gh pr ready --undo <n>` before its commit is pushed",
-    );
+    expect(mode).toContain("runs `gh pr ready --undo <n>` before its commit is pushed");
     // plans/joined-pull-request-no-comment.md: a plan joining an open pull request posts nothing.
     expect(mode).not.toContain("one comment");
     // plans/owner-reviews-before-anyone-else.md: a topic's pull request opens as a draft.
     expect(mode).toContain("gh pr create --draft --base");
-    expect(mode).toContain("never `gh pr ready` without `--undo`");
+    expect(mode).toContain("no `gh pr ready` without `--undo`");
     // plans/draft-says-nothing-about-itself.md: GitHub already shows a draft as one.
     expect(mode).not.toContain("Opened as a draft");
     expect(read("docs/workflow.md")).not.toContain("The draft's first line says so");
@@ -2013,12 +2023,10 @@ describe("a pull request per topic", () => {
       "gh pr edit <n> --body-file plans/<this plan>/pull-request.md \\ --attach plans/<topic>/<file>.png#<the line>",
     );
     expect(mode).toContain("No comment: the description is the record");
-    expect(mode).toContain("or its description set, without `--attach`");
-    expect(mode).toContain(
-      "--attach plans/<x>/<file>.png#<the line> ...`, one `--attach` per screenshot of this fix",
-    );
+    expect(mode).toContain("set it without `--attach`");
+    expect(mode).toContain("description rewritten by `gh pr edit` with `--attach`");
     // The Codex review of it: a partly refused edit is set again from the body gh left.
-    expect(mode).toContain("is read back (`gh pr view <n> --json body`) into the file");
+    expect(mode).toContain("is read back (`gh pr view <n> --json body`) and set again");
     // Javi, 30 October: the comment says nothing of the draft either.
     expect(mode).not.toContain("a draft again until");
     expect(mode).not.toContain("its comment says so");
@@ -2046,7 +2054,7 @@ describe("a pull request per topic", () => {
     expect(read("agents/assistant.md")).toContain(
       "Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.",
     );
-    expect(read("agents/assistant.md")).toContain("`fix, now` only when");
+    expect(read("agents/assistant.md")).toContain("`Lands: fix, now.` only when");
     expect(read("agents/planner.md")).toContain(
       "`Lands: topic <name>, ready.` or `Lands: topic <name>, waiting.`",
     );
@@ -2063,7 +2071,7 @@ describe("the reuse ceiling and the reviewer", () => {
       "utf8",
     );
     expect(text).toContain("Not pushed: <cause>");
-    expect(text).toContain("Never a token in a URL, a remote or a config");
+    expect(text.replace(/\s+/g, " ")).toContain("Never a token in a URL, a remote or a config");
   });
 
   it("reads land, push by default, and the starter names it", () => {
@@ -2475,9 +2483,10 @@ describe("the install check", () => {
     expect(run.stderr).toBe("");
     if (!run.stdout) return "";
     const out = JSON.parse(run.stdout);
+    // The owner sees the line; the agent gets the line and what to do with it.
     expect(out.hookSpecificOutput).toEqual({
       hookEventName: "SessionStart",
-      additionalContext: out.systemMessage,
+      additionalContext: `${out.systemMessage}\n\n${steps(root)}`,
     });
     return out.systemMessage as string;
   };
