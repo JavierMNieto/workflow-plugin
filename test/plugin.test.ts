@@ -2663,19 +2663,22 @@ describe("the install check", () => {
   });
 });
 
-describe("the queue's type declarations", () => {
-  it("every function plan-queue.d.mts declares is exported by plan-queue.mjs", async () => {
-    const declarations = readFileSync(
-      new URL("../plugins/workflow/scripts/plan-queue.d.mts", import.meta.url),
-      "utf8",
-    );
-    const declared = [
-      ...declarations.matchAll(
-        /^export (?:declare )?(?:async )?(?:function|const|let|var|class) (\w+)/gm,
-      ),
-    ].map((match) => match[1]);
-    expect(declared.length).toBeGreaterThan(0);
-    const exported = Object.keys(await import("../plugins/workflow/scripts/plan-queue.mjs"));
-    expect(declared.filter((name) => !exported.includes(name))).toEqual([]);
-  });
+describe("the scripts' type declarations", () => {
+  const scripts = new URL("../plugins/workflow/scripts/", import.meta.url);
+  const files = readdirSync(scripts).filter((file) => file.endsWith(".d.mts"));
+  it("finds the declarations files", () => expect(files.length).toBeGreaterThan(0));
+  for (const file of files) {
+    const script = file.replace(/\.d\.mts$/, ".mjs");
+    it(`every function ${file} declares is exported by ${script}`, async () => {
+      const declarations = readFileSync(new URL(file, scripts), "utf8");
+      const declared = [
+        ...declarations.matchAll(
+          /^export (?:declare )?(?:async )?(?:function|const|let|var|class) (\w+)/gm,
+        ),
+      ].map((match) => match[1]);
+      expect(declared.length).toBeGreaterThan(0);
+      const exported = Object.keys(await import(new URL(script, scripts).href));
+      expect(declared.filter((name) => !exported.includes(name))).toEqual([]);
+    });
+  }
 });

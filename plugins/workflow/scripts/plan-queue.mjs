@@ -4438,10 +4438,10 @@ function release(sessionId) {
  * (plans/planner-continues.md, part 2, replacing plans/planner-queue.md's
  * one brief per planner). Nothing while a brief carries this session's live
  * Planning line (`current`), while paused, or when retired. With briefs
- * waiting that this session was not told of: under its ceiling for any
- * brief, it takes the oldest; under its ceiling for a related brief, the
- * oldest related to its plans; else it
- * is retired for a fresh planner (plans/reuse-ceiling-per-agent.md). With
+ * waiting that this session was not told of: it takes the oldest it is under
+ * its ceiling for, each brief judged with what it shares with the chat
+ * (`shared`, plans/adaptive-reuse.md, part 2); else it is retired for a
+ * fresh planner (plans/reuse-ceiling-per-agent.md). With
  * nothing waiting it stays alive, idle and unretired, and a brief reaches it
  * by message.
  */
@@ -4693,10 +4693,10 @@ function byMessage() {
 }
 
 /**
- * Why a planner is too tired for `brief`, or "": the reuse rule with the
- * brief's relatedness to its plans (plans/reuse-ceiling-per-agent.md, part
- * 4): a context over its ceiling for that brief, or a cold cache over a
- * large context.
+ * Why a planner is too tired for `brief`, or "": the reuse rule with what the
+ * brief shares with the chat (`sharedTokens` over its `seen`,
+ * plans/shared-file-share.md): a context over its ceiling for that brief, or
+ * a cold cache over a large context.
  */
 export function tiredFor(
   state,

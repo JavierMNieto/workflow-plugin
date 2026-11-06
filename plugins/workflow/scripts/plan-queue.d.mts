@@ -31,7 +31,8 @@ export type Carry = {
   checkout: string;
   missing: "" | "file" | "from";
 };
-export type Waiting = { path: string; related?: boolean; asks?: boolean; state?: string };
+/** A plan waiting for an executor, with what it shares with the chat in tokens. */
+export type Waiting = { path: string; shared?: number; asks?: boolean; state?: string };
 export type Handed = { path: string; stuck: boolean; resumed: string[] };
 export type Run = { id: number; status: string; conclusion: string | null; onHead: boolean };
 export type Lock = {
@@ -55,11 +56,18 @@ export type StopDecision = {
 } | null;
 /** Why a Stop hook kept a session, and the plans or brief it took. */
 export type Kept = { paths: string[]; why: string };
-/** A ceiling for one agent: a number is both cases. */
-export type Ceiling = number | { any: number; related: number };
-export type Ceilings = {
-  executor: { any: number; related: number };
-  planner: { any: number; related: number };
+/** One agent's ceiling while it has no history here (the project file's `reuse`), in tokens. */
+export type Ceiling = number;
+/** The project file's `reuse`, each agent's ceiling while it has no history here. */
+export type Ceilings = { executor: Ceiling; planner: Ceiling };
+/** One agent's sessions here, as `reuseInputs` measured them (cost.mjs's `inputsOf`). */
+export type AgentInputs = { sessions: number; start: number; turns: number; model?: string };
+/** What the ceiling is worked out from: each agent's measured sessions, and when and over how many transcripts. */
+export type ReuseInputs = {
+  executor?: AgentInputs;
+  planner?: AgentInputs;
+  assistant?: AgentInputs;
+  measured?: { at: number; transcripts: number };
 };
 export type StartDecision = {
   start?: true;
@@ -179,11 +187,17 @@ export type Session = {
   endsAt?: number;
   /** Its context and the age of its last turn, from its transcript. */
   usage?: SessionUsage | null;
-  ceiling?: Ceiling;
+  /** Its agent's measured sessions here, which its ceiling is worked out from. */
+  inputs?: ReuseInputs;
+  /** The project file's ceiling, used while its agent has no history here. */
+  fallback?: Ceiling;
   /** Why its Stop hook kept it for the work it took. */
   kept?: Kept | null;
-  /** A planner's: whether the brief being started is related to its plans. */
-  related?: boolean;
+  /** What it read or wrote of each file, in tokens, by its tool hook. */
+  seen?: Record<string, number>;
+  /** What the oldest waiting plan or brief shares with it, in tokens, and that work's path. */
+  shared?: number;
+  sharedWith?: string;
 };
 export function worktrees(): Tree[];
 export const SESSION_NAME: RegExp;
@@ -212,11 +226,14 @@ export function sessionsOf(
     stateFor?: (
       sessionId: string,
     ) => { agent?: string; retired?: boolean; plans?: string[] } | null;
+    seenFor?: (sessionId: string) => Record<string, number>;
     usageFor?: (row: LiveRow) => SessionUsage | null;
-    ceiling?: Ceiling;
+    fallback?: Ceiling;
+    inputs?: ReuseInputs;
+    checkout?: string;
   },
 ): Session[];
-export function ceilingsLine(reuse?: Ceilings): string;
+export function ceilingsLine(reuse?: Ceilings, inputs?: ReuseInputs): string;
 export function lastFreshLines(
   log: { at: number; name: string; paths?: string[]; why?: string }[],
   project: string,
@@ -244,7 +261,8 @@ export function withAsking<P extends { path: string; state?: string; asks?: bool
   options?: AskingOptions,
 ): (P & { askingIn: { row: LiveRow; until: number } | null })[];
 export function describeSession(one: Session): string;
-export type WaitingBrief = { path: string; related?: boolean };
+/** A brief waiting for a planner, with what it shares with the chat in tokens. */
+export type WaitingBrief = { path: string; shared?: number };
 export function decidePlannerStop(facts: {
   current?: { path: string } | null;
   waiting?: WaitingBrief[];
@@ -252,10 +270,11 @@ export function decidePlannerStop(facts: {
   paused?: boolean;
   retired?: boolean;
   usage?: SessionUsage | null;
-  ceiling?: Ceiling;
+  inputs?: ReuseInputs;
+  fallback?: Ceiling;
   now?: number;
 }):
-  | { retire: true; related: boolean; declined?: boolean; why?: string }
+  | { retire: true; declined?: true; why?: string }
   | { refuse: true; told: string[]; reason: string; kept: Kept }
   | null;
 export function tiredFor(
@@ -263,9 +282,11 @@ export function tiredFor(
   brief: string,
   options?: {
     usage?: SessionUsage | null;
-    ceiling?: Ceiling;
+    inputs?: ReuseInputs;
+    fallback?: Ceiling;
     now?: number;
     textOf?: (path: string) => string;
+    checkout?: string;
   },
 ): string;
 export function plannerMayEdit(facts: {
@@ -379,12 +400,14 @@ export function decideStop(facts: {
   continuing?: boolean;
   refusedRun?: number | null;
   usage?: SessionUsage | null;
-  ceiling?: Ceiling;
+  inputs?: ReuseInputs;
+  fallback?: Ceiling;
   now?: number;
   /** The briefs this session's built plans owe their projects. */
   carry?: Carry[];
 }): StopDecision;
-export type SessionUsage = { context: number; at: number };
+/** A session's context, its last turn's time and, when the transcript says it, its model. */
+export type SessionUsage = { context: number; at: number; model?: string };
 export const REUSE_DEFAULT: Ceilings;
 export const CACHE_TTL: number;
 export const WARM: number;
@@ -423,14 +446,24 @@ export function endSession(
 export function endCommand(ids?: string[]): string;
 export function transcriptOf(row: { cwd?: string; sessionId?: string }, projects?: string): string;
 export function mayReuse(facts: {
-  related?: boolean;
   usage?: SessionUsage | null;
-  now?: number;
-  ceiling?: Ceiling;
+  /** What the work shares with the chat, in tokens. */
+  shared?: number;
+  inputs?: ReuseInputs;
   kind?: "executor" | "planner";
-}): { reuse: true; why: string; related: boolean } | { reuse: false; why: string };
+  model?: string;
+  fallback?: Ceiling;
+  now?: number;
+}): { reuse: boolean; why: string };
 export function usageWords(
-  one: { kind?: string; usage?: SessionUsage | null; ceiling?: Ceiling },
+  one: {
+    kind?: string;
+    usage?: SessionUsage | null;
+    inputs?: ReuseInputs;
+    fallback?: Ceiling;
+    shared?: number;
+    sharedWith?: string;
+  },
   now?: number,
 ): string;
 export function canStart(facts: {
@@ -446,7 +479,8 @@ export function canStart(facts: {
   /** The brief a planner start was asked for, named in the message to send a live planner. */
   brief?: string;
   name?: string;
-  ceiling?: Ceiling;
+  fallback?: Ceiling;
+  inputs?: ReuseInputs;
   taken?: string[];
   machine?: string;
   /** A timer's start: an idle session is replaced whatever its warmth. */
