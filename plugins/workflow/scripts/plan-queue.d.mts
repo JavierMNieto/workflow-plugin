@@ -132,24 +132,12 @@ export function takeLock(
   live: LiveRow[] | null,
   options?: { path?: string; alive?: ((lock: Lock) => boolean) | null },
 ): boolean;
-/** What the chat read or wrote of each file, in tokens, after one tool call. */
-export function seenAfter(
-  seen: Record<string, number>,
-  input: {
-    tool_name?: string;
-    tool_input?: Record<string, unknown>;
-    tool_response?: unknown;
-    cwd?: string;
-  },
-  options?: { checkout?: string },
-): Record<string, number>;
 /** What `text`'s files share with a chat that holds `seen`, at most each file's size, in tokens. */
 export function sharedTokens(
   text: string,
   seen?: Record<string, number>,
   options?: { checkout?: string },
 ): number;
-export function briefPaths(text: string): string[];
 export function withPlans<
   S extends { agent?: string; brief?: string; planned?: boolean; plans?: string[] },
 >(state: S): S & { plans?: string[] };
@@ -466,6 +454,21 @@ export function usageWords(
   },
   now?: number,
 ): string;
+/** Removes the plugin's per-session temp files older than `age` whose session is not live; the count. */
+export function sweepTemp(options?: {
+  dir?: string;
+  live?: string[];
+  now?: number;
+  age?: number;
+}): number;
+/** Each row with what the next waiting work shares with it: a handed plan first for an executor. */
+export function withShare<R extends { sessionId: string; seen?: Record<string, number> }>(
+  rows: R[],
+  kind: string,
+  plans: { path: string; state: string; text?: string; askingIn?: number }[],
+  live: LiveRow[] | null,
+  options?: { checkout?: string },
+): (R & { shared?: number; sharedWith?: string })[];
 export function canStart(facts: {
   kind?: "executor" | "planner" | "assistant";
   lock?: Lock | null;

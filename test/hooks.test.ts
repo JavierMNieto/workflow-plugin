@@ -1,9 +1,10 @@
 // The design catalogue's hooks (docs/contributing.md):
 // the edit-time context and the once-per-turn audit, run as the real scripts
 // against a throwaway git repository.
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -40,11 +41,12 @@ import {
   refreshLater,
   costCommand,
   hookRun,
-  seenAfter,
   sharedTokens,
   lastFreshLines,
   tiredFor,
   usageWords,
+  withShare,
+  sweepTemp,
   ghCommand,
   secret,
   notesWaiting,
@@ -95,7 +97,6 @@ import {
   buildingAdded,
   editedText,
   ANSWER_WINDOW,
-  briefPaths,
   withPlans,
   describeSession,
   stopPlannersOn,
@@ -111,6 +112,13 @@ import {
   noSecretWords,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
+import {
+  briefPaths,
+  noteSeen,
+  seenFile,
+  seenIn,
+  seenOf,
+} from "../plugins/workflow/scripts/seen.mjs";
 import { appJwt, repoOfRemote } from "../plugins/workflow/scripts/github-app.mjs";
 import {
   githubEvents,
@@ -2241,6 +2249,18 @@ describe("the planner queue", () => {
   it("a brief's paths take plans/ and .claude/; the executor's rule does not", () => {
     const own = "Read `scripts/hooks/plan-queue.mjs` and `.claude/agents/planner.md`.";
     expect(briefPaths(own)).toEqual(["scripts/hooks/plan-queue.mjs", ".claude/agents/planner.md"]);
+    // A root file by its bare name (plans/shared-count-fixes.md, part 2); a
+    // number or an abbreviation is not a name.
+    expect(briefPaths("Read CLAUDE.md and README.md, e.g. the rules in 5.1.")).toEqual([
+      "CLAUDE.md",
+      "README.md",
+    ]);
+    // A root name of more than one dot, or a dotfile, whole (/code-review).
+    expect(briefPaths("See vitest.config.ts, .mcp.json and tsconfig.base.json.")).toEqual([
+      "vitest.config.ts",
+      ".mcp.json",
+      "tsconfig.base.json",
+    ]);
     // The executor's rule stays narrow: plans/ and .claude/ are not its paths.
     expect(pathsIn("plans/a.md and .claude/agents/planner.md")).toEqual([]);
   });
@@ -4527,6 +4547,77 @@ describe("the cache-aware queue", () => {
     expect(usageWords(shares(50, 0) as never)).toBe("50k context, warm");
   });
 
+  it("sweepTemp removes a dead session's temp files older than a day, and keeps a live one's, a fresh one and a folder", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sweep-"));
+    try {
+      const now = Date.now();
+      const old = (now - 2 * 24 * 60 * MIN) / 1000;
+      const file = (name: string, aged = true) => {
+        writeFileSync(join(dir, name), "x");
+        if (aged) utimesSync(join(dir, name), old, old);
+      };
+      file("workflow-queue-dead.json");
+      file("workflow-seen-dead.jsonl");
+      file("workflow-turn-dead.tools");
+      file("workflow-plain-words-live.json");
+      file("workflow-queue-live.json");
+      file("workflow-seen-fresh.jsonl", false);
+      file("other-dead.json");
+      // Another tool's file of the same prefix is not the plugin's (/code-review).
+      file("workflow-run-dead.log");
+      mkdirSync(join(dir, "workflow-hooks-dead.d"));
+      utimesSync(join(dir, "workflow-hooks-dead.d"), old, old);
+      expect(sweepTemp({ dir, live: ["live"], now })).toBe(3);
+      expect(readdirSync(dir).sort()).toEqual([
+        "other-dead.json",
+        "workflow-hooks-dead.d",
+        "workflow-plain-words-live.json",
+        "workflow-queue-live.json",
+        "workflow-run-dead.log",
+        "workflow-seen-fresh.jsonl",
+      ]);
+      expect(sweepTemp({ dir: join(dir, "missing") })).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("withShare measures an executor against a handed plan before an older ready one", () => {
+    const checkout = mkdtempSync(join(tmpdir(), "share-next-"));
+    try {
+      mkdirSync(join(checkout, "src"));
+      writeFileSync(join(checkout, "src", "a.mjs"), "x".repeat(400_000));
+      writeFileSync(join(checkout, "src", "b.mjs"), "x".repeat(400_000));
+      const rows = [
+        {
+          sessionId: "e",
+          kind: "executor",
+          inputs,
+          seen: { "src/a.mjs": 13_000, "src/b.mjs": 2_000 },
+        },
+      ];
+      const ready = { path: "plans/old.md", state: "ready", text: "Changes `src/b.mjs`." };
+      const handed = { path: "plans/handed.md", state: "handed", text: "Changes `src/a.mjs`." };
+      // readPlans's order, handed first; the handed plan is what the queue starts next.
+      const [row] = withShare(rows, "executor", [handed, ready], [], { checkout });
+      expect(row).toMatchObject({ shared: 13_000, sharedWith: "plans/handed.md" });
+      expect(
+        usageWords({ ...row, usage: { context: 50_000, at: Date.now() - MIN } } as never),
+      ).toBe("50k context, warm, shares 13k with plans/handed.md");
+      // A handed plan asking the owner is not started, so not measured (/code-review).
+      expect(
+        withShare(rows, "executor", [{ ...handed, askingIn: 1 }, ready], [], { checkout })[0],
+      ).toMatchObject({ sharedWith: "plans/old.md" });
+      // With none handed, the oldest ready plan.
+      expect(withShare(rows, "executor", [ready], [], { checkout })[0]).toMatchObject({
+        shared: 2_000,
+        sharedWith: "plans/old.md",
+      });
+    } finally {
+      rmSync(checkout, { recursive: true, force: true });
+    }
+  });
+
   it("describeSession shows why a kept session was kept, and not once it is retired", () => {
     const kept = {
       ...one("busy", 180, "planner"),
@@ -4661,7 +4752,10 @@ describe("the cache-aware queue", () => {
           message: { usage: { input_tokens: 10, cache_read_input_tokens: 250_000 } },
         })}\n`,
       );
-      writeFileSync(stateFile, JSON.stringify(state));
+      // The prompt hook reads the count from the log the tool hooks append to.
+      const { seen, ...kept } = state;
+      writeFileSync(stateFile, JSON.stringify(kept));
+      noteSeen(id, seen);
       const out = execFileSync("node", [join(here, "plan-queue.mjs"), "prompt"], {
         input: JSON.stringify({
           session_id: id,
@@ -4683,6 +4777,7 @@ describe("the cache-aware queue", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
       rmSync(stateFile, { force: true });
+      rmSync(seenFile(id), { force: true });
     }
   });
 
@@ -5165,6 +5260,11 @@ describe("the ceiling is worked out from measured inputs", () => {
       expect(sharedTokens(text, seen, { checkout })).toBe(500);
       expect(sharedTokens(text, {}, { checkout })).toBe(0);
       expect(sharedTokens("Nothing named.", seen, { checkout })).toBe(0);
+      // A root file by its bare name: 300 seen of its 200; a bare name with no file, nothing.
+      writeFileSync(join(checkout, "NOTES.md"), "x".repeat(800));
+      const root = { "NOTES.md": 300, "gone.md": 100 };
+      expect(sharedTokens("Read NOTES.md.", root, { checkout })).toBe(200);
+      expect(sharedTokens("Read gone.md.", root, { checkout })).toBe(0);
     } finally {
       rmSync(checkout, { recursive: true, force: true });
     }
@@ -5173,9 +5273,9 @@ describe("the ceiling is worked out from measured inputs", () => {
 
 /**
  * **The tool hook counts what the chat holds of each file**
- * (plans/shared-file-share.md, part 1): `seenAfter` from the hook's own
- * input, characters over four, and the `wrote` mode that keeps it in the
- * session's state.
+ * (plans/shared-file-share.md, part 1; plans/shared-count-fixes.md, part 1):
+ * `seenIn`, this call's map from the hook's own input, characters over four;
+ * `noteSeen` appends it to the session's log and `seenOf` sums the log.
  */
 describe("the tool hook counts what the chat holds of each file", () => {
   let checkout = "";
@@ -5184,35 +5284,29 @@ describe("the tool hook counts what the chat holds of each file", () => {
     mkdirSync(join(checkout, "src"));
     writeFileSync(join(checkout, "src", "a.mjs"), "a\n");
     writeFileSync(join(checkout, "src", "b.mjs"), "b\n");
+    writeFileSync(join(checkout, "CLAUDE.md"), "c\n");
   });
   afterAll(() => rmSync(checkout, { recursive: true, force: true }));
-  const after = (seen: Record<string, number>, input: object) =>
-    seenAfter(seen, input, { checkout });
+  const of = (input: object) => seenIn(input, { checkout });
   const chars = (n: number) => "x".repeat(n);
 
-  it("a Read adds its text, an Edit its two strings, a MultiEdit its edits, a Write its content", () => {
-    const read = after(
-      {},
-      {
-        tool_name: "Read",
-        tool_input: { file_path: "src/a.mjs" },
-        tool_response: { type: "text", file: { filePath: "src/a.mjs", content: chars(4000) } },
-      },
-    );
+  it("a Read gives its text, an Edit its two strings, a MultiEdit its edits, a Write its content", () => {
+    const read = of({
+      tool_name: "Read",
+      tool_input: { file_path: "src/a.mjs" },
+      tool_response: { type: "text", file: { filePath: "src/a.mjs", content: chars(4000) } },
+    });
     expect(read).toEqual({ "src/a.mjs": 1000 });
     // A response as plain text is counted as it is.
     expect(
-      after(
-        {},
-        { tool_name: "Read", tool_input: { file_path: "src/a.mjs" }, tool_response: chars(400) },
-      ),
+      of({ tool_name: "Read", tool_input: { file_path: "src/a.mjs" }, tool_response: chars(400) }),
     ).toEqual({ "src/a.mjs": 100 });
     const edit = {
       tool_name: "Edit",
       tool_input: { file_path: "src/a.mjs", old_string: chars(400), new_string: chars(400) },
       tool_response: { originalFile: chars(100_000) },
     };
-    expect(after({}, edit)).toEqual({ "src/a.mjs": 200 });
+    expect(of(edit)).toEqual({ "src/a.mjs": 200 });
     const multi = {
       tool_name: "MultiEdit",
       tool_input: {
@@ -5223,15 +5317,32 @@ describe("the tool hook counts what the chat holds of each file", () => {
         ],
       },
     };
-    expect(after({}, multi)).toEqual({ "src/a.mjs": 200 });
+    expect(of(multi)).toEqual({ "src/a.mjs": 200 });
     const write = {
       tool_name: "Write",
       tool_input: { file_path: "src/b.mjs", content: chars(2000) },
       tool_response: { filePath: "src/b.mjs", type: "create" },
     };
-    expect(after({}, write)).toEqual({ "src/b.mjs": 500 });
-    // Two calls on one file add up.
-    expect(after(after({}, edit), edit)).toEqual({ "src/a.mjs": 400 });
+    expect(of(write)).toEqual({ "src/b.mjs": 500 });
+  });
+
+  it("seenOf sums the log's lines on one file, and passes over a line cut short", () => {
+    const dir = mkdtempSync(join(tmpdir(), "seen-log-"));
+    try {
+      const id = "sum";
+      noteSeen(id, { "src/a.mjs": 200 }, dir);
+      noteSeen(id, { "src/a.mjs": 300, "src/b.mjs": 50 }, dir);
+      noteSeen(id, {}, dir);
+      expect(readFileSync(seenFile(id, dir), "utf8").split("\n")).toHaveLength(4);
+      appendFileSync(seenFile(id, dir), '{"p":"src/b.mj');
+      expect(seenOf(id, dir)).toEqual({ "src/a.mjs": 500, "src/b.mjs": 50 });
+      expect(seenOf("none", dir)).toEqual({});
+      // Nothing to append, no file.
+      noteSeen("empty", {}, dir);
+      expect(existsSync(seenFile("empty", dir))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("a Bash command's output is split among the files of the checkout it names, and nothing else counts", () => {
@@ -5240,25 +5351,24 @@ describe("the tool hook counts what the chat holds of each file", () => {
       tool_input: { command },
       tool_response: { stdout, stderr, interrupted: false, isImage: false },
     });
-    expect(after({}, bash("cat src/a.mjs src/b.mjs", chars(6000), chars(2000)))).toEqual({
+    expect(of(bash("cat src/a.mjs src/b.mjs", chars(6000), chars(2000)))).toEqual({
       "src/a.mjs": 1000,
       "src/b.mjs": 1000,
     });
-    const none = { "src/a.mjs": 7 };
-    expect(after(none, bash("npm test", chars(8000)))).toBe(none);
+    expect(of(bash("npm test", chars(8000)))).toEqual({});
     // A folder, a ref and a file not there are passed over.
-    expect(
-      after({}, bash("ls src/ && git diff origin/test...HEAD src/gone.mjs", chars(800))),
-    ).toEqual({});
-    expect(after({}, bash(`sed -n 1,9p ${join(checkout, "src", "a.mjs")}`, chars(400)))).toEqual({
+    expect(of(bash("ls src/ && git diff origin/test...HEAD src/gone.mjs", chars(800)))).toEqual({});
+    expect(of(bash(`sed -n 1,9p ${join(checkout, "src", "a.mjs")}`, chars(400)))).toEqual({
       "src/a.mjs": 100,
     });
-    expect(after({}, { tool_name: "Grep", tool_input: { path: "src/a.mjs" } })).toEqual({});
+    // A root file by its bare name.
+    expect(of(bash("cat CLAUDE.md", chars(400)))).toEqual({ "CLAUDE.md": 100 });
+    expect(of({ tool_name: "Grep", tool_input: { path: "src/a.mjs" } })).toEqual({});
     // A relative path is the call's cwd's.
     mkdirSync(join(checkout, "src", "inner"), { recursive: true });
     writeFileSync(join(checkout, "src", "inner", "c.mjs"), "c\n");
     const inner = { ...bash("cat inner/c.mjs", chars(400)), cwd: join(checkout, "src") };
-    expect(after({}, inner)).toEqual({ "src/inner/c.mjs": 100 });
+    expect(of(inner)).toEqual({ "src/inner/c.mjs": 100 });
   });
 
   it("a worktree's file counts under the path the plans name it by", () => {
@@ -5270,8 +5380,8 @@ describe("the tool hook counts what the chat holds of each file", () => {
       cwd: tree,
       tool_input: { file_path: path, old_string: chars(200), new_string: chars(200) },
     });
-    expect(after({}, edit(join(tree, "src", "a.mjs")))).toEqual({ "src/a.mjs": 100 });
-    expect(after({}, edit("src/a.mjs"))).toEqual({ "src/a.mjs": 100 });
+    expect(of(edit(join(tree, "src", "a.mjs")))).toEqual({ "src/a.mjs": 100 });
+    expect(of(edit("src/a.mjs"))).toEqual({ "src/a.mjs": 100 });
   });
 
   it("an absolute path inside the checkout counts under its relative path; one outside does not", () => {
@@ -5283,16 +5393,22 @@ describe("the tool hook counts what the chat holds of each file", () => {
         tool_input: { file_path },
         tool_response: { file: { content: chars(400) } },
       });
-      expect(after({}, read(join(checkout, "src", "b.mjs")))).toEqual({ "src/b.mjs": 100 });
-      expect(after({}, read(join(outside, "c.mjs")))).toEqual({});
-      expect(after({}, read(join(checkout, "src")))).toEqual({});
+      expect(of(read(join(checkout, "src", "b.mjs")))).toEqual({ "src/b.mjs": 100 });
+      expect(of(read(join(outside, "c.mjs")))).toEqual({});
+      expect(of(read(join(checkout, "src")))).toEqual({});
       // An image or a PDF read is not text the chat holds.
       const image = {
         tool_name: "Read",
         tool_input: { file_path: "src/a.mjs" },
         tool_response: { type: "image", file: { base64: chars(40_000), type: "image/png" } },
       };
-      expect(after({}, image)).toEqual({});
+      expect(of(image)).toEqual({});
+      const pdf = {
+        tool_name: "Read",
+        tool_input: { file_path: "src/a.mjs" },
+        tool_response: { type: "pdf", file: { base64: chars(40_000) } },
+      };
+      expect(of(pdf)).toEqual({});
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }
@@ -5305,7 +5421,7 @@ describe("the tool hook counts what the chat holds of each file", () => {
       tool_response: { stdout: chars(400_000), stderr: "" },
     };
     const t0 = performance.now();
-    const seen = after({}, input);
+    const seen = of(input);
     expect(performance.now() - t0).toBeLessThan(50);
     expect(seen).toEqual({ "src/a.mjs": 100_000 });
   });
@@ -5366,14 +5482,15 @@ describe("the tool hook counts what the chat holds of each file", () => {
           message: { model: "claude-opus-5-5", usage: { input_tokens: context } },
         })}\n`,
       );
-      const stop = (seen?: Record<string, number>) => {
+      const stop = (seen?: Record<string, number>[]) => {
         const id = `seen-stop-${ids.length}-${process.pid}`;
         ids.push(id);
         writeFileSync(
           join(tmpdir(), `workflow-queue-${id}.json`),
           JSON.stringify({ agent: "executor" }),
         );
-        if (seen) writeFileSync(join(tmpdir(), `workflow-seen-${id}.json`), JSON.stringify(seen));
+        // The log's lines, as the tool hooks appended them.
+        for (const map of seen || []) noteSeen(id, map);
         return execFileSync("node", [join(here, "plan-queue.mjs"), "stop"], {
           input: JSON.stringify({
             session_id: id,
@@ -5390,7 +5507,7 @@ describe("the tool hook counts what the chat holds of each file", () => {
           },
         });
       };
-      const held = stop({ "test/hooks.test.ts": 13_000 });
+      const held = stop([{ "test/hooks.test.ts": 5_000 }, { "test/hooks.test.ts": 8_000 }]);
       expect(held).toContain("can take them: plans/p.md");
       expect(held).toContain("13k shared");
       expect(held).not.toContain("83k shared");
@@ -5398,12 +5515,12 @@ describe("the tool hook counts what the chat holds of each file", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
       for (const id of ids)
-        for (const file of [`workflow-queue-${id}.json`, `workflow-seen-${id}.json`])
+        for (const file of [`workflow-queue-${id}.json`, `workflow-seen-${id}.jsonl`])
           rmSync(join(tmpdir(), file), { force: true });
     }
   });
 
-  describe("the wrote hook", () => {
+  describe("the tool hooks", () => {
     const made: string[] = [];
     afterAll(() => {
       for (const path of made) rmSync(path, { recursive: true, force: true });
@@ -5419,26 +5536,60 @@ describe("the tool hook counts what the chat holds of each file", () => {
       writeFileSync(join(dir, "src", "a.mjs"), "a\n");
       return dir;
     };
-    const read = (file: string) => {
+    const stateOf = (id: string) => {
+      const file = join(tmpdir(), `workflow-queue-${id}.json`);
       made.push(file);
       return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
     };
-    const stateOf = (id: string) => read(join(tmpdir(), `workflow-queue-${id}.json`));
-    const seenOf = (id: string) => read(join(tmpdir(), `workflow-seen-${id}.json`));
+    const logOf = (id: string) => {
+      made.push(seenFile(id));
+      return existsSync(seenFile(id)) ? seenOf(id) : null;
+    };
+    const env = (dir: string) => ({ ...process.env, CLAUDE_PROJECT_DIR: dir, WORKFLOW_LIVE: "[]" });
     const wrote = (dir: string, input: object) =>
       execFileSync("node", [join(here, "plan-queue.mjs"), "wrote"], {
         input: JSON.stringify(input),
         encoding: "utf8",
-        env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WORKFLOW_LIVE: "[]" },
+        env: env(dir),
+      });
+    const seen = (dir: string, input: object) =>
+      execFileSync("node", [join(here, "seen.mjs")], {
+        input: JSON.stringify(input),
+        encoding: "utf8",
+        env: env(dir),
       });
     const bash = { tool_name: "Bash", tool_input: { command: "cat src/a.mjs" } };
     const out = { tool_response: { stdout: "x".repeat(4000), stderr: "" } };
+    const reading = (file_path: string, n = 4000) => ({
+      tool_name: "Read",
+      tool_input: { file_path },
+      tool_response: { type: "text", file: { content: "x".repeat(n) } },
+    });
 
-    it("keeps a planner's count beside its state, and none for an assistant or a subagent", () => {
+    it("a planner's Read appends a line to its log; an assistant's and a subagent's append none", () => {
       const dir = project();
       const id = (who: string) => `seen-${who}-${process.pid}`;
+      const read = reading("src/a.mjs");
+      expect(
+        seen(dir, { session_id: id("planner"), agent_type: "workflow:planner", ...read }),
+      ).toBe("");
+      expect(readFileSync(seenFile(id("planner")), "utf8")).toBe(
+        `${JSON.stringify({ p: "src/a.mjs", t: 1000 })}\n`,
+      );
+      expect(logOf(id("planner"))).toEqual({ "src/a.mjs": 1000 });
+      seen(dir, { session_id: id("assistant"), agent_type: "workflow:assistant", ...read });
+      expect(logOf(id("assistant"))).toBeNull();
+      seen(dir, { session_id: id("explore"), agent_type: "Explore", ...read });
+      expect(logOf(id("explore"))).toBeNull();
+      expect(stateOf(id("explore"))).toBeNull();
+    });
+
+    it("a planner's Bash through the wrote hook appends its lines and never writes the state", () => {
+      const dir = project();
+      const id = (who: string) => `seen-wrote-${who}-${process.pid}`;
       wrote(dir, { session_id: id("planner"), agent_type: "workflow:planner", ...bash, ...out });
-      expect(seenOf(id("planner"))).toEqual({ "src/a.mjs": 1000 });
+      wrote(dir, { session_id: id("planner"), agent_type: "workflow:planner", ...bash, ...out });
+      expect(logOf(id("planner"))).toEqual({ "src/a.mjs": 2000 });
       // The count never writes the state, so it never writes back over a field set meanwhile.
       expect(stateOf(id("planner"))?.seen).toBeUndefined();
       wrote(dir, {
@@ -5447,13 +5598,32 @@ describe("the tool hook counts what the chat holds of each file", () => {
         ...bash,
         ...out,
       });
-      expect(seenOf(id("assistant"))).toBeNull();
+      expect(logOf(id("assistant"))).toBeNull();
       wrote(dir, { session_id: id("explore"), agent_type: "Explore", ...bash, ...out });
-      expect(seenOf(id("explore"))).toBeNull();
-      expect(stateOf(id("explore"))).toBeNull();
+      expect(logOf(id("explore"))).toBeNull();
     });
 
-    it("on a Read writes the count and nothing else: no Building line is taken", () => {
+    it("parallel tool hooks lose no count", async () => {
+      const dir = project();
+      const id = `seen-parallel-${process.pid}`;
+      const names = Array.from({ length: 8 }, (_, i) => `src/f${i}.mjs`);
+      for (const name of names) writeFileSync(join(dir, name), "x".repeat(4000));
+      const run = (input: object) =>
+        new Promise<void>((done, fail) => {
+          const child = execFile("node", [join(here, "seen.mjs")], { env: env(dir) }, (error) =>
+            error ? fail(error) : done(),
+          );
+          child.stdin?.end(JSON.stringify(input));
+        });
+      await Promise.all(
+        names.map((name) =>
+          run({ session_id: id, agent_type: "workflow:planner", ...reading(name) }),
+        ),
+      );
+      expect(logOf(id)).toEqual(Object.fromEntries(names.map((name) => [name, 1000])));
+    });
+
+    it("a Read counts and takes nothing: no Building line is taken until the plan is edited", () => {
       const dir = project();
       const id = `seen-read-${process.pid}`;
       const plan = join(dir, "plans", "p.md");
@@ -5461,48 +5631,55 @@ describe("the tool hook counts what the chat holds of each file", () => {
         plan,
         `# P\n\n## Building, 6 November 2026, session ${id}\n\nShort plan, 6 November 2026.\n`,
       );
-      const reading = {
-        session_id: id,
-        agent_type: "executor",
-        tool_name: "Read",
-        tool_input: { file_path: plan },
-        tool_response: { file: { content: "x".repeat(400) } },
-      };
-      expect(wrote(dir, reading)).toBe("");
-      expect(seenOf(id)).toEqual({ "plans/p.md": 100 });
+      const read = { session_id: id, agent_type: "executor", ...reading(plan, 400) };
+      expect(seen(dir, read)).toBe("");
+      expect(logOf(id)).toEqual({ "plans/p.md": 100 });
       expect(stateOf(id)).toBeNull();
       // The same file edited is taken.
       wrote(dir, {
-        ...reading,
+        ...read,
         tool_name: "Edit",
         tool_input: { file_path: plan, old_string: "a", new_string: "b" },
       });
       expect(stateOf(id).held).toEqual(["plans/p.md"]);
     });
 
-    it("on a 400 KB Bash response adds under 100 ms to the hook's run that counts nothing", () => {
+    it("a Read of 400 KB costs a bare node start, and a 400 KB Bash response under 100 ms more than none", () => {
       const dir = project();
       const id = `seen-time-${process.pid}`;
-      const input = (command: string) => ({
+      const best = (run: () => unknown) =>
+        Math.min(
+          ...[1, 2, 3, 4, 5].map(() => {
+            const t0 = performance.now();
+            run();
+            return performance.now() - t0;
+          }),
+        );
+      const node = best(() => execFileSync("node", ["-e", ""]));
+      const read = best(() =>
+        seen(dir, {
+          session_id: id,
+          agent_type: "workflow:planner",
+          ...reading("src/a.mjs", 400_000),
+        }),
+      );
+      // The wrote hook on the same output, with and without a file named: node,
+      // the script's load and the stdin's parse, which every hook pays already.
+      const bash = (command: string) => ({
         session_id: id,
         agent_type: "workflow:planner",
         tool_name: "Bash",
         tool_input: { command },
         tool_response: { stdout: "x".repeat(400_000), stderr: "" },
       });
-      const time = (command: string) => {
-        const t0 = performance.now();
-        wrote(dir, input(command));
-        return performance.now() - t0;
-      };
-      const best = (command: string) => Math.min(...[1, 2, 3, 4, 5].map(() => time(command)));
-      // The same hook on the same output, with no file named: node, the
-      // script's load and the stdin's parse, which every hook pays already.
-      const bare = best("npm test");
-      const counted = best("cat src/a.mjs");
-      // Five runs, each adding the output's 100k tokens.
-      expect(seenOf(id)).toEqual({ "src/a.mjs": 500_000 });
-      console.log(`wrote hook ${Math.round(counted)} ms counting, ${Math.round(bare)} ms not`);
+      const bare = best(() => wrote(dir, bash("npm test")));
+      const counted = best(() => wrote(dir, bash("cat src/a.mjs")));
+      // Five Reads and five Bash runs, each adding the output's 100k tokens.
+      expect(logOf(id)).toEqual({ "src/a.mjs": 1_000_000 });
+      console.log(
+        `seen.mjs on a 400 KB Read ${Math.round(read)} ms, node -e '' ${Math.round(node)} ms; wrote hook ${Math.round(counted)} ms counting, ${Math.round(bare)} ms not`,
+      );
+      expect(read - node).toBeLessThan(60);
       expect(counted - bare).toBeLessThan(100);
     });
   });

@@ -2322,6 +2322,15 @@ describe("the hooks manifest", () => {
     );
     expect(tool.matcher.split("|")).toContain("AskUserQuestion");
   });
+  // plans/shared-count-fixes.md, part 1: a Read is counted by a bare node start, not the queue.
+  it("counts a Read with seen.mjs alone, and the other tools' calls in the queue's wrote mode", () => {
+    expect(commands("PostToolUse", "Read")).toEqual([
+      'node "${CLAUDE_PLUGIN_ROOT}/scripts/seen.mjs"',
+    ]);
+    expect(commands("PostToolUse", "Edit|Write|MultiEdit|Bash")).toEqual([
+      'node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs" wrote',
+    ]);
+  });
 });
 
 describe("installing by asking Claude", () => {

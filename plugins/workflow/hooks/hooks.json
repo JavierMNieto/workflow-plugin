@@ -55,12 +55,22 @@
         ]
       },
       {
-        "matcher": "Read|Edit|Write|MultiEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|Bash",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" wrote",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/seen.mjs\"",
+            "timeout": 5
           }
         ]
       }

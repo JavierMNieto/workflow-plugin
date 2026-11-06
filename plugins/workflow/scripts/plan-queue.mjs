@@ -87,6 +87,7 @@ import {
   REUSE_DEFAULT,
 } from "./project.mjs";
 import { costWords, inputsOf, measure, measureFile, priceOf } from "./cost.mjs";
+import { briefPaths, noteSeen, seenIn, seenOf } from "./seen.mjs";
 
 export { machine, owner, REUSE_DEFAULT };
 
@@ -154,10 +155,6 @@ const files = {
   usage: () => process.env.WORKFLOW_USAGE_FILE || join(data(), "usage.json"),
   starts: () => process.env.WORKFLOW_STARTS_LOG || join(data(), "starts.log"),
   state: (sessionId) => join(tmpdir(), `workflow-queue-${sessionId || "unknown"}.json`),
-  // What the chat read or wrote of each file (plans/shared-file-share.md), apart
-  // from the state, so a tool call's count never writes back over a field
-  // another process set meanwhile, such as `retired` (/code-review).
-  seen: (sessionId) => join(tmpdir(), `workflow-seen-${sessionId || "unknown"}.json`),
   // The project's app's installation token and its end (plans/plans-as-github-issues.md).
   appToken: () => join(root, ".claude", "app-token.json"),
   // What GitHub's webhook brought, and what was made of it (plans/github-watched.md).
@@ -195,6 +192,8 @@ export function parseDay(text) {
 
 /** A plan's or brief's day in either spelling `parseDay` reads. */
 const DAY = "\\d{1,2} [A-Z][a-z]+ \\d{4}|\\d{4}-\\d{2}-\\d{2}";
+/** A day, in milliseconds: how old a per-session temp file must be to be swept. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** "6 November", a day as the queue's lines say it within the year. */
 function dayMonth(at) {
@@ -610,17 +609,6 @@ export function pathsIn(text) {
 }
 
 /**
- * The paths a brief or a planner's plan names: `pathsIn`'s, and `plans/` and
- * `.claude/` too (plans/planner-continues.md, part 3). The executor's rule
- * stays narrow, since every batch changes the plans it builds; a brief that
- * names a plan this planner wrote, or the agent file it read, is on its ground.
- */
-export function briefPaths(text) {
-  const found = text.match(/(?<![\w/.:-])\.?[\w-]+(?:\/[\w.-]+)+\.\w+/g) || [];
-  return [...new Set(found)];
-}
-
-/**
  * **What a plan or brief shares with a chat, in tokens**
  * (plans/shared-file-share.md, part 2; decisions.md#shared-is-what-is-held):
  * for each path `briefPaths` finds in `text` that the chat read or wrote
@@ -640,74 +628,6 @@ export function sharedTokens(text = "", seen = {}, { checkout = root } = {}) {
     }
   }
   return Math.round(tokens);
-}
-
-/** An absolute path with an extension in a shell command, for `seenAfter`. */
-const ABSOLUTE_PATH = /(?<![\w/.:-])\/(?:[\w.@+-]+\/)+[\w.@+-]*\.\w+/g;
-
-/**
- * `path`, resolved from `cwd`, relative to `checkout` when it is a file there,
- * else "": a worktree's file under `.claude/worktrees/<name>/` by the path the
- * plans name it by.
- */
-function fileIn(path, checkout, cwd = checkout) {
-  if (typeof path !== "string" || !path) return "";
-  const full = resolve(cwd, path);
-  const rel = relative(checkout, full);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return "";
-  try {
-    if (!statSync(full).isFile()) return "";
-    return rel
-      .split(sep)
-      .join("/")
-      .replace(/^\.claude\/worktrees\/[^/]+\//, "");
-  } catch {
-    // Named and not there: a ref, a pattern, a file not yet written.
-    return "";
-  }
-}
-
-/**
- * **What the chat holds of each file, counted by its tool hook**
- * (plans/shared-file-share.md, part 1; decisions.md#shared-is-what-is-held):
- * `seen` with this tool call's tokens added, characters over four, credited
- * to the files its input names. A Read's text to its `file_path`; an Edit's
- * `old_string` and `new_string`, a MultiEdit's over its edits, a Write's
- * `content`, to their `file_path` (never the response, which may carry the
- * whole file); a Bash command's stdout and stderr split evenly among the
- * files the command names. A path counts when, resolved from the call's `cwd`
- * and made relative to `checkout`, it is a file there. An image or a PDF read
- * counts nothing: its text is not what the chat holds. The same object when
- * nothing is counted. No transcript is read and nothing reaches the agent
- * (decisions.md#reuse-check-cheap).
- */
-export function seenAfter(seen = {}, input = {}, { checkout = root } = {}) {
-  const args = input.tool_input || {};
-  const response = input.tool_response;
-  const size = (value) =>
-    value == null ? 0 : typeof value === "string" ? value.length : JSON.stringify(value).length;
-  const edit = (one) => size(one?.old_string) + size(one?.new_string);
-  let chars = 0;
-  let named = [args.file_path];
-  const binary =
-    /^(image|pdf)$/.test(String(response?.type || "")) || response?.file?.base64 != null;
-  if (input.tool_name === "Read") chars = binary ? 0 : size(response?.file?.content ?? response);
-  else if (input.tool_name === "Edit") chars = edit(args);
-  else if (input.tool_name === "MultiEdit")
-    chars = (args.edits || []).reduce((sum, one) => sum + edit(one), 0);
-  else if (input.tool_name === "Write") chars = size(args.content);
-  else if (input.tool_name === "Bash") {
-    chars = size(response?.stdout) + size(response?.stderr);
-    const command = String(args.command || "");
-    named = [...briefPaths(command), ...(command.match(ABSOLUTE_PATH) || [])];
-  } else return seen;
-  const cwd = input.cwd || checkout;
-  const paths = [...new Set(named.map((path) => fileIn(path, checkout, cwd)).filter(Boolean))];
-  const each = paths.length ? Math.round(chars / 4 / paths.length) : 0;
-  if (!(each > 0)) return seen;
-  const next = { ...seen };
-  for (const path of paths) next[path] = (next[path] || 0) + each;
-  return next;
 }
 
 /** The plans under `plans/`, each with its path and state, the queue's order (handed over first, then oldest). */
@@ -1060,19 +980,21 @@ export function sessionsOf(
 }
 
 /**
- * **`plans` says what the oldest waiting work shares with each chat**
- * (plans/shared-file-share.md, part 3): an executor's row against the oldest
- * ready plan not asking, a planner's against the oldest brief free for it,
- * each with `shared` and `sharedWith`; a row with nothing waiting is left as
- * it is.
+ * **`plans` says what the next waiting work shares with each chat**
+ * (plans/shared-file-share.md, part 3): an executor's row against the plan
+ * the queue starts first, by `readPlans`'s order, the one `plans start`
+ * judges the live executor with: the first handed-over or ready plan not
+ * asking, handed first (plans/shared-count-fixes.md, part 3); a
+ * planner's against the oldest brief free for it; each with `shared` and
+ * `sharedWith`; a row with nothing waiting is left as it is.
  */
-function withShare(rows, kind, plans, live) {
-  const ready = plans.find((p) => p.state === "ready" && !p.askingIn);
+export function withShare(rows, kind, plans, live, { checkout = root } = {}) {
+  const first = plans.find((p) => (p.state === "handed" || p.state === "ready") && !p.askingIn);
   return rows.map((one) => {
     // A brief leased to this planner is free for it, so each planner's is its own.
-    const next = kind === "planner" ? freeBriefs(plans, { live, self: one.sessionId })[0] : ready;
+    const next = kind === "planner" ? freeBriefs(plans, { live, self: one.sessionId })[0] : first;
     return next
-      ? { ...one, shared: sharedTokens(next.text, one.seen), sharedWith: next.path }
+      ? { ...one, shared: sharedTokens(next.text, one.seen, { checkout }), sharedWith: next.path }
       : one;
   });
 }
@@ -1412,11 +1334,6 @@ function readState(sessionId) {
     retired: false,
     ...readJson(files.state(sessionId)),
   });
-}
-
-/** What the session read or wrote of each file, in tokens, by its tool hook (`seenAfter`). */
-function seenOf(sessionId) {
-  return readJson(files.seen(sessionId)) || {};
 }
 
 /**
@@ -2561,6 +2478,46 @@ function holderAlive(lock, live) {
 
 function liveIds(live) {
   return live ? live.map((row) => row.sessionId) : null;
+}
+
+/** A per-session temp file of the plugin's, by its kind and its session's id. */
+const TEMP_FILE =
+  /^workflow-(?:queue|seen|turn|plain-words|catalogue|agent|stops)-(.+)\.(?:json|jsonl|tools|log|tmp)$/;
+
+/**
+ * **`plans` sweeps the plugin's per-session temp files**
+ * (plans/shared-count-fixes.md, part 4; decisions.md#reuse-check-cheap):
+ * every file in `dir` named `workflow-<kind>-<id>.<ext>` of the plugin's own
+ * kinds (the queue's state, the seen log, the turn audit's, the plain-words
+ * count, the catalogue's, the tool denials', the test runs' stop logs) older
+ * than `age` whose id is no live session's, of any project, is removed, since nothing else removes one: 8,611 of them in
+ * /tmp on 6 November, 5,221 older than two days. A folder is never removed,
+ * an error passes that file over. A command's work, never a hook's. Returns
+ * how many were removed.
+ */
+export function sweepTemp({ dir = tmpdir(), live = [], now = Date.now(), age = DAY_MS } = {}) {
+  const keep = new Set(live);
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    const id = TEMP_FILE.exec(name)?.[1];
+    if (!id || keep.has(id)) continue;
+    try {
+      const path = join(dir, name);
+      const stat = statSync(path);
+      if (!stat.isFile() || now - stat.mtimeMs < age) continue;
+      unlinkSync(path);
+      removed += 1;
+    } catch {
+      // Gone meanwhile, or not ours to remove: passed over.
+    }
+  }
+  return removed;
 }
 
 /** An executor's first prompt: the plans, or the handed plan to resume (plans/simpler-agents.md, part 3). */
@@ -5128,23 +5085,23 @@ function hook(mode, input) {
   // Only an executor's Building line takes a plan, and only a planner's
   // "Decided" lets one go; any other session's edit returns at once.
   if (mode === "wrote" && kindOf(input) === "assistant") {
-    // A Read writes nothing, so it leaves the asking state as it is.
-    if (input.tool_name !== "Read") leaveAsking(input);
+    leaveAsking(input);
     return;
   }
   if (mode === "wrote" && !executor && kindOf(input) !== "planner") return;
   // **What a plan or brief shares with a chat is what the chat read or wrote
   // of it** (plans/shared-file-share.md, part 1;
   // decisions.md#shared-is-what-is-held, decisions.md#reuse-check-cheap): a
-  // planner's or an executor's tool call adds its tokens to its `seen` file,
-  // from the hook's own input. A subagent's call carries the subagent's
-  // `agent_type`, so it returned above. A Read writes nothing else.
-  if (mode === "wrote") {
-    const before = seenOf(sessionId);
-    const seen = seenAfter(before, input);
-    if (seen !== before) writeJson(files.seen(sessionId), seen);
-    if (input.tool_name === "Read") return;
-  }
+  // planner's or an executor's tool call appends its tokens to its log, from
+  // the hook's own input (plans/shared-count-fixes.md, part 1). A subagent's
+  // call carries the subagent's `agent_type`, so it returned above. A Read
+  // has its own hook, `seen.mjs`, which counts it alone.
+  if (mode === "wrote")
+    try {
+      noteSeen(sessionId, seenIn(input, { checkout: root }));
+    } catch {
+      // A temp folder that cannot be written loses this count, not the hook's work.
+    }
   // **An assistant chat the queue started ends an hour after it goes quiet**
   // (plans/project-follow-ups-reach-the-project.md, part 6), by its numbered
   // name; the owner's own assistant chat is never the queue's to end.
@@ -6261,7 +6218,11 @@ plans github          read what GitHub has that the webhook missed, and act on i
 export function main(args = process.argv.slice(2)) {
   const [mode, ...rest] = args;
   if (!mode || mode === "list" || mode === "--all") {
-    process.stdout.write(`${list({ all: args.includes("--all") })}\n`);
+    // The sweep needs every live session on the machine, any project's:
+    // unread, nothing is removed (/code-review).
+    const live = liveSessions();
+    if (liveAll) sweepTemp({ live: liveIds(liveAll) });
+    process.stdout.write(`${list({ all: args.includes("--all"), live })}\n`);
     return;
   }
   if (mode === "init") {

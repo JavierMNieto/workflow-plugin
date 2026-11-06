@@ -559,6 +559,9 @@ on the machine that planned them.
   6 November: what a chat holds of each file is counted by the tool hook
   from the tool's own result, never from a transcript
   (shared-is-what-is-held). plans/shared-file-share.md.
+  6 November: a Read's hook is a bare node start (scripts/seen.mjs), and
+  plans sweeps the plugin's per-session temp files older than a day.
+  plans/shared-count-fixes.md.
 - `shared-is-what-is-held` **What a plan or brief shares with a chat is
   what the chat read or wrote of each file it names, at most the file's
   size, never the file's whole size.** (Javi, 6 November) A file counted
@@ -569,6 +572,11 @@ on the machine that planned them.
   session's beside its state, which the count never writes over: no
   model call, no transcript read, nothing in the agent's context.
   plans/shared-file-share.md.
+  6 November: the count is an append-only log a hook never reads, so
+  parallel hooks lose nothing; a Read runs a small script of its own; root
+  files count; the handed plan is measured first; a file changed with no
+  output is not held and a command's output is split evenly among the
+  files it names. plans/shared-count-fixes.md.
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel
