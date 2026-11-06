@@ -104,7 +104,6 @@ export function machine(
   env?: Record<string, string | undefined>,
   settings?: string,
 ): { name: string; set: boolean; rejected: string };
-export function kindOf(input: { agent_type?: string } | null | undefined, plugin?: string): string;
 /** The deny key's faults, one line each, from the project's one parse. */
 export function checkDeny(
   project?: {
@@ -142,9 +141,7 @@ export function sharedTokens(
   seen?: Record<string, number>,
   options?: { checkout?: string },
 ): number;
-export function related(text: string, changed: string[]): boolean;
 export function briefPaths(text: string): string[];
-export function relatedBrief(briefText: string, ownTexts?: string[], ownPaths?: string[]): boolean;
 export function withPlans<
   S extends { agent?: string; brief?: string; planned?: boolean; plans?: string[] },
 >(state: S): S & { plans?: string[] };
@@ -350,7 +347,6 @@ export function versionLine(
   live: LiveRow[] | null,
   options?: { installed?: string; versionOf?: (pid?: number) => string },
 ): string;
-export function queueBehindTest(): boolean;
 export function sync(options?: { fetch?: boolean }): string;
 export function agentEffort(agent: string, dir?: string): string;
 export function start(
@@ -390,8 +386,6 @@ export function decideStop(facts: {
 }): StopDecision;
 export type SessionUsage = { context: number; at: number };
 export const REUSE_DEFAULT: Ceilings;
-export function pairOf(ceiling: Ceiling): { any: number; related: number };
-export function ceilingOf(ceiling: Ceiling, related: boolean): number;
 export const CACHE_TTL: number;
 export const WARM: number;
 /** How long a reuse summary, and a background refresh's marker, holds. */

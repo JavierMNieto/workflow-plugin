@@ -2662,3 +2662,20 @@ describe("the install check", () => {
     for (const agent of ["planner", "executor", "maker"]) expect(paragraph(agent)).toBe(assistant);
   });
 });
+
+describe("the queue's type declarations", () => {
+  it("every function plan-queue.d.mts declares is exported by plan-queue.mjs", async () => {
+    const declarations = readFileSync(
+      new URL("../plugins/workflow/scripts/plan-queue.d.mts", import.meta.url),
+      "utf8",
+    );
+    const declared = [
+      ...declarations.matchAll(
+        /^export (?:declare )?(?:async )?(?:function|const|let|var|class) (\w+)/gm,
+      ),
+    ].map((match) => match[1]);
+    expect(declared.length).toBeGreaterThan(0);
+    const exported = Object.keys(await import("../plugins/workflow/scripts/plan-queue.mjs"));
+    expect(declared.filter((name) => !exported.includes(name))).toEqual([]);
+  });
+});
