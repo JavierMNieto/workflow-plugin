@@ -164,8 +164,6 @@ export type Session = {
   standing?: Record<string, string>;
   /** When its end timer fires, if it is left quiet (ms); 0 with none. */
   endsAt?: number;
-  /** A planner's compactions. */
-  compactions?: number;
   /** Its context and the age of its last turn, from its transcript. */
   usage?: SessionUsage | null;
   ceiling?: Ceiling;
@@ -200,7 +198,7 @@ export function sessionsOf(
     plans?: { state: string; session?: string; path: string }[];
     stateFor?: (
       sessionId: string,
-    ) => { agent?: string; retired?: boolean; plans?: string[]; compactions?: number } | null;
+    ) => { agent?: string; retired?: boolean; plans?: string[] } | null;
     usageFor?: (row: LiveRow) => SessionUsage | null;
     ceiling?: Ceiling;
   },
@@ -237,7 +235,6 @@ export type WaitingBrief = { path: string; related?: boolean };
 export function decidePlannerStop(facts: {
   current?: { path: string } | null;
   waiting?: WaitingBrief[];
-  compactions?: number;
   told?: string[];
   paused?: boolean;
   retired?: boolean;
@@ -249,7 +246,7 @@ export function decidePlannerStop(facts: {
   | { refuse: true; told: string[]; reason: string; kept: Kept }
   | null;
 export function tiredFor(
-  state: { compactions?: number; plans?: string[] },
+  state: { plans?: string[] },
   brief: string,
   options?: {
     usage?: SessionUsage | null;
@@ -316,6 +313,9 @@ export function plannerPrompt(path: string): string;
 export function assistantPrompt(path: string): string;
 /** The executor's `Follow-ups ready` message, which a start beside an open assistant chat prints. */
 export function followUpsMessage(path: string): string;
+export function startPrompt(paths: string[], plans: { state: string; path: string }[]): string;
+export function githubPrompt(path: string): string;
+export const PLANNER_PROMPT: RegExp;
 export function fromOf(text?: string): { project: string; path: string } | null;
 export function carriesOf(text?: string): { project: string; file: string }[];
 export function briefThere(
@@ -356,12 +356,7 @@ export function lockHeldByOther(
   alive?: (pid?: number | null) => boolean,
 ): boolean;
 export function allowedWhileLocked(command: string): boolean;
-export function countCompaction<S extends { compactions?: number; lastCompactAt?: number }>(
-  state: S,
-  now?: number,
-): S;
 export function decideStop(facts: {
-  compactions?: number;
   waiting?: Waiting[];
   handed?: Handed[];
   run?: Run | null;
@@ -374,7 +369,6 @@ export function decideStop(facts: {
   usage?: SessionUsage | null;
   ceiling?: Ceiling;
   now?: number;
-  land?: string;
   /** The briefs this session's built plans owe their projects. */
   carry?: Carry[];
 }): StopDecision;
@@ -399,7 +393,6 @@ export function endSession(
 export function endCommand(ids?: string[]): string;
 export function transcriptOf(row: { cwd?: string; sessionId?: string }, projects?: string): string;
 export function mayReuse(facts: {
-  compactions?: number;
   related?: boolean;
   usage?: SessionUsage | null;
   now?: number;
@@ -410,10 +403,6 @@ export function usageWords(
   one: { kind?: string; usage?: SessionUsage | null; ceiling?: Ceiling },
   now?: number,
 ): string;
-export function decideResumed(facts: {
-  compactions?: number;
-  plan?: { path: string; stuck?: boolean } | null;
-}): string;
 export function canStart(facts: {
   kind?: "executor" | "planner" | "assistant";
   lock?: Lock | null;

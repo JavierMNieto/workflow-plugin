@@ -47,11 +47,12 @@ import {
   plannerPrompt,
   assistantPrompt,
   followUpsMessage,
+  startPrompt,
+  githubPrompt,
+  PLANNER_PROMPT,
   sessionsOf,
   versionLine,
-  countCompaction,
   cutoffEdit,
-  decideResumed,
   decideEnd,
   endedEdit,
   decideStop,
@@ -961,20 +962,12 @@ describe("plan-queue", () => {
       ).toMatchObject({ refuse: true, runId: "21@0badc0de" });
     });
 
-    it("names each plan's landing by its Lands line to an executor taking more, in the pull request mode", () => {
+    // plans/simpler-agents.md, part 3: the state and the facts, no landing steps.
+    it("names the waiting plans and no landing steps to an executor taking more", () => {
       const waiting = [plan("plans/a.md")];
-      expect(decideStop({ waiting })!.reason).toContain("the suites once at the end");
-      const reason = decideStop({ waiting, land: "pull-request" })!.reason;
-      expect(reason).toContain("each by its Lands line");
-      expect(reason).toContain("the day's fixes pull request");
-      expect(reason).toContain("its pull request when the topic is ready");
-      // plans/draft-takes-its-follow-ups.md: a draft of the queue's own takes the plan resting on it.
-      expect(reason).toContain(
-        "a plan resting on an open draft of this queue's own lands in that draft, and is stacked only on one marked ready or another person's",
+      expect(decideStop({ waiting })!.reason).toBe(
+        "Plans are waiting and this session can take them: plans/a.md (no context known). Build them as a new batch.",
       );
-      expect(reason).not.toContain("stacked only on the open pull request it rests on");
-      expect(reason).not.toContain("one pull request per plan");
-      expect(reason).not.toContain("the suites once at the end");
     });
 
     it("lets a continued stop pass the run it was refused for, and no other", () => {
@@ -1002,27 +995,13 @@ describe("plan-queue", () => {
       expect(decideStop({})).toBeNull();
     });
 
-    it("keeps a session with one compaction only for a related plan, and retires it at two", () => {
-      expect(
-        decideStop({ compactions: 1, waiting: [plan("plans/a.md", { related: true })] }),
-      ).toMatchObject({
-        refuse: true,
-      });
-      expect(decideStop({ compactions: 1, waiting: [plan("plans/a.md")] })).toMatchObject({
-        retire: true,
-        paths: ["plans/a.md"],
-      });
-      expect(
-        decideStop({ compactions: 2, waiting: [plan("plans/a.md", { related: true })] }),
-      ).toMatchObject({
-        retire: true,
-      });
+    it("passes a retired session", () => {
       expect(decideStop({ retired: true, waiting: [plan("plans/a.md")], run: failed })).toBeNull();
     });
 
     // plans/executor-over-ceiling-hands-on.md, part 1: a session named plans
     // at 187k and stopping at 202k is retired on them.
-    it("retires a session over the ceiling on the plans it was told, and at zero compactions", () => {
+    it("retires a session over the ceiling on the plans it was told", () => {
       const now = Date.now();
       const at = (minutes: number, k: number) => ({
         context: k * 1000,
@@ -1034,18 +1013,13 @@ describe("plan-queue", () => {
       expect(fresh).toMatchObject({ retire: true, paths: ["plans/a.md"] });
       expect(fresh!.why).toContain("over the reuse ceiling");
       expect(decideStop({ waiting: both, told, usage: at(0, 187), now })).toBeNull();
-      const over = decideStop({ waiting: both, told, usage: at(0, 202), compactions: 0, now });
+      const over = decideStop({ waiting: both, told, usage: at(0, 202), now });
       expect(over).toMatchObject({ retire: true, paths: ["plans/a.md", "plans/b.md"] });
       expect(over!.why).toContain("over the reuse ceiling");
-      expect(decideStop({ waiting: both, told, compactions: 2, now })).toMatchObject({
-        retire: true,
-        paths: ["plans/a.md", "plans/b.md"],
-      });
       const one = decideStop({
         waiting: both,
         told: ["plans/a.md"],
         usage: at(0, 150),
-        compactions: 0,
         now,
       });
       expect(one).toMatchObject({ refuse: true, told: ["plans/b.md"] });
@@ -1066,7 +1040,6 @@ describe("plan-queue", () => {
 
     it("neither hands more nor retires a session with a plan of its own still being built", () => {
       const current = { path: "plans/mine.md" };
-      expect(decideStop({ current, compactions: 2, waiting: [plan("plans/a.md")] })).toBeNull();
       expect(decideStop({ current, waiting: [plan("plans/a.md")] })).toBeNull();
       expect(decideStop({ current, run: failed })).toMatchObject({ refuse: true });
     });
@@ -1219,23 +1192,6 @@ describe("plan-queue", () => {
         decideStop({ carry: [owed], waiting: [{ path: "plans/w.md", related: false }] })!.told,
       ).toEqual(["for:plans/a.md:plans/x.md"]);
     });
-  });
-
-  it("asks for a handover at the third compaction inside a plan, and not otherwise", () => {
-    const current = { path: "plans/x.md", stuck: false };
-    expect(decideResumed({ compactions: 2, plan: current })).toBe("");
-    expect(decideResumed({ compactions: 3, plan: current })).toContain("inside plans/x.md");
-    expect(decideResumed({ compactions: 3, plan: current })).toContain("Step in hand");
-    expect(decideResumed({ compactions: 3, plan: null })).toBe("");
-    expect(decideResumed({ compactions: 4, plan: { ...current, stuck: true } })).toBe("");
-  });
-
-  it("counts a compaction once though two hooks report it", () => {
-    const state = countCompaction({ compactions: 0 }, 1_000_000);
-    countCompaction(state, 1_010_000);
-    expect(state.compactions).toBe(1);
-    countCompaction(state, 1_100_000);
-    expect(state.compactions).toBe(2);
   });
 
   describe("canStart", () => {
@@ -2016,6 +1972,32 @@ describe("the planner queue", () => {
       rmSync(join(plansDir(), name), { force: true });
   });
 
+  // plans/simpler-agents.md, part 3: the agent file carries the workflow.
+  describe("a start prompt names the work", () => {
+    it("is one line: the path and what it is", () => {
+      expect(plannerPrompt("plans/x.md")).toBe("Plan plans/x.md: it is a brief.");
+      const plans = [
+        { state: "ready", path: "plans/a.md" },
+        { state: "ready", path: "plans/b.md" },
+      ];
+      expect(startPrompt(["plans/a.md", "plans/b.md"], plans)).toBe(
+        "Build plans/a.md, then plans/b.md.",
+      );
+      expect(startPrompt(["plans/a.md"], plans)).toBe("Build plans/a.md.");
+      expect(startPrompt(["plans/x.md"], [{ state: "handed", path: "plans/x.md" }])).toBe(
+        'Resume plans/x.md from its "Handing over" section.',
+      );
+      expect(assistantPrompt("plans/x.md")).toBe("Follow-ups ready: plans/x.md.");
+      expect(followUpsMessage("plans/x.md")).toBe("Follow-ups ready: plans/x.md.");
+      expect(githubPrompt("plans/github/4.md")).toBe("GitHub: plans/github/4.md.");
+    });
+
+    it("reads the planner's prompt inside a message's wrapper", () => {
+      const wrapped = `<cross-session-message from="uds:/tmp/x.sock" from-name="Assistant">\n${plannerPrompt("plans/x.md")}\n</cross-session-message>`;
+      expect(PLANNER_PROMPT.exec(wrapped)?.[1]).toBe("plans/x.md");
+    });
+  });
+
   it("has the executor send, by hand, the follow-ups message the queue prints", () => {
     const executor = readFileSync(join(here, "..", "agents", "executor.md"), "utf8");
     expect(executor.replace(/\s+/g, " ")).toContain(`\`${followUpsMessage("plans/<x>.md")}\``);
@@ -2097,7 +2079,7 @@ describe("the planner queue", () => {
       canStart({ kind: "planner", sessions: [planner], brief: "plans/next.md", now }),
     ).toMatchObject({
       wait: true,
-      why: `Planner 3 [33330000] is busy, planning plans/x.md, with room for plans/next.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
+      why: `Planner 3 [33330000] is busy, planning plans/x.md, with room for plans/next.md (no context known): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
     });
     // An executor's lock does not hold a planner back.
     expect(
@@ -2158,7 +2140,9 @@ describe("the planner queue", () => {
   });
 
   // plans/planner-continues.md, part 2: the executor's rule, for briefs.
-  it("keeps a fresh planner on the oldest waiting brief, a once-compacted one on the oldest related brief, and retires a tired one", () => {
+  it("keeps a planner under its ceiling on the oldest waiting brief, one over it for other ground on the oldest related brief, and retires a tired one", () => {
+    const now = Date.now();
+    const usage = (k: number) => ({ context: k * 1000, at: now });
     const older = { path: "plans/older.md", related: false };
     const newer = { path: "plans/newer.md", related: true };
     expect(decidePlannerStop({ waiting: [older, newer] })).toMatchObject({
@@ -2166,17 +2150,17 @@ describe("the planner queue", () => {
       told: ["plans/older.md"],
     });
     expect((decidePlannerStop({ waiting: [older, newer] }) as { reason: string }).reason).toContain(
-      "A brief is waiting and this session can take it: plans/older.md (no context known, and it has not compacted).",
+      "A brief is waiting and this session can take it: plans/older.md (no context known).",
     );
-    expect(decidePlannerStop({ waiting: [older, newer], compactions: 1 })).toMatchObject({
+    expect(decidePlannerStop({ waiting: [older, newer], usage: usage(200), now })).toMatchObject({
       refuse: true,
       told: ["plans/newer.md"],
     });
-    expect(decidePlannerStop({ waiting: [older], compactions: 1 })).toMatchObject({
+    expect(decidePlannerStop({ waiting: [older], usage: usage(200), now })).toMatchObject({
       retire: true,
       related: false,
     });
-    expect(decidePlannerStop({ waiting: [older, newer], compactions: 2 })).toMatchObject({
+    expect(decidePlannerStop({ waiting: [older, newer], usage: usage(500), now })).toMatchObject({
       retire: true,
       related: true,
     });
@@ -2266,7 +2250,7 @@ describe("the planner queue", () => {
     expect(withPlans({ agent: "executor" })).toEqual({ agent: "executor" });
   });
 
-  it("says what a planner holds and how often it compacted", () => {
+  it("says what a planner holds", () => {
     const one = {
       kind: "planner" as const,
       sessionId: "53593045-0000",
@@ -2279,12 +2263,11 @@ describe("the planner queue", () => {
       retired: false,
       on: "plans/x.md",
       holds: ["plans/a.md", "plans/b.md"],
-      compactions: 1,
     };
     expect(describeSession(one)).toBe(
-      "Planner 7 [53593045], busy, planning plans/x.md, holds plans/a.md and plans/b.md, 1 compaction",
+      "Planner 7 [53593045], busy, planning plans/x.md, holds plans/a.md and plans/b.md",
     );
-    expect(describeSession({ ...one, on: "", holds: ["plans/a.md"], compactions: 0 })).toBe(
+    expect(describeSession({ ...one, on: "", holds: ["plans/a.md"] })).toBe(
       "Planner 7 [53593045], busy, holds plans/a.md",
     );
     expect(describeSession({ ...one, retired: true, status: "idle" })).toBe(
@@ -2409,8 +2392,8 @@ describe("the planner queue", () => {
       expect(taken).toContain('"permissionDecision":"deny"');
       expect(taken).toContain("the plan is the executor's now");
       expect(taken).toContain("plans/late.md was taken by session abcdef12 on 26 October 2026");
-      // Retired, it writes nothing new: the change goes to the assistant's chat by message.
-      expect(taken).toContain("its first line Change from Javi: plans/late.md.");
+      // The state and the rule's heading in the agent file, nothing restated.
+      expect(taken).toContain('(your agent file, \\"A change to a taken plan\\")');
       expect(taken).not.toContain("For the assistant's chat");
       writeFileSync(
         stateFile,
@@ -2418,7 +2401,7 @@ describe("the planner queue", () => {
       );
       const live = tool("Edit", { file_path: join(repo, "plans", "late.md") });
       expect(live).toContain("the plan is the executor's now");
-      expect(live).toContain("write the change as a follow-up plan, plans/late-follow-up.md");
+      expect(live).toContain('(your agent file, \\"A change to a taken plan\\")');
       expect(live).not.toContain("For the assistant's chat");
     } finally {
       rmSync(stateFile, { force: true });
@@ -2478,7 +2461,7 @@ describe("the planner queue", () => {
         "plans/gone-to-build-follow-up.md",
       ]);
       expect(tool("gone-to-build.md")).toContain(
-        "write the change as a follow-up plan, plans/gone-to-build-follow-up.md",
+        '(your agent file, \\"A change to a taken plan\\")',
       );
     } finally {
       rmSync(stateFile, { force: true });
@@ -2638,21 +2621,23 @@ describe("the planner queue", () => {
       null,
       (path) => texts[path],
     );
-    expect(said).toContain("plans/own.md is in the queue and still yours");
-    expect(said).toContain("plans/taken.md was taken by session abcdef12 on 26 October 2026");
-    expect(said).toContain("plans/built.md is built, commit 1234abcd");
-    expect(said).toContain(
-      "plans/dropped.md is dropped (30 October 2026): it stands as the record of why; nothing more is done with it.",
+    // plans/simpler-agents.md, part 3: one line per plan, the state alone.
+    const lines = said.split("\n");
+    expect(lines).toHaveLength(5);
+    expect(lines).toContain("plans/own.md is in the queue and still yours.");
+    expect(lines).toContain(
+      "plans/taken.md was taken by session abcdef12 on 26 October 2026: it is the executor's.",
     );
-    expect(said).toContain("plans/gone.md is no longer in plans/");
-    expect(said).toContain("This session may take the next brief");
-    // plans/agents-pass-messages-directly.md: the chat he said it in writes it.
-    expect(said).toContain("a follow-up plan you write yourself");
-    expect(said).not.toContain("text to paste");
+    expect(said).toContain("plans/built.md is built, commit 1234abcd");
+    expect(lines).toContain("plans/dropped.md is dropped (30 October 2026).");
+    expect(lines).toContain("plans/gone.md is no longer in plans/.");
+    for (const line of lines) expect(line.length).toBeLessThan(160);
+    expect(said).not.toContain("This session may take the next brief");
+    expect(said).not.toContain("a follow-up plan you write yourself");
     const retired = plannerContext({ plans: ["plans/own.md"], retired: true }, null, () => head);
-    expect(retired).toContain("This session is retired: it plans nothing more");
-    expect(retired).toContain("send it there by one message");
-    expect(retired).not.toContain("a follow-up plan you write yourself");
+    expect(retired).toBe(
+      "plans/own.md is in the queue and still yours.\nThis session is retired: it plans nothing more.",
+    );
   });
 
   // plans/agents-pass-messages-directly.md: the follow-up a planner writes itself is its own.
@@ -4155,7 +4140,7 @@ if (args[0] === "agents") {
           // A dry run says the same line and writes nothing.
           const dry = runIn(dir, ["start", "--dry", "--agent", "planner", "plans/b.md"], env);
           expect(dry).toContain(
-            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ",
+            "Lease Planner 1 (lab) [lease-pl] is busy, with room for plans/b.md (no context known): its Stop hook names the next brief waiting, so nothing is sent. It has until ",
           );
           expect(existsSync(deferred)).toBe(false);
           const before = Date.now();
@@ -4260,14 +4245,14 @@ if (args[0] === "agents") {
   });
 });
 
-/** **The cache-aware queue** (plans/cache-aware-queue.md): reuse by context, not compactions alone. */
+/** **The cache-aware queue** (plans/cache-aware-queue.md): reuse by context and the cache. */
 describe("the cache-aware queue", () => {
   const MIN = 60_000;
   const now = Date.UTC(2026, 9, 27, 14, 0);
   const at = (minutes: number, k: number) => ({ context: k * 1000, at: now - minutes * MIN });
 
-  it("mayReuse: by compactions, the ceiling and the cache", () => {
-    expect(mayReuse({ compactions: 0, usage: at(1, 150), now })).toEqual({
+  it("mayReuse: by the ceiling and the cache", () => {
+    expect(mayReuse({ usage: at(1, 150), now })).toEqual({
       reuse: true,
       why: "its context is 150k tokens, under the reuse ceiling of 200k",
       related: false,
@@ -4280,16 +4265,9 @@ describe("the cache-aware queue", () => {
       "its cache has gone cold after 70 minutes idle",
     );
     expect(mayReuse({ usage: at(70, 40), now })).toMatchObject({ reuse: true });
-    expect(mayReuse({ compactions: 2, usage: at(1, 10), now }).reuse).toBe(false);
-    expect(mayReuse({ compactions: 1, related: false, now }).reuse).toBe(false);
-    expect(mayReuse({ compactions: 1, related: true, now })).toEqual({
+    expect(mayReuse({})).toEqual({
       reuse: true,
-      why: "it has compacted once, and a related plan waits",
-      related: true,
-    });
-    expect(mayReuse({ compactions: 0 })).toEqual({
-      reuse: true,
-      why: "no context known, and it has not compacted",
+      why: "no context known",
       related: false,
     });
   });
@@ -4633,34 +4611,6 @@ describe("the cache-aware queue", () => {
     });
   });
 
-  it("canStart counts a planner's compactions: once compacted, an unrelated brief replaces it", () => {
-    const usage = {
-      at: now / 1000,
-      five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
-    };
-    const compacted = (related: boolean) => ({
-      ...one("idle", 100, "planner"),
-      ceiling: planner,
-      compactions: 1,
-      related,
-    });
-    expect(
-      canStart({
-        kind: "planner",
-        now,
-        usage,
-        name: "Test",
-        sessions: [compacted(false)] as never,
-      }),
-    ).toMatchObject({
-      start: true,
-      replace: [{ why: "this session has compacted 1 time, and nothing waiting is related" }],
-    });
-    expect(
-      canStart({ kind: "planner", now, usage, name: "Test", sessions: [compacted(true)] as never }),
-    ).toMatchObject({ wait: true, why: expect.stringContaining("is idle with room") });
-  });
-
   it("canStart keeps an executor between its two ceilings for related plans only (Codex C1)", () => {
     const usage = {
       at: now / 1000,
@@ -4799,7 +4749,7 @@ describe("the cache-aware queue", () => {
         "# Near\n\nBrief for the planner, 5 November 2026, by the assistant with Javi.\n\nChanges `src/a.mjs` again.\n",
       );
       const textOf = (path: string) => readFileSync(join(repo, path), "utf8");
-      const state = { agent: "planner", compactions: 0, plans: ["plans/own.md"] };
+      const state = { agent: "planner", plans: ["plans/own.md"] };
       const usage = { context: 250_000, at: Date.now() - MIN };
       expect(tiredFor(state, "plans/other.md", { usage, textOf })).toBe(
         "its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
@@ -4831,7 +4781,7 @@ describe("the cache-aware queue", () => {
         },
       });
       expect(out).toContain(
-        "This session is tired for plans/other.md (its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it): do not plan it. Say so, stop, and the Stop hook starts a fresh planner on it.",
+        "This session is too full for plans/other.md (its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it): do not plan it; say so and stop.",
       );
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -5019,7 +4969,7 @@ describe("a brief reaches a free planner", () => {
     const decision = canStart(facts([busy], "plans/b.md"));
     expect(decision).toEqual({
       wait: true,
-      why: `Docs Planner 35 [planner-] is busy, planning plans/y.md, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
+      why: `Docs Planner 35 [planner-] is busy, planning plans/y.md, with room for plans/b.md (no context known): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
       lease: `waiting for Docs Planner 35 [planner-] since ${hhmm(now)}, planning plans/y.md`,
       holder: "planner-35-0000",
       until: now + 30 * MIN,
@@ -5204,7 +5154,7 @@ describe("a brief reaches a free planner", () => {
       lease: `waiting for Docs Planner 35 [35350000] since ${hhmm(now)}`,
     });
     expect(second.why).toBe(
-      `Docs Planner 35 [35350000] is busy, with room for plans/b.md (no context known, and it has not compacted): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
+      `Docs Planner 35 [35350000] is busy, with room for plans/b.md (no context known): its Stop hook names the next brief waiting, so nothing is sent. It has until ${until} to take it; then a fresh planner is started on it.`,
     );
     // 3. Planner 34 asks Javi: brief c still waits for Planner 35, which has room;
     // with Planner 35 gone, a fresh planner starts beside the blocked one.
@@ -5742,7 +5692,16 @@ describe("a finished chat ends", () => {
     it("arms it on the retire too", () => {
       rmSync(log, { force: true });
       const tired = "e3000000-0000-0000-0000-000000000000";
-      writeFileSync(stateFile(tired), JSON.stringify({ agent: "executor", compactions: 2 }));
+      writeFileSync(stateFile(tired), JSON.stringify({ agent: "executor" }));
+      const transcript = join(dir, "tired.jsonl");
+      writeFileSync(
+        transcript,
+        `${JSON.stringify({
+          type: "assistant",
+          timestamp: new Date().toISOString(),
+          message: { usage: { input_tokens: 10, cache_read_input_tokens: 250_000 } },
+        })}\n`,
+      );
       writeFileSync(
         join(dir, "plans", "waiting.md"),
         "# Waiting\n\nPlan only, 27 October 2026, for Javi.\n",
@@ -5753,12 +5712,17 @@ describe("a finished chat ends", () => {
         `${JSON.stringify({ at: Date.now() - MIN, name: "Ends Executor 1", paths: [] })}\n`,
       );
       try {
-        const said = queue(["stop"], { session_id: tired, agent_type: "executor" });
-        expect(said).toContain("Retired: this session has compacted 2 times");
+        const said = queue(["stop"], {
+          session_id: tired,
+          agent_type: "executor",
+          transcript_path: transcript,
+        });
+        expect(said).toContain("Retired: its context is 250k tokens");
         expect(logged()).toEqual([expect.stringMatching(new RegExp(`^end ${tired} at `))]);
         expect(JSON.parse(readFileSync(stateFile(tired), "utf8")).retired).toBe(true);
       } finally {
         rmSync(stateFile(tired), { force: true });
+        rmSync(transcript, { force: true });
         rmSync(join(dir, "plans", "waiting.md"), { force: true });
         rmSync(join(dir, ".claude", "starts.log"), { force: true });
       }
@@ -5969,7 +5933,7 @@ describe("asked once", () => {
     ).toBeNull();
   });
 
-  it("plannerContext says how long the plan is held, and what happens after", () => {
+  it("plannerContext says how long the plan is held", () => {
     const texts: Record<string, string> = { "plans/asks.md": asks };
     const within = plannerContext(
       { plans: ["plans/asks.md"], retired: false },
@@ -5977,8 +5941,8 @@ describe("asked once", () => {
       (path) => texts[path],
       options(5),
     );
-    expect(within).toContain(
-      `It asks Javi until ${hhmm(now + 25 * MIN)}: his answer comes here, goes in Decided with its reason, and the plan is handed over by The final message; after that the executor takes it and builds the recommended options.`,
+    expect(within).toBe(
+      `plans/asks.md is in the queue and still yours. It asks Javi until ${hhmm(now + 25 * MIN)}.`,
     );
     const past = plannerContext(
       { plans: ["plans/asks.md"], retired: false },
@@ -5986,18 +5950,9 @@ describe("asked once", () => {
       (path) => texts[path],
       options(40),
     );
-    expect(past).toContain(
-      "Its question went unanswered for thirty minutes: the executor takes it and builds the recommended options; an answer now that differs is a follow-up plan you write yourself.",
+    expect(past).toBe(
+      "plans/asks.md is in the queue and still yours. Its question went unanswered for thirty minutes.",
     );
-    // A retired chat writes nothing new: the late answer goes by message.
-    expect(
-      plannerContext(
-        { plans: ["plans/asks.md"], retired: true },
-        [row],
-        (path) => texts[path],
-        options(40),
-      ),
-    ).toContain("an answer now that differs is a change sent to the assistant's chat by message.");
   });
 
   describe("in a fixture", () => {
@@ -6487,7 +6442,7 @@ describe("asked once", () => {
         rmSync(join(dir, "plans", "taken.md"));
         const out = timerStart(["plans/built.md", "plans/asks.md"]);
         expect(out).toContain("Would run: claude");
-        expect(out).toContain("Build the plans waiting in the queue, oldest first: plans/asks.md.");
+        expect(out).toContain("Build plans/asks.md.");
         expect(out).toContain(
           "Would retire Asks Executor 1 [a3000000]: idle while a plan's thirty minutes ran out, and the queue cannot message it.",
         );
@@ -6498,9 +6453,7 @@ describe("asked once", () => {
           join(dir, "plans", "older.md"),
           "# O\n\nPlan only, 20 October 2026, for Javi.\n",
         );
-        expect(timerStart(["plans/built.md", "plans/older.md"])).toContain(
-          "oldest first: plans/older.md.",
-        );
+        expect(timerStart(["plans/built.md", "plans/older.md"])).toContain("Build plans/older.md.");
       } finally {
         rmSync(join(dir, "plans", "older.md"), { force: true });
         rmSync(join(dir, "plans", "built.md"), { force: true });

@@ -107,28 +107,7 @@
         ]
       }
     ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" compact",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "SessionStart": [
-      {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs\" resumed",
-            "timeout": 5
-          }
-        ]
-      },
       {
         "matcher": "startup|resume|clear",
         "hooks": [

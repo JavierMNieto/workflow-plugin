@@ -557,7 +557,7 @@ describe("the plugin's queue in any project", () => {
     for (const open of [["Docs Assistant"], ["Docs Assistant 2 (lab)"]])
       expect(canStart({ ...base, open })).toEqual({
         refuse: true,
-        why: `${open[0]} is open: send it the message instead. Follow-ups ready: plans/a.md, "Built", "Needs a decision", the items marked assistant and planner. Write a short plan for the assistant items and a brief for the planner items.`,
+        why: `${open[0]} is open: send it the message instead. Follow-ups ready: plans/a.md.`,
       });
     expect(canStart({ ...base, paused: "today" })).toMatchObject({ refuse: true });
     const now = Date.UTC(2026, 9, 31, 12);

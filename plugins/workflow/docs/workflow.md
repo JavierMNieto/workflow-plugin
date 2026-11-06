@@ -19,6 +19,33 @@ answers and routes; `workflow:maker` (Opus, effort high) is the compact
 form's one chat, which decides, builds and records.
 (decisions.md#plan-then-build)
 
+**An agent file is the agent's instructions, and a start prompt names
+the work.** Each agent file says what the agent does, in the order it
+does it, each rule once and in the file of the agent that acts on it,
+as an instruction with the handbook rule it rests on named in
+parentheses, never the history of how it was decided; a negative is
+paired with what to do instead; emphasis words are not used; a
+procedure the agent runs in one phase of one mode is a file the agent
+reads at that step, named in the agent file; a line the agent would
+find by opening a file the plan or the project file names is left out;
+and a string the scripts parse (a section heading, a line `plans`
+reads, a message's first line) is written out exactly, in backticks.
+The prompt the queue starts a chat with is one line: the path and what
+it is (`Plan plans/<x>.md: it is a brief.`, `Build plans/a.md, then
+plans/b.md.`, `Follow-ups ready: plans/<x>.md.`), and a hook's words
+are the state and the facts, with the rule named by its heading in the
+agent file where the agent must act. (decisions.md#agent-file-is-instructions)
+
+**An agent's report is short.** A final message leads with what changed
+for the owner and what waits on him, a behavior as When … then …, then
+where the record is (the plan's path, the pull request's link), in at
+most ten lines; a "Built" section opens with its landing line, then one
+line for the "Done when" lines that hold, with the commands run and
+their counts, one line per line that does not hold or was checked
+another way, the deviations, "Needs a decision", the Codex paragraph
+and the Usage line, and nothing the plan already says.
+(decisions.md#report-is-short)
+
 **A brief or a plan is a prompt for the agent that reads it**, and is
 written as one. Four parts, in this order, under these headings: *What
 was asked*, the outcome and why, in the owner's words as a paragraph of
@@ -378,8 +405,7 @@ name in the same turn. (decisions.md#recognized-three-places)
 rules, loaded always; a catalogue file's `paths` and `signals` (a one-file
 catalogue with no `paths` governs every `ui` path), which
 `scripts/catalogue-context.mjs` matches before an edit or a `tools` call,
-each entry, and the hook's instruction, shown once per session and again
-after a compaction; and, for an edit whose text draws a control or carries
+each entry, and the hook's instruction, shown once per session; and, for an edit whose text draws a control or carries
 words a person could read, a small model's naming of the catalogue's files
 or sections it touches, loaded beside them (one call per distinct text,
 about 1.5k tokens and seven seconds a call, sixty a session, twenty
@@ -418,15 +444,14 @@ the author answers with a `Related` line.
 another's edits are refused. Its Stop hook holds the stop on a red or
 unfinished run of its push, or pull request of the checkout, whose fix
 is pushed where the red one was, before anything else, then names
-the waiting plans to a session it may reuse (no compaction, or one and a
-waiting plan naming a file the batch changed; a context under its
-ceiling (the project file's `reuse`: 200k for an executor by default); a
-cache still warm), else retires it and starts the
-next executor, judged at every stop while plans wait, the plans it was
-named included, so a session under the ceiling when named and over it
-when it next stops is retired then, at zero compactions too. At a third compaction inside one plan the session hands
-it over (work committed, a "Handing over" section, stop), up to six times
-a plan; twice at the same step, the owner is asked.
+the waiting plans to a session it may reuse (a context under its
+ceiling, the project file's `reuse`, 200k for an executor by default,
+for the work's relatedness; a cache still warm), else retires it and
+starts the next executor, judged at every stop while plans wait, the
+plans it was named included. A plan the usage limit cuts off, or `plans
+end --now` ends, is handed over (work committed, a "Handing over"
+section, stop); twice at the same step, or six times, the owner is
+asked.
 (decisions.md#one-executor, decisions.md#context-cost)
 
 **Starts are bounded**: one executor at a time; none while the five-hour
@@ -482,9 +507,8 @@ taken by the planner's `## Planning, <date>, session <id>` line; `plans
 start --agent planner` starts a planner under the executor's bounds.
 (decisions.md#briefs-queued)
 
-**A planner with room left takes the next brief**: none compacted and
-under 160k, the oldest; under 480k, or compacted once, the oldest brief
-related to its plans (one that names a file they name, or one of them);
+**A planner with room left takes the next brief**: under 160k, the
+oldest; under 480k, the oldest brief related to its plans (one that names a file they name, or one of them);
 else it retires, and `plans start` leaves a brief with a live planner only
 when it is under its ceiling for that brief and not waiting on a
 question, by message when it is idle and by its Stop hook when it is

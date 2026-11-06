@@ -851,8 +851,8 @@ to a Claude session left out>
   them, so he can reverse one through the assistant's chat; then the
   record: what is pushed, the deviations, the suite counts in a short
   table with a `Codex` row (its findings and verdicts, or "not run"), the
-  queue (`plans`) under it with the compactions and usage this session
-  spent per plan, and what is open for ${user_config.owner}. Decisions go
+  queue (`plans`) under it with the usage this session spent per plan,
+  and what is open for ${user_config.owner}. Decisions go
   through the question tool in the same turn, never "I'll ask when you're
   back". Anything they must act on is in the message or a sent file. When
   the plan has a "Needs a decision" list: the **ask** items go to
@@ -867,9 +867,7 @@ to a Claude session left out>
   `ListAgents`: if this project's assistant chat, named `<the project file's
   name> Assistant`, is on this machine (its kind
   is not Remote Control, so the plan can be read where it runs), send one
-  of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md, "Built", "Needs a
-  decision", the items marked assistant and planner. Write a short plan
-  for the assistant items and a brief for the planner items.` With none
+  of them, idle first, else busy, one message, `Follow-ups ready: plans/<x>.md.` With none
   on this machine, start one: `plans start --agent assistant
   plans/<x>.md`, which starts `<Project> Assistant n
   (<machine>)` on the plan's items in Remote Control, or says why not
@@ -888,41 +886,39 @@ The queue is "The queue" in the plugin's docs; the hooks in
 what they ask of you.
 
 - **Before the final message**, `ReadNotifications` and `plans`. Plans
-  waiting are built as a new batch when this session has not compacted,
-  or has compacted once and a waiting plan names a file this batch
-  changed, and its context is under the reuse ceiling; the prompt hook's
-  context line says how many times it has. The Stop hook judges this at
+  waiting are built as a new batch when this session's context is under
+  the reuse ceiling for them. The Stop hook judges this at
   every stop, from the transcript, and names the plans or retires the
   session: a session named plans builds them, and never declines them on
   its own count of its context, since the hook retires it at the next
   stop it is over the ceiling. A new batch starts at "Before the first
   edit" step 4: start clean, a new branch off `origin/<branch>`.
-- **A tired context is replaced, not cleared.** At two compactions, one
-  with nothing related waiting, or a context over the reuse ceiling at a
-  stop with plans waiting (the ones it was named included, at zero
-  compactions too), the Stop hook starts the next executor (`<Project>
+- **A tired context is replaced, not cleared.** At a context over the
+  reuse ceiling at a stop with plans waiting (the ones it was named
+  included), the Stop hook starts the next executor (`<Project>
   Executor 2 (lab), 3 (lab), ...`, a Remote Control chat named for the
   project and the machine) and tells you; your final message's first line says so, sent as a push
   notification too when `PushNotification` is in the session. On your
   first turn in a started session, send `<this session's name> started
   on: <paths>` the same way. When a start was refused, the refusal's line
   goes in the final message and the notification.
-- **A long plan is handed over.** A context line after a compaction
-  telling you to hand the plan over is followed as written: finish the
-  step in hand, commit the work on the branch (the next executor squashes
+- **A long plan is handed over.** A plan the usage limit cut off, or that
+  `plans end --now` ended, is resumed from its "Handing over" section. To
+  hand one over: finish the step in hand, commit the work on the branch (the next executor squashes
   work commits into one per plan), write the "Handing over, <date>"
   section after the plan's header paragraph (its "Short plan" or "Plan
   only" lines), not between the title and the header, with "Step in hand:
-  <n>" as its first line, take out the Building line and stop. A prompt
+  <n>" as its first line and the branch the work is committed on after
+  it, take out the Building line and stop. A prompt
   that says "Resume plans/<x>.md from its Handing over section" starts at
-  that section, on that branch, and replaces its heading with `## Resumed,
+  that section, on the branch it names, and replaces its heading with `## Resumed,
   <date>, session <id>, at step <n>`. A plan with six Resumed lines, or two in a row at
   the same step, is not handed over again: its "Built" section says
   "Needs a decision" with the count or the step, and ${user_config.owner}
   is asked.
 - **Usage.** At a plan's start and at its "Built", read `usage.json` in
   the plugin's data directory (the status line writes it) and write
-  `Usage: <n> percent of the five-hour window, <m> compactions` in the
+  `Usage: <n> percent of the five-hour window` in the
   "Built" section. When the usage-limit message appears mid-plan, commit
   the work on the branch, write the "Handing over" section with the step
   in hand, take out the Building line and stop; the `StopFailure` hook

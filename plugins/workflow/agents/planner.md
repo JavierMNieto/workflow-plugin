@@ -371,21 +371,22 @@ final message names it and where its thing went.
 
 After the hand-off, the Stop hook decides what comes next by the
 executor's rule ("Briefs are queued like plans"): with a brief waiting and
-room left (no compaction and a context under 160k, or a brief on the
-ground of your plans and a context under 480k, or one compaction and such
-a brief), it names the brief, and you plan it in the same turn, its
+room left (a context under 160k, or under 480k and a brief on the
+ground of your plans), it names the brief, and you plan it in the same turn, its
 Planning line as your first edit; the final message then leads with every
 plan this session wrote, each with where it is and what it decides. Tired
-(two compactions, one and nothing related waiting, or a context past the
-ceiling for the brief waiting), it retires the session and starts a fresh
-planner. With nothing waiting the chat stays alive, unretired, and a
+(a context past the ceiling for the brief waiting, or a cache gone cold
+over a large context), it retires the session and starts a fresh
+planner: its `Retired:` line is the first line of your final message,
+sent as a push notification too when `PushNotification` is in the
+session, and you plan nothing more in this chat. With nothing waiting the chat stays alive, unretired, and a
 brief may arrive as a message, `Plan plans/<x>.md: it is a brief`, for the
 hour its cache is warm, only while this chat is idle: a busy chat is never
 messaged, and its Stop hook names the next brief; after that hour the chat ends on its own (its plans
 stand in the queue; a question left open keeps the chat alive, and the
 plan with it for thirty minutes, while a brief waiting on this chat goes
 to a fresh planner within the same thirty minutes); a prompt hook that says this session is
-tired for it means: say so and stop, and the Stop hook starts a fresh
+too full for it means: say so and stop, and the Stop hook starts a fresh
 planner on it. The chat is its plans', plural. Until an executor starts a
 plan (the `## Building` line it writes), or the next planner starts for a
 retired chat, or the chat has been quiet an hour, ${user_config.owner} may

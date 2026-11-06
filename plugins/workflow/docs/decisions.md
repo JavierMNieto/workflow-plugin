@@ -24,6 +24,37 @@ on the machine that planned them.
   six patterns (outcome, check, reference, target, artifact, answer's
   form); Anthropic's prompting best practices give the why and number
   steps only when order matters. plans/briefs-and-plans-as-prompts.md.
+- `agent-file-is-instructions` **An agent file is the agent's
+  instructions, each rule once, short, with the why in this catalogue;
+  a start prompt names the work.** (Javi, 6 November) Anthropic's Claude
+  Code best practices say every line of an always-loaded file takes a
+  little of Claude's attention on every task, that a line Claude keeps
+  missing is lost in a long file rather than cured by emphasis, and
+  that a procedure needed only sometimes is read only when the task
+  calls for it; its context engineering post asks for the smallest set
+  of high-signal tokens at the right altitude, sections with headings,
+  and instructions added only on observed failure; its Claude 4 best
+  practices ask for clear, direct instructions a colleague with minimal
+  context could follow, with the why given so the model generalizes
+  from it, what to do rather than what not to do, and softened
+  language, since emphasis makes a rule over-applied. HumanLayer keeps
+  its root file under sixty lines and reads the research (IFScale,
+  arXiv 2507.11538) as frontier models following about 150 to 200
+  instructions with reasonable consistency, a budget the agent file
+  shares with Claude Code's own fifty; the four big agent files were 30
+  to 57 thousand characters, each rule in two or three of them. The
+  start prompt said again what the agent file says, and was partly
+  wrong. plans/simpler-agents.md, plans/simpler-agent-files.md.
+- `report-is-short` **An agent's report is short: what changed, what
+  waits on the owner, the evidence by command and count, nothing the
+  plan says.** (Javi, 6 November) He reads the final messages on his
+  phone and "Built" sections to find what is his to act on, and both
+  restated the plan's "Done when" line by line; Claude Code's best
+  practices ask for evidence, the command run and its output, rather
+  than "all tests pass", and for short summaries back; Anthropic's
+  context engineering post has a sub-agent return one to two thousand
+  tokens of a run that spent tens of thousands; its Claude 4 best
+  practices say to prompt explicitly for conciseness. plans/simpler-agents.md.
 - `behavior-as-scenario` **A behavior a person sees is written as a
   scenario, When <what they do>, then <what they see>, one per line, each
   in a plan's Done when naming its test.** (Javi, 2 November) As OpenSpec's
@@ -322,6 +353,9 @@ on the machine that planned them.
   5 November (Javi): with two ceilings, a session that declined a related
   plan is not kept for it while an unrelated one waits; `related` is read
   over the plans not yet named when any are. plans/executor-over-ceiling-hands-on.md.
+  6 November: the third compaction's hand-over is retired with the
+  compaction count; a plan is handed over by the usage limit's cutoff and
+  by plans end --now alone. plans/simpler-agents.md.
 - `starts-bounded` **Starts are bounded, as every loop over model calls
   is.** (Javi, 27 October) A queue that starts sessions on its own must
   not spend the subscription's window or loop on a session that dies.
@@ -367,7 +401,10 @@ on the machine that planned them.
   times its size, so relatedness is the planner's cost argument, where it
   was the executor's quality guard; under one ceiling the median planner
   planned one brief and retired. plans/cache-aware-queue.md,
-  plans/reuse-ceiling-per-agent.md.
+  plans/reuse-ceiling-per-agent.md. 6 November: compactions no longer
+  enter the rule; under its ceiling for any brief the oldest, under its
+  ceiling for a related brief the oldest related one.
+  plans/simpler-agents.md.
   - ~~A planner with room left takes the next brief.~~ (Javi, 27
     October; by the executor's rule)
 - `brief-leased` **A brief left with a live planner is leased to it
@@ -468,7 +505,13 @@ on the machine that planned them.
   shared; an executor on Opus at about 70k and 110k, and 200k stays the
   owner's allowance of about $3 a plan for the batch's continuity. `plans
   cost` measures it again. plans/cache-aware-queue.md,
-  plans/reuse-ceiling-per-agent.md.
+  plans/reuse-ceiling-per-agent.md. 6 November: compactions leave the
+  rule; of this queue's 60 sessions since 27 October none compacted
+  (plans cost), and the first project's Built sections record 0
+  compactions 56 times, so the context against the ceiling and the
+  cache's warmth are the whole rule, and plans cost keeps counting
+  compactions as the measurement that would show them back.
+  plans/simpler-agents.md.
   - ~~A session's context is worth keeping only while it is cheaper than
     a fresh one.~~ (per Anthropic's pricing page, 27 October; one wash of
     100k for both agents, counted with the fresh session's growth on one
