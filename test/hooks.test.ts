@@ -9,13 +9,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   statSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { QUEUE_IGNORES } from "../plugins/workflow/scripts/project.mjs";
 import {
@@ -36,8 +37,8 @@ import {
   reuseInputs,
   transcriptsDir,
   REUSE_REFRESH,
-  REFRESH_MARKER,
   refreshLater,
+  costCommand,
   hookRun,
   seenAfter,
   sharedTokens,
@@ -7852,7 +7853,7 @@ describe("the reuse inputs are cached", () => {
       try {
         expect(none.hookAt(t0)).toEqual({});
         expect(none.spawned).toHaveLength(1);
-        expect(none.spawned[0].slice(-1)).toEqual(["cost"]);
+        expect(none.spawned[0].slice(-2)).toEqual(["cost", "--summary"]);
         expect(none.spawned[0][0]).toMatch(/plan-queue\.mjs$/);
         expect(none.reads()).toBe(0);
         expect(existsSync(none.file.replace(/\.json$/, ".refreshing"))).toBe(true);
@@ -7870,14 +7871,45 @@ describe("the reuse inputs are cached", () => {
       }
     });
 
-    it("a second hook within ten minutes of the start starts nothing", () => {
+    it("plans cost --summary refreshes the reuse inputs alone and prints nothing", () => {
+      const calls: string[] = [];
+      const printed: string[] = [];
+      costCommand(["--summary"], {
+        measureAll: () => (calls.push("measure"), []),
+        refreshInputs: (opts: { refresh?: boolean }) => (
+          calls.push(`reuseInputs refresh=${opts.refresh}`),
+          {}
+        ),
+        write: (text: string) => printed.push(text),
+      });
+      expect(calls).toEqual(["reuseInputs refresh=true"]);
+      expect(printed).toEqual([]);
+    });
+
+    it("two hooks at once start one refresh", () => {
+      const run = setUp();
+      try {
+        // The first hook's marker is created; the second, at the same moment, finds it.
+        run.hookAt(t0);
+        run.hookAt(t0);
+        expect(run.spawned).toHaveLength(1);
+      } finally {
+        rmSync(run.base, { recursive: true, force: true });
+      }
+    });
+
+    it("a marker under an hour old starts nothing, the summary still old; one an hour old starts again", () => {
       const run = setUp();
       try {
         run.hookAt(t0);
-        run.hookAt(t0 + REFRESH_MARKER - 1);
+        run.hookAt(t0 + REUSE_REFRESH - 1);
         expect(run.spawned).toHaveLength(1);
-        run.hookAt(t0 + REFRESH_MARKER);
+        expect(existsSync(run.file)).toBe(false);
+        run.hookAt(t0 + REUSE_REFRESH);
         expect(run.spawned).toHaveLength(2);
+        const marker = run.file.replace(/\.json$/, ".refreshing");
+        expect(readFileSync(marker, "utf8")).toBe(String(t0 + REUSE_REFRESH));
+        expect(readdirSync(dirname(marker))).toEqual(["-checkout.refreshing"]);
       } finally {
         rmSync(run.base, { recursive: true, force: true });
       }

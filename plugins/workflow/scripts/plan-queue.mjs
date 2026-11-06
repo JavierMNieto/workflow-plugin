@@ -1620,7 +1620,9 @@ export const REUSE_REFRESH = 60 * MINUTE;
  * `cachedOnly` (`hookRun`) and takes the summary as it is, whatever its age,
  * listing and reading nothing: a hook never measures; when the summary is
  * missing or `REUSE_REFRESH` old it calls `stale` (`refreshLater`, which
- * starts `plans cost` in the background and does not wait),
+ * starts `plans cost --summary` in the background, this measuring alone and
+ * no report, and does not wait, at most once an hour;
+ * plans/background-refresh-measures-only.md),
  * and with no summary the ceilings are the defaults, said as such; `plans`,
  * `plans start` and `plans cost` keep the summary fresh
  * (plans/reuse-measured-outside-hooks.md). No folder, or a read that fails:
@@ -1687,33 +1689,60 @@ export function hookRun(argv = process.argv) {
   return HOOK_MODES.includes(argv[2]);
 }
 
-/** How long a background refresh's marker stops another. */
-export const REFRESH_MARKER = 10 * MINUTE;
-
 /**
  * **A hook refreshes the summary in the background**
- * (plans/hooks-refresh-reuse-in-background.md): starts `plans cost`, this
- * script with `cost` and its output discarded, detached, and writes the
- * marker `<summary>.refreshing` beside `file` with the time; while the marker
- * is under `REFRESH_MARKER` old, starts nothing. The refresh leaves the marker:
- * its new `measuredAt` makes the next hook start nothing. True when started.
+ * (plans/hooks-refresh-reuse-in-background.md,
+ * plans/background-refresh-measures-only.md): starts `plans cost --summary`,
+ * this script measuring the reuse inputs alone with its output discarded,
+ * detached, once it has created the marker `<summary>.refreshing` beside
+ * `file`, with the time, atomically (`wx`): a marker that exists is another
+ * hook's refresh, and while it is under `REUSE_REFRESH` old nothing starts, so
+ * a refresh that cannot write the summary is tried at most hourly. An older
+ * marker is removed and created again; two hooks replacing it at one moment
+ * may both start a refresh, which is harmless: each writes the same summary
+ * atomically. The
+ * refresh leaves the marker: its new `measuredAt` makes the next hook start
+ * nothing. True when started.
  */
 export function refreshLater(
   file,
   { now = Date.now(), spawner = detached, script = join(here, "plan-queue.mjs") } = {},
 ) {
   const marker = file.replace(/\.json$/, ".refreshing");
-  let at = 0;
-  try {
-    at = Number(readFileSync(marker, "utf8")) || 0;
-  } catch {
-    // No marker: no refresh under way.
-  }
-  if (now - at < REFRESH_MARKER) return false;
+  const create = () => {
+    try {
+      writeFileSync(marker, String(now), { flag: "wx" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
   try {
     mkdirSync(dirname(marker), { recursive: true });
-    writeFileSync(marker, String(now));
-    spawner(process.execPath, [script, "cost"], { ...process.env, WORKFLOW_ROOT: root });
+  } catch {
+    return false;
+  }
+  if (!create()) {
+    let at;
+    try {
+      // A marker another hook has created and not yet written is its mtime's.
+      at = Number(readFileSync(marker, "utf8")) || statSync(marker).mtimeMs;
+    } catch {
+      return false;
+    }
+    if (now - at < REUSE_REFRESH) return false;
+    try {
+      unlinkSync(marker);
+    } catch {
+      // Removed by another hook at the same moment: one of the two creates it.
+    }
+    if (!create()) return false;
+  }
+  try {
+    spawner(process.execPath, [script, "cost", "--summary"], {
+      ...process.env,
+      WORKFLOW_ROOT: root,
+    });
   } catch {
     return false;
   }
@@ -1729,6 +1758,54 @@ let reuseRead = null;
 function reuseNow() {
   if (!reuseRead) reuseRead = reuseInputs({ cachedOnly: hookRun(), stale: refreshLater });
   return reuseRead;
+}
+
+/**
+ * **`plans cost`** (plans/reuse-ceiling-per-agent.md, part 6): this
+ * checkout's transcripts, or a folder's, since a day when given, then the
+ * reuse inputs refreshed and the report. With `--summary`, the queue's own
+ * argument to itself (`refreshLater`), it refreshes the reuse inputs alone and
+ * prints nothing: no transcript is priced for a report nobody sees
+ * (plans/background-refresh-measures-only.md).
+ */
+export function costCommand(
+  rest = [],
+  {
+    measureAll = measure,
+    refreshInputs = reuseInputs,
+    write = (text) => process.stdout.write(text),
+  } = {},
+) {
+  const summary = rest.includes("--summary");
+  const args = rest.filter((arg) => arg !== "--summary");
+  const at = args.indexOf("--since");
+  const since = at >= 0 ? args[at + 1] || "" : "";
+  if (at >= 0 && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    write("plans cost --since takes a day as yyyy-mm-dd.\n");
+    process.exitCode = 1;
+    return;
+  }
+  // Resolved, so the reuse summary is keyed by the folder's own name.
+  const given = args.filter((_, i) => at < 0 || (i !== at && i !== at + 1))[0];
+  const folder = given ? resolve(given) : transcriptsDir();
+  if (summary) {
+    refreshInputs({ refresh: true, dir: folder });
+    return;
+  }
+  const rows = measureAll(folder, { since });
+  const home = homedir();
+  const shown = folder.startsWith(`${home}/`) ? `~${folder.slice(home.length)}` : folder;
+  // **The reuse inputs, refreshed** (plans/adaptive-reuse.md, part 1), and
+  // each agent's ceiling from them, which the report says after its line.
+  const inputs = refreshInputs({ refresh: true, dir: folder });
+  const reuse = Object.fromEntries(
+    ["executor", "planner"].map((kind) => {
+      const warm = ceilingFor({ kind, inputs, fallback: proj().reuse[kind] });
+      const cold = ceilingFor({ kind, inputs, fallback: proj().reuse[kind], warm: false });
+      return [kind, { ...inputs[kind], warm, cold }];
+    }),
+  );
+  write(`${costWords(rows, { reuse, machine: machine().name, since, dir: shown }).join("\n")}\n`);
 }
 
 /** "14:32", a time as the queue's lines say it. */
@@ -6191,35 +6268,9 @@ export function main(args = process.argv.slice(2)) {
     process.stdout.write(`${init(root)}\n`);
     return;
   }
-  // **`plans cost`** (plans/reuse-ceiling-per-agent.md, part 6): this
-  // checkout's transcripts, or a folder's, since a day when given.
+  // **`plans cost`** (plans/reuse-ceiling-per-agent.md, part 6).
   if (mode === "cost") {
-    const at = rest.indexOf("--since");
-    const since = at >= 0 ? rest[at + 1] || "" : "";
-    if (at >= 0 && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
-      process.stdout.write("plans cost --since takes a day as yyyy-mm-dd.\n");
-      process.exitCode = 1;
-      return;
-    }
-    // Resolved, so the reuse summary is keyed by the folder's own name.
-    const given = rest.filter((_, i) => at < 0 || (i !== at && i !== at + 1))[0];
-    const folder = given ? resolve(given) : transcriptsDir();
-    const rows = measure(folder, { since });
-    const home = homedir();
-    const shown = folder.startsWith(`${home}/`) ? `~${folder.slice(home.length)}` : folder;
-    // **The reuse inputs, refreshed** (plans/adaptive-reuse.md, part 1), and
-    // each agent's ceiling from them, which the report says after its line.
-    const inputs = reuseInputs({ refresh: true, dir: folder });
-    const reuse = Object.fromEntries(
-      ["executor", "planner"].map((kind) => {
-        const warm = ceilingFor({ kind, inputs, fallback: proj().reuse[kind] });
-        const cold = ceilingFor({ kind, inputs, fallback: proj().reuse[kind], warm: false });
-        return [kind, { ...inputs[kind], warm, cold }];
-      }),
-    );
-    process.stdout.write(
-      `${costWords(rows, { reuse, machine: machine().name, since, dir: shown }).join("\n")}\n`,
-    );
+    costCommand(rest);
     return;
   }
   if (mode === "check") {

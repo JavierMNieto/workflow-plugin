@@ -394,6 +394,26 @@ export function pairOf(ceiling: Ceiling): { any: number; related: number };
 export function ceilingOf(ceiling: Ceiling, related: boolean): number;
 export const CACHE_TTL: number;
 export const WARM: number;
+/** How long a reuse summary, and a background refresh's marker, holds. */
+export const REUSE_REFRESH: number;
+/** Starts `plans cost --summary` in the background unless a marker under an hour old stops it. */
+export function refreshLater(
+  file: string,
+  options?: {
+    now?: number;
+    spawner?: (bin: string, args: string[], env: NodeJS.ProcessEnv) => unknown;
+    script?: string;
+  },
+): boolean;
+/** `plans cost`: the report, or with `--summary` the reuse inputs refreshed alone. */
+export function costCommand(
+  rest?: string[],
+  options?: {
+    measureAll?: (dir: string, options: { since: string }) => unknown[];
+    refreshInputs?: (options: { refresh: boolean; dir: string }) => Record<string, unknown>;
+    write?: (text: string) => void;
+  },
+): void;
 export function sessionUsage(transcriptPath: string): SessionUsage | null;
 export function decideEnd(facts: {
   row: LiveRow | null;

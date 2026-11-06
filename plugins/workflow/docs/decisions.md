@@ -554,6 +554,8 @@ on the machine that planned them.
   6 November: a hook that finds the summary over an hour old starts
   `plans cost` in the background and does not wait.
   plans/hooks-refresh-reuse-in-background.md.
+  6 November: the background refresh measures only the reuse inputs, at
+  most hourly. plans/background-refresh-measures-only.md.
   6 November: what a chat holds of each file is counted by the tool hook
   from the tool's own result, never from a transcript
   (shared-is-what-is-held). plans/shared-file-share.md.
