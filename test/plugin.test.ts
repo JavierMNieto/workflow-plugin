@@ -2022,7 +2022,7 @@ describe("a pull request per topic", () => {
     expect(read("agents/assistant.md")).toContain(
       "Lands: <fix | fix, now | topic <name>, waiting | topic <name>, ready>.",
     );
-    expect(read("agents/assistant.md")).toContain("`fix, now` only when");
+    expect(read("agents/assistant.md")).toContain("`Lands: fix, now.` only when");
     expect(read("agents/planner.md")).toContain(
       "`Lands: topic <name>, ready.` or `Lands: topic <name>, waiting.`",
     );
