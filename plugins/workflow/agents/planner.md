@@ -217,7 +217,9 @@ what the executor could not find by looking.
    ("stacked on #<n>"). In a project with `land: pull-request`, a line of its own
    after that paragraph says where the plan lands: `Lands: topic <name>,
    ready.` or `Lands: topic <name>, waiting.`, always a topic, since a
-   plan decides and a decision is a rule. `<name>` is the topic's branch
+   plan decides and a decision is a rule; the pull request it lands in or
+   is stacked on may follow the state, `Lands: topic <name>, ready; lands
+   in #<n>.` or `; stacked on #<n>.`, which the queue reads. `<name>` is the topic's branch
    name, lower-case words joined by hyphens, named for the topic, not the
    plan. `ready` when, with this plan, the topic holds its central
    decision or two substantial ones; `waiting` when ${user_config.owner}

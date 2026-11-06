@@ -219,7 +219,9 @@ it (below); the executor's "In pull request mode" holds the steps.
 - **A topic** (`Lands: topic <name>, ready.` or `, waiting.`): one
   branch named for the topic, a commit per plan, pushed after each; its
   pull request opens with the first plan marked `ready`; a plan with no
-  `Lands` line is a topic of its own, ready. (decisions.md#topic-landing)
+  `Lands` line is a topic of its own, ready; the pull request it lands in
+  or is stacked on may follow the state (`ready; lands in #52.`), and
+  `plans` says a `Lands` line it cannot read. (decisions.md#topic-landing)
   A later plan joins an open pull request: the description is written
   again, its screenshots attached with `gh pr edit --attach`, and nothing
   is posted. (decisions.md#joined-pull-request)

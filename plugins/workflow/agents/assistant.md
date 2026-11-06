@@ -503,7 +503,9 @@ rests on in its header line only when it uses what that plan adds, never
 for a shared file; only then does it go into that plan's pull request:
 an open draft of this queue's own it lands in ("lands in #<n>", its
 `Lands` that draft's topic), one marked ready or another person's it is
-stacked on ("stacked on #<n>"). "Done when" is every check the executor
+stacked on ("stacked on #<n>"); that may follow the state on the `Lands`
+line, `Lands: topic <name>, ready; lands in #<n>.` or `; stacked on
+#<n>.`, which the queue reads. "Done when" is every check the executor
 runs before it writes "Built", a line each with its command, or what is
 looked at, and what it shows, the test files and cases to add among them; a behavior a person
 sees is a scenario, When <what they do>, then <what they see>, naming the

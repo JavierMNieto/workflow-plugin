@@ -3232,6 +3232,31 @@ describe("the queue's faults, closed", () => {
         ready: false,
       });
       expect(lands("Lands: fix")).toEqual({ kind: "fix", now: false });
+      // plans/lands-line-suffix.md: the pull request it lands in, or is stacked
+      // on, after the topic's state, where agents write it.
+      expect(lands("Lands: topic headless-ui, ready; lands in #52.")).toEqual({
+        kind: "topic",
+        name: "headless-ui",
+        ready: true,
+        into: 52,
+      });
+      expect(lands("Lands: topic ai-client, ready; stacked on #52.")).toEqual({
+        kind: "topic",
+        name: "ai-client",
+        ready: true,
+        stackedOn: 52,
+      });
+      expect(lands("Lands: topic x, waiting; lands\nin #7")).toEqual({
+        kind: "topic",
+        name: "x",
+        ready: false,
+        into: 7,
+      });
+      expect(lands("Lands: topic x, waiting.")).toEqual({ kind: "topic", name: "x", ready: false });
+      expect(lands("Lands: topic Bad Name, ready.")).toBeNull();
+      expect(lands("Lands: fix; lands in #52.")).toBeNull();
+      // An example quoted in a fence is not the plan's line (/code-review).
+      expect(lands("```\nLands: topic headless-ui, ready.\n```")).toBeNull();
       // A Lands line inside a later section is not the plan's.
       expect(stateOf(`${head}## What was asked\n\nLands: fix.\n`)?.lands).toBeNull();
       // Past a status section written above the header.
@@ -3428,6 +3453,28 @@ describe("the queue's faults, closed", () => {
       /plans\/ready-topic\.md\s+Plan only, 30 October, topic pictures, ready\n/,
     );
     expect(listed).toMatch(/plans\/ready-fix\.md\s+Plan only, 30 October, a fix, now\n/);
+    expect(listed).not.toContain("Lands line not read");
+    // plans/lands-line-suffix.md: the pull request after the state keeps the
+    // topic, and a line the queue cannot read is said, not taken for the file.
+    ready("headless-ui-controls.md", "Lands: topic headless-ui, ready; lands in #52.");
+    ready("ai-client-stack.md", "Lands: topic ai-client, ready; stacked on #52.");
+    ready("bad-name.md", "Lands: topic Bad Name, ready.");
+    const suffixed = runIn(dir, ["list"], { PATH: empty });
+    expect(suffixed).toMatch(
+      /plans\/headless-ui-controls\.md\s+Plan only, 30 October, topic headless-ui, ready\n/,
+    );
+    expect(suffixed).toMatch(
+      /plans\/ai-client-stack\.md\s+Plan only, 30 October, topic ai-client, ready\n/,
+    );
+    expect(suffixed).toContain("Lands line not read: plans/bad-name.md\n");
+    expect(suffixed).not.toMatch(/Lands line not read: .*plans\/(?:headless|ai-client|ready)/);
+    // Outside the pull request mode the line means nothing, so it is not said (Codex).
+    const pushMode = fixture("TopicsPush");
+    writeFileSync(
+      join(pushMode, "plans", "bad-name.md"),
+      "# R\n\nPlan only, 30 October 2026, for Javi.\n\nLands: topic Bad Name, ready.\n\n## What was asked\n",
+    );
+    expect(runIn(pushMode, ["list"], { PATH: empty })).not.toContain("Lands line not read");
   });
 
   it("reads the run a fix pushed straight sets off after the pull requests' checks, in the pull request mode", () => {

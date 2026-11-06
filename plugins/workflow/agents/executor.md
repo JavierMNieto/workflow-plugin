@@ -337,8 +337,11 @@ stays on `GH_TOKEN`.
 
 - **The `Lands` line**, under the plan's header paragraph, is one of
   `Lands: fix.`, `Lands: fix, now.`, `Lands: topic <name>, waiting.` and
-  `Lands: topic <name>, ready.`; `plans` prints it on the plan's Ready
-  row. A plan with none is `topic <the plan's file name without .md>,
+  `Lands: topic <name>, ready.`, a topic's with the pull request it lands
+  in or is stacked on after its state when the author names it (`ready;
+  lands in #52.`, `ready; stacked on #52.`), kept when the line is
+  rewritten; `plans` prints it on the plan's Ready row, and says a `Lands`
+  line it cannot read. A plan with none is `topic <the plan's file name without .md>,
   ready`: a pull request of its own, so nothing lands unread by omission.
   The plan's author judges whether a topic is ready and whether a change
   is a fix; you follow the line.

@@ -257,20 +257,44 @@ export function withoutStatus(text) {
  * topic.md, part 1): `{ kind: "fix", now }` or `{ kind: "topic", name, ready
  * }`, read from the text before the plan's first `## ` heading, past its
  * status sections; null with none, as a plan in the push mode or an older
- * plan has.
+ * plan has. A topic's line may say after its state the pull request it lands
+ * in or is stacked on, `; lands in #52` or `; stacked on #52`, where agents
+ * write it (plans/lands-line-suffix.md): `into` or `stackedOn`, beside the
+ * topic, so an agent's placement does not change where the queue thinks the
+ * plan lands.
  */
 export function landsOf(text = "") {
-  const lines = withoutStatus(text).split("\n");
-  const end = lines.findIndex((line) => /^## /.test(line));
-  const head = (end < 0 ? lines : lines.slice(0, end)).join("\n");
   // Hand-wrapped prose: the line may wrap anywhere a space is (/code-review).
   const m =
-    /^Lands:\s+(?:fix(,\s+now)?|topic\s+([a-z0-9]+(?:-[a-z0-9]+)*),\s+(waiting|ready))\.?[ \t]*$/m.exec(
-      head,
+    /^Lands:\s+(?:fix(,\s+now)?|topic\s+([a-z0-9]+(?:-[a-z0-9]+)*),\s+(waiting|ready)(?:;\s+(lands\s+in|stacked\s+on)\s+#(\d+))?)\.?[ \t]*$/m.exec(
+      headOf(text),
     );
   if (!m) return null;
-  if (m[2]) return { kind: "topic", name: m[2], ready: m[3] === "ready" };
+  if (m[2]) {
+    const lands = { kind: "topic", name: m[2], ready: m[3] === "ready" };
+    if (m[4]) lands[/^lands/.test(m[4]) ? "into" : "stackedOn"] = Number(m[5]);
+    return lands;
+  }
   return { kind: "fix", now: Boolean(m[1]) };
+}
+
+/**
+ * A plan's text before its first `## ` heading, past its status sections and
+ * outside a fenced block, so a quoted example is not the plan's (/code-review).
+ */
+function headOf(text) {
+  const lines = withoutStatus(text).split("\n");
+  const end = lines.findIndex((line) => /^## /.test(line));
+  return withoutFences((end < 0 ? lines : lines.slice(0, end)).join("\n"));
+}
+
+/**
+ * **A Lands line the queue cannot read is said** (plans/lands-line-suffix.md):
+ * a line starting `Lands:` where `landsOf` looks that `landsOf` does not read,
+ * so the plan is not taken for a topic named for its file without a word.
+ */
+export function landsUnread(text = "") {
+  return /^Lands:/m.test(headOf(text)) && !landsOf(text);
 }
 
 /**
@@ -3315,11 +3339,22 @@ export function list({ all = false, live, related = true, readers = null } = {})
       `Older, by path only: ${old} plan${old === 1 ? "" : "s"} dated before 24 October with no Built`,
     );
   const unread = unreadPlans();
-  if (unread.headless.length || unread.failed.length) out.push("");
+  // A plan still to land whose Lands line is not read (plans/lands-line-
+  // suffix.md): listed, never taken for a topic named for its file unsaid;
+  // only where the line means something, the pull request mode (Codex).
+  const landsNotRead = byPull
+    ? plans
+        .filter(
+          (p) => !p.lands && !["built", "dropped", "old"].includes(p.state) && landsUnread(p.text),
+        )
+        .map((p) => p.path)
+    : [];
+  if (unread.headless.length || unread.failed.length || landsNotRead.length) out.push("");
   if (unread.headless.length)
     out.push(`Not read by the queue (no header found): ${unread.headless.join(", ")}`);
   if (unread.failed.length)
     out.push(`Not read by the queue (the file could not be read): ${unread.failed.join(", ")}`);
+  if (landsNotRead.length) out.push(`Lands line not read: ${landsNotRead.join(", ")}`);
   // **The label is said where the queue is read** (plans/session-names-
   // across-machines.md), while the hostname stands in for it.
   if (!here.set)
