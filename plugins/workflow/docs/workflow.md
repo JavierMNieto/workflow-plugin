@@ -19,6 +19,33 @@ answers and routes; `workflow:maker` (Opus, effort high) is the compact
 form's one chat, which decides, builds and records.
 (decisions.md#plan-then-build)
 
+**An agent file is the agent's instructions, and a start prompt names
+the work.** Each agent file says what the agent does, in the order it
+does it, each rule once and in the file of the agent that acts on it,
+as an instruction with the handbook rule it rests on named in
+parentheses, never the history of how it was decided; a negative is
+paired with what to do instead; emphasis words are not used; a
+procedure the agent runs in one phase of one mode is a file the agent
+reads at that step, named in the agent file; a line the agent would
+find by opening a file the plan or the project file names is left out;
+and a string the scripts parse (a section heading, a line `plans`
+reads, a message's first line) is written out exactly, in backticks.
+The prompt the queue starts a chat with is one line: the path and what
+it is (`Plan plans/<x>.md: it is a brief.`, `Build plans/a.md, then
+plans/b.md.`, `Follow-ups ready: plans/<x>.md.`), and a hook's words
+are the state and the facts, with the rule named by its heading in the
+agent file where the agent must act. (decisions.md#agent-file-is-instructions)
+
+**An agent's report is short.** A final message leads with what changed
+for the owner and what waits on him, a behavior as When … then …, then
+where the record is (the plan's path, the pull request's link), in at
+most ten lines; a "Built" section opens with its landing line, then one
+line for the "Done when" lines that hold, with the commands run and
+their counts, one line per line that does not hold or was checked
+another way, the deviations, "Needs a decision", the Codex paragraph
+and the Usage line, and nothing the plan already says.
+(decisions.md#report-is-short)
+
 **A brief or a plan is a prompt for the agent that reads it**, and is
 written as one. Four parts, in this order, under these headings: *What
 was asked*, the outcome and why, in the owner's words as a paragraph of
