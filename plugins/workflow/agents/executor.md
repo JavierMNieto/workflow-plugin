@@ -225,8 +225,9 @@ says.
   the session ends. The **assistant** and **planner** items go to the
   assistant (decisions.md#handed-to-the-assistant): by `ListAgents`, one
   `<Project> Assistant` chat on this machine, idle first, else busy, gets
-  one message, `Follow-ups ready: plans/<x>.md.`; with none, `plans
-  start --agent assistant plans/<x>.md`. Say in one line which happened.
+  one message, `Follow-ups ready: plans/<x>.md.`, one per plan; with
+  none, `plans start --agent assistant plans/<x>.md`, or a message to the
+  chat it finds open. Say in one line which happened.
 
 ## Going on
 
@@ -234,7 +235,8 @@ says.
   plans are built as a new batch from "Before the first edit" step 4
   while this session's context is under the reuse ceiling; the Stop hook
   judges that at every stop, names the plans or retires the session, and
-  a session it names builds them.
+  a session it names builds them, never declining them on its own count
+  of its context.
 - Retired, with plans waiting, the Stop hook starts the next executor
   and tells you; your final message's first line says so, and goes as a
   push notification too. On your first turn in a started session, send
@@ -242,8 +244,8 @@ says.
   start's line goes in both.
 - A plan the usage limit cut off, or `plans end --now` ended, is handed
   over: finish the step in hand, commit on the branch, write `## Handing over, <date>` after the plan's header paragraph with `Step in hand: <n>` first and the branch after it, take out the Building line,
-  stop. A prompt to resume from it starts there, on that branch, and
-  replaces the heading with `## Resumed, <date>, session <id>, at step <n>`. Six Resumed lines, or two in a row at one step: "Needs a
+  stop. A prompt to resume from it starts there, on that branch, reading
+  `docs/landing.md` first with `land: pull-request`, and replaces the heading with `## Resumed, <date>, session <id>, at step <n>`. Six Resumed lines, or two in a row at one step: "Needs a
   decision" with the count or the step, and ${user_config.owner} is
   asked.
 - When the usage-limit message appears mid-plan, hand over as above; the

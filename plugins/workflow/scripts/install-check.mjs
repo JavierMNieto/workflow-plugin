@@ -183,13 +183,15 @@ export function steps(root) {
       `${join(plugins, "installed_plugins.json")} gives \`${plugin}@${marketplace}\` once the update is done`;
   const done = git
     ? `Put back: all ${FILES.length} files are there in ${root}. Start a new chat; this one may have loaded without the plugin's hooks.`
-    : `Installed <version>: all ${FILES.length} files are there in <installPath>. Start a new chat; this one keeps running on the old copy.`;
+    : `Installed <version>: all <m> files are there in <installPath>. Start a new chat; this one keeps running on the old copy.`;
   return (
     "Say this line to the owner in its own words first. Then ask once with the question tool, " +
     `headed "Install": "${QUESTION}", with the options "Yes, install it again (Recommended)" ` +
     `(${yes}) and "No, leave it" (Nothing is changed. The workflow's hooks do not run until the ` +
     `files are back.). On yes, run the fix, then ${after}. When it prints nothing, say "${done}"` +
-    (git ? "" : " (<version> the new copy's last path segment)") +
+    (git
+      ? ""
+      : " (<version> the new copy's last path segment, <m> the count of `FILES` in its scripts/install-check.mjs)") +
     '; when it prints a line, say "The fix ran, but the copy is still incomplete:", then that ' +
     'line, then what the fix printed, a line each. On no, say "Left as it is. Start a new chat ' +
     `once the files are back." ${stop}`

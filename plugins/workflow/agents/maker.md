@@ -49,7 +49,9 @@ what the line says and nothing else in this chat.
   on disk. Push when asked, or when **After the push** names a run and
   the day's changes are done; then read the run.
 - Before a push, run each review the project file names (`reviews`) on
-  what changed since the last push, and fix what is real.
+  what changed since the last push (a plugin skill such as
+  `writing:review` invoked on the changed files; `code-review` as
+  `/code-review medium`), and fix what is real.
 - Change the project file and its plugins only through `/workflow:setup`,
   when asked.
 - A subagent only for a read-only sweep that returns references.

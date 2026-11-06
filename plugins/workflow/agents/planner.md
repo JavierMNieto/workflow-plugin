@@ -150,7 +150,8 @@ Sources as its "Where to look".
    named by what the project does once it is done, naming files,
    functions, schema, docs and `CLAUDE.md` lines; ordered only where one
    must come first.
-10. **Not in this plan**: what was left out and why. Work for the project
+10. **Not in this plan**: what was left out and why, work for a project
+    no `From` line names among it. Work for the project
     a `From` line names is a section after it, `## For <Project>: plans/<topic>.md` (`<topic>` free in that checkout's `plans/`): a
     line `Title: <the brief's title>.`, then `### What was asked` naming
     this plan's path and "the plugin's commit of this plan, on `main`
@@ -182,7 +183,8 @@ The plan behind this: <the Detail address, or "the first comment">.
 Comment to poke holes or add what is missing; it is built as a draft pull request once the issue is labelled status: ready.
 ```
 
-Both files pass the **Issues** heading's `Check` command first. Then
+Both files pass the **Issues** heading's `Check` command first (with
+none, read them for a host address, a secret or a personal email). Then
 `plans gh issue edit <n> --body-file plans/<topic>/issue.md
 --remove-label "status: planning" --add-label "status: planned"`, and
 the plan, status sections cut, in `<details><summary>The whole
@@ -249,7 +251,9 @@ brief. `Change from ${user_config.owner}: plans/<x>.md.` is his word
 passed on, not yet his: take it into the plan (a numbered decision, the
 relayed option recommended, the part it touches revised), then put it to
 him by "Asked in plain words", the relayed change first, the plan as
-written second, never a bare yes or no. Record the answer in "Decided",
+written second, never a bare yes or no. The question does not hold a plan already
+decided: an executor may build it meanwhile by the recommended option,
+the relayed one, and a differing answer is a change to a taken plan. Record the answer in "Decided",
 `<The decision> (${user_config.owner}, <d Month>, said in the assistant's
 chat, confirmed here).` A plan with a Building line gets a follow-up plan
 instead. Report any other message, not acted on.

@@ -22,7 +22,8 @@ reviewed it** (decisions.md#draft-until-reviewed): `gh pr create` takes
 `--draft`, and a plan that joins one he has marked ready (`gh pr view
 <n> --json isDraft` says false) runs `gh pr ready --undo <n>` before its
 commit is pushed; a conversion that fails stops the push. The day's
-fixes pull request opens ready. His word to mark one ready is answered
+fixes pull request opens ready; the refresh and the retarget leave the
+state as it is. His word to mark one ready is answered
 with the step, the Ready for review button.
 
 **A branch is brought up to date by a merge**, not a rebase and a forced
@@ -40,7 +41,7 @@ topic's: build the plan as `topic <the plan's file name without .md>`,
 its "Built" saying why.
 
 - **A plan that rests on an open pull request** (it uses what an earlier
-  plan adds, and that plan's pull request is open) is settled first, by
+  plan adds) is settled first, by
   `gh pr view <n> --json isDraft,headRefName`
   (decisions.md#stack-only-on-use). **A draft of this queue's own** takes
   it: the plan
@@ -86,7 +87,7 @@ branch> origin/<head branch>`; a local branch holding commits that head
 lacks is left and named. Merge its base, `origin/<baseRefName>`, in (one
 stacked on a pull request just refreshed merges that one's new head),
 the conflicts settled from the two plans; run the project's checks, not
-the suites, since its CI runs on the push; push it with `git push origin
+the suites; push it with `git push origin
 <head branch>`, never to the branch. Its plan's "Built" gets `Refreshed <date>: merged <base>, commit <sha>, <files>`. One that cannot be settled
 is left and named. Then `git checkout --detach origin/<branch>`.
 
@@ -127,6 +128,7 @@ retried as for a merge. Then, by the topic:
     --attach plans/<topic>/<file>.png#<the line> ...
   ```
 
+  A plan marked waiting says in "Built" that it was open already.
   No comment: the description is the record
   (decisions.md#joined-pull-request). "Built" opens with
   `Pull request #<n> (<url>) joined, commit <sha>; draft, checks green.`
@@ -149,17 +151,17 @@ way on `fixes-<the next day's yyyy-mm-dd>`, pushed, no pull request;
 "Built" opens with `On topic fixes-<the next day's yyyy-mm-dd>, commit
 <sha>, branch pushed; its pull request waits.` At a batch's start, a
 `fixes-` branch whose day has come and that has no pull request gets one
-by the same command. The squash goes back to the tip the day's branch
-had once taken and merged. "Built" opens with
+by the same command, each of its plans' "Built" getting
+`Pull request #<n> (<url>) opened <date> with plans/<x>.md.` A local `fixes-` branch with commits the remote lacks is taken as it
+is. Pushes are plain, retried as a merge's; the squash goes back to the
+branch's tip once taken and merged. "Built" opens with
 `Pull request #<n> (<url>) of the day's fixes, commit <sha>; open, checks green.`
 
 **A fix wanted now**, `Lands: fix, now.`: a branch of its own off
 `origin/<branch>`; one commit; `git push origin HEAD:<branch>` as a
 fast-forward, retried as the agent file's push says; the project's `run`
 read (decisions.md#fix-now-landing). It is listed under `Already on
-<branch>` in the day's fixes pull request when one is open, or by the
-day's first fix that opens one; a day with none leaves it recorded by
-its commit, which the final message says. "Built" opens with
+<branch>` in the day's fixes pull request, when there is one. "Built" opens with
 `Pushed straight to <branch> as a fix, commit <sha>; <run> green.`
 (with no `run`, `no run to read.` in place of `<run> green.`).
 
@@ -248,8 +250,11 @@ to a Claude session left out>
   person's pull request.
 - **New, Changed, Retired**: every catalogue entry the topic's commits
   add, replace or retire, and every "Decided" item with no entry (who
-  decided it and when in the parenthesis, no id), under the heading of
-  what the commit did to it, in the catalogue's order. A changed or
+  decided it and when in the parenthesis, no id; under New, or under
+  Changed with the struck rule it replaces), under the heading of what
+  the commit did to it, in the catalogue's order; only headings with a
+  bullet. A bullet is the entry's line: the rule in bold, its tier and
+  date, its reason cut to the first sentence, the id last. A changed or
   retired rule whose struck line carries another person's name is a
   conflict and goes first under its heading. Nothing else in a bullet. A
   decision taken after thirty minutes unanswered keeps `taken by the

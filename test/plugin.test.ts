@@ -1825,7 +1825,9 @@ describe("a plan still asking, whoever names it", () => {
     readFileSync(new URL(`../plugins/workflow/agents/${name}.md`, import.meta.url), "utf8");
 
   it("has the executor run plans before a plan named by a path, and wait on one asking", () => {
-    const sources = /## The plans you build\n\n[\s\S]*?\n\n/.exec(agent("executor"))![0].replace(/\s+/g, " ");
+    const sources = /## The plans you build\n\n[\s\S]*?\n\n/
+      .exec(agent("executor"))![0]
+      .replace(/\s+/g, " ");
     expect(sources).toContain("Run `plans` before building a plan named by a path");
     expect(sources).toContain('"Asking ${user_config.owner}" waits until the time it prints');
   });
@@ -1881,7 +1883,9 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     );
     expect(merge).toContain("`git commit --no-edit`");
     expect(merge).toContain("Push it to that branch only");
-    expect(merge).toContain("merge `origin/<name>` the same way, run the checks and push once more");
+    expect(merge).toContain(
+      "merge `origin/<name>` the same way, run the checks and push once more",
+    );
     // The refresh, the waiting topic and the day's fixes branch merge, then push plainly.
     const refresh = part("**Then a conflicting pull request is refreshed**", '**"Before the push"');
     expect(refresh).toContain("Merge its base, `origin/<baseRefName>`, in");
@@ -1895,7 +1899,9 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     const fixes = part("**A fix**, `Lands: fix.`", "**A fix wanted now**");
     expect(fixes).toContain("`origin/<branch>` merged in");
     expect(fixes).toContain("one commit pushed with `git push -u origin fixes-<yyyy-mm-dd>`");
-    expect(fixes).toContain("The squash goes back to the tip the day's branch had once taken and merged");
+    expect(fixes).toContain(
+      "The squash goes back to the tip the day's branch had once taken and merged",
+    );
     expect(fixes).not.toContain("rebase");
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
       "A branch is brought up to date by merging, never force-pushed",
@@ -1915,7 +1921,9 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     const refresh = mode.slice(mode.indexOf("**Then a conflicting pull request is refreshed**"));
     expect(start.slice(0, start.indexOf("**Then a conflicting"))).toContain(own);
     expect(refresh).toContain("each of the queue's own that GitHub reports as conflicting");
-    expect(refresh).toContain("run the project's checks, not the suites, since its CI runs on the push");
+    expect(refresh).toContain(
+      "run the project's checks, not the suites, since its CI runs on the push",
+    );
     expect(mode).not.toContain("checks and suites run again");
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
       "The executor refreshes only the queue's own pull requests, with the checks alone**: those a plan in its `plans/` names as its own",
@@ -1999,9 +2007,7 @@ describe("a pull request per topic", () => {
     // A topic: its name is the branch, its pull request opens with the first ready plan.
     expect(mode).toContain("**A topic's branch** is the topic's name");
     expect(mode).toContain("written from every plan of the topic so far, oldest first");
-    expect(mode).toContain(
-      "runs `gh pr ready --undo <n>` before its commit is pushed",
-    );
+    expect(mode).toContain("runs `gh pr ready --undo <n>` before its commit is pushed");
     // plans/joined-pull-request-no-comment.md: a plan joining an open pull request posts nothing.
     expect(mode).not.toContain("one comment");
     // plans/owner-reviews-before-anyone-else.md: a topic's pull request opens as a draft.

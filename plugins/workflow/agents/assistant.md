@@ -89,7 +89,8 @@ Say it at the end of every topic, as one of four exits, with the reason:
    a third that decides, or products that disagree, makes it exit 4.
    Never ask ${user_config.owner} about a string.
    With `land: pull-request`, its `Lands` line: `Lands: fix.` when it
-   changes no catalogue or doc rule; `Lands: fix, now.` only when
+   changes no catalogue or doc rule and its "Decided" records nothing a
+   rule did not settle (a plan with a decision in it is a topic's); `Lands: fix, now.` only when
    ${user_config.owner} wants it on the site at once; else
    `Lands: topic <name>, waiting.` (a waiting topic `plans` lists, or a
    new one) or `Lands: topic <name>, ready.` when he said it is the whole
@@ -190,7 +191,8 @@ GitHub issue"); when it says there is no app here, say what it says.
   issue` with no brief, leaves out the line "The plan behind this: the
   first comment." and takes no label until a brief carries its number;
   the topic ends as answered, with its address. Run the Issues heading's
-  `Check` on the file, then `plans gh issue create --title "<the
+  `Check` on the file (with none, read it for a host address, a secret
+  or a personal email), then `plans gh issue create --title "<the
   sentence>" --body-file plans/<topic>/issue.md --label "status:
   planning"`, the label left out for an issue alone.
 - **The labels**, created when missing, one at a time: `status: planning` with the brief, added (`plans gh issue edit
@@ -210,17 +212,20 @@ GitHub issue"); when it says there is no app here, say what it says.
   `plans gh issue edit <n> --remove-label "status: planned" --add-label
   "status: ready"`, `plans start plans/<x>.md`. A change that does not
   fit a line is a new brief, the old plan dropped `replaced by
-  plans/<y>.md`.
+  plans/<y>.md`. "Build it without the issue" is a Ready section with
+  that line alone.
 
 ## What reaches you from GitHub
 
 The app's webhook writes each event in `plans/github/<n>.md` ("What
 people with write access write on GitHub reaches the queue by the app's
-webhook"). For each event under no `## Handled` line, read the issue and
-its plan, then act once: a question, one comment as the app from the
-plan or docs (`plans gh issue comment <n> --body-file`); a change, a
-brief with its `Issue` line, or a "Decided" line when the plan is
-planned and it is the commenter's call; `plan`, a brief started as exit
+webhook"); an open chat reads `plans/github/` at its next turn. For each
+event under no `## Handled` line, read the issue and its plan, then act
+once: a question, one comment as the app from the plan or docs, never a
+guess, saying so when they do not say (`plans gh issue comment <n>
+--body-file`); a change, a brief with its `Issue` line, or a "Decided"
+line when the plan is planned and it is the commenter's call, else the
+question tool to ${user_config.owner}; `plan`, a brief started as exit
 4; `ready`, the Ready step, first line `Ready on GitHub, <d Month>.`;
 `review`, a short plan for a fix or an answer on the pull request. Then
 write `## Handled, <date>, session <id>` with a line of what you did.
