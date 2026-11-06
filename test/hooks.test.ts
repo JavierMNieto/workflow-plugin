@@ -27,10 +27,11 @@ import {
   treeFiles,
   untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
-import { costWords, measure } from "../plugins/workflow/scripts/cost.mjs";
+import { costWords, measure, measureFile } from "../plugins/workflow/scripts/cost.mjs";
 import {
   allowedWhileLocked,
   ceilingsLine,
+  reuseInputs,
   lastFreshLines,
   tiredFor,
   usageWords,
@@ -7318,5 +7319,112 @@ describe("github webhook", () => {
       await new Promise((done) => setTimeout(done, 300));
       expect(() => process.kill(pid, 0)).toThrow();
     });
+  });
+});
+
+// plans/adaptive-reuse.md, part 1: the inputs measured into a cached summary.
+describe("the reuse inputs are cached", () => {
+  const session = (agent: string, start: number, turns: number) =>
+    [
+      JSON.stringify({ type: "agent-setting", agentSetting: `workflow:${agent}` }),
+      ...Array.from({ length: turns }, (_, i) =>
+        JSON.stringify({
+          type: "assistant",
+          timestamp: `2026-11-0${1 + i}T10:00:00Z`,
+          message: {
+            id: `m${i}`,
+            model: "claude-opus-5-5",
+            usage: {
+              input_tokens: 0,
+              cache_creation_input_tokens: start + i * 1000,
+              output_tokens: 1,
+            },
+          },
+        }),
+      ),
+      "",
+    ].join("\n");
+
+  it("measures each transcript once, then only the changed, and a hook within the hour none", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 3));
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 5));
+      writeFileSync(join(dir, "c.jsonl"), session("executor", 50_000, 2));
+      const file = join(base, "reuse", "-checkout.json");
+      let reads: string[] = [];
+      const read = (path: string) => {
+        reads.push(basename(path));
+        return measureFile(path);
+      };
+      const t0 = Date.parse("2026-11-06T12:00:00Z");
+      const inputs = reuseInputs({ refresh: true, now: t0, dir, file, read });
+      expect(reads.sort()).toEqual(["a.jsonl", "b.jsonl", "c.jsonl"]);
+      const summary = JSON.parse(readFileSync(file, "utf8"));
+      expect(Object.keys(summary.rows).sort()).toEqual(["a", "b", "c"]);
+      for (const key of [
+        "id",
+        "mtime",
+        "size",
+        "agent",
+        "model",
+        "turns",
+        "startContext",
+        "endContext",
+      ])
+        expect(summary.rows.a).toHaveProperty(key);
+      expect(summary.measuredAt).toBe(t0);
+      expect(inputs.planner).toEqual({
+        sessions: 2,
+        start: 35_000,
+        turns: 4,
+        model: "claude-opus-5-5",
+      });
+      expect(inputs.executor).toEqual({
+        sessions: 1,
+        start: 50_000,
+        turns: 2,
+        model: "claude-opus-5-5",
+      });
+      expect(summary.inputs).toEqual(inputs);
+
+      // Nothing changed: a stat per file, no transcript read.
+      reads = [];
+      reuseInputs({ refresh: true, now: t0 + 1000, dir, file, read });
+      expect(reads).toEqual([]);
+
+      // One grown: it alone is read again.
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 7));
+      reads = [];
+      // From a hook within the hour of measuredAt: none read, even with b changed.
+      expect(reuseInputs({ now: t0 + 30 * 60_000, dir, file, read })).toEqual(
+        JSON.parse(readFileSync(file, "utf8")).inputs,
+      );
+      expect(reads).toEqual([]);
+      // plans cost refreshes: b alone.
+      const after = reuseInputs({ refresh: true, now: t0 + 31 * 60_000, dir, file, read });
+      expect(reads).toEqual(["b.jsonl"]);
+      expect(after.planner.turns).toBe(5);
+      // A hook past the hour measures too.
+      writeFileSync(join(dir, "c.jsonl"), session("executor", 50_000, 4));
+      reads = [];
+      reuseInputs({ now: t0 + 120 * 60_000, dir, file, read });
+      expect(reads).toEqual(["c.jsonl"]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("gives no inputs for a missing folder", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      expect(
+        reuseInputs({ refresh: true, dir: join(base, "none"), file: join(base, "r.json") }),
+      ).toEqual({});
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

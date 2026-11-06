@@ -86,7 +86,7 @@ import {
   project,
   REUSE_DEFAULT,
 } from "./project.mjs";
-import { costWords, measure } from "./cost.mjs";
+import { costWords, inputsOf, measure, measureFile } from "./cost.mjs";
 
 export { machine, owner, REUSE_DEFAULT };
 
@@ -1398,6 +1398,72 @@ export function transcriptOf(
 ) {
   if (!row?.cwd || !row.sessionId) return "";
   return join(projects, row.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${row.sessionId}.jsonl`);
+}
+
+/** This checkout's transcript folder, named as `transcriptOf` names it. */
+export function transcriptsDir(
+  cwd = root,
+  projects = process.env.WORKFLOW_PROJECTS || join(homedir(), ".claude", "projects"),
+) {
+  return join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+}
+
+/** How long a hook takes the cached reuse inputs as they are. */
+export const REUSE_REFRESH = 60 * MINUTE;
+
+/**
+ * **The reuse ceiling's inputs, measured and cached**
+ * (decisions.md#reuse-check-cheap): the summary at
+ * `<data()>/reuse/<the transcript folder's name>.json`, `{ measuredAt, rows: {
+ * <id>: row }, inputs }`, this machine's and never the checkout's. A
+ * transcript whose `mtime` or `size` differs from its row, or has none, is
+ * measured alone (`read`); the rows of files gone are dropped; the file is
+ * written atomically. From a hook (`refresh` false) a summary measured under
+ * `REUSE_REFRESH` ago is taken as it is, nothing listed; `plans cost` passes
+ * `refresh`. No folder, or a read that fails: what the cache holds, or none.
+ */
+export function reuseInputs({
+  refresh = false,
+  now = Date.now(),
+  dir = transcriptsDir(),
+  file = join(data(), "reuse", `${basename(dir)}.json`),
+  read = measureFile,
+} = {}) {
+  const cached = readJson(file);
+  const rows = cached?.rows && typeof cached.rows === "object" ? cached.rows : {};
+  if (!refresh && cached?.measuredAt && now - cached.measuredAt < REUSE_REFRESH)
+    return cached.inputs || {};
+  let names;
+  try {
+    names = readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
+  } catch {
+    return cached?.inputs || {};
+  }
+  const next = {};
+  for (const name of names) {
+    const id = name.replace(/\.jsonl$/, "");
+    let stat;
+    try {
+      stat = statSync(join(dir, name));
+    } catch {
+      continue;
+    }
+    const old = rows[id];
+    if (old && old.mtime === stat.mtimeMs && old.size === stat.size) {
+      next[id] = old;
+      continue;
+    }
+    const row = read(join(dir, name));
+    if (row) next[id] = row;
+  }
+  const inputs = inputsOf(Object.values(next));
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeJson(file, { measuredAt: now, rows: next, inputs });
+  } catch {
+    // A summary that cannot be written is measured again next time.
+  }
+  return inputs;
 }
 
 /** "14:32", a time as the queue's lines say it. */
