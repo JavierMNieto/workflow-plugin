@@ -583,8 +583,12 @@ on the machine that planned them.
   Workflows scope lets a plan that changes `.github/workflows/` push. The
   app's key and the webhook's secret may instead be in a private file
   that `WORKFLOW_SECRETS_FILE` names, read only when used, so no other
-  program's environment holds them (Javi, 6 November).
-  plans/push-to-github.md, plans/secrets-from-a-file.md.
+  program's environment holds them (Javi, 6 November). In a
+  devcontainer the host's file has one fixed place per project,
+  `~/.config/workflow/<project>.env`, made empty when missing so the
+  container starts with the app off (Javi, 6 November).
+  plans/push-to-github.md, plans/secrets-from-a-file.md,
+  plans/secrets-file-made-on-host.md.
 - `screenshots-attach` **Screenshots on a pull request go up through `gh
   pr create --attach` and `gh pr edit --attach`, from gh 2.99.** (as
   GitHub CLI does, 31 October) GitHub's changelog of 1 September 2026
