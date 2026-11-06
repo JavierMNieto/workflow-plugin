@@ -1520,7 +1520,9 @@ export const REUSE_REFRESH = 60 * MINUTE;
  * (`refresh` false) a summary measured under `REUSE_REFRESH` ago is taken as
  * it is, nothing listed; `plans cost` passes `refresh`. A hook passes
  * `cachedOnly` (`hookRun`) and takes the summary as it is, whatever its age,
- * listing and reading nothing: a hook never measures,
+ * listing and reading nothing: a hook never measures; when the summary is
+ * missing or `REUSE_REFRESH` old it calls `stale` (`refreshLater`, which
+ * starts `plans cost` in the background and does not wait),
  * and with no summary the ceilings are the defaults, said as such; `plans`,
  * `plans start` and `plans cost` keep the summary fresh
  * (plans/reuse-measured-outside-hooks.md). No folder, or a read that fails:
@@ -1529,13 +1531,17 @@ export const REUSE_REFRESH = 60 * MINUTE;
 export function reuseInputs({
   refresh = false,
   cachedOnly = false,
+  stale = null,
   now = Date.now(),
   dir = transcriptsDir(),
   file = join(data(), "reuse", `${basename(dir)}.json`),
   read = measureFile,
 } = {}) {
   const cached = readJson(file);
-  if (cachedOnly) return cached?.inputs || {};
+  if (cachedOnly) {
+    if (!(cached?.measuredAt && now - cached.measuredAt < REUSE_REFRESH)) stale?.(file);
+    return cached?.inputs || {};
+  }
   const rows = cached?.rows && typeof cached.rows === "object" ? cached.rows : {};
   if (!refresh && cached?.measuredAt && now - cached.measuredAt < REUSE_REFRESH)
     return cached.inputs || {};
@@ -1583,13 +1589,47 @@ export function hookRun(argv = process.argv) {
   return HOOK_MODES.includes(argv[2]);
 }
 
+/** How long a background refresh's marker stops another. */
+export const REFRESH_MARKER = 10 * MINUTE;
+
+/**
+ * **A hook refreshes the summary in the background**
+ * (plans/hooks-refresh-reuse-in-background.md): starts `plans cost`, this
+ * script with `cost` and its output discarded, detached, and writes the
+ * marker `<summary>.refreshing` beside `file` with the time; while the marker
+ * is under `REFRESH_MARKER` old, starts nothing. The refresh leaves the marker:
+ * its new `measuredAt` makes the next hook start nothing. True when started.
+ */
+export function refreshLater(
+  file,
+  { now = Date.now(), spawner = detached, script = join(here, "plan-queue.mjs") } = {},
+) {
+  const marker = file.replace(/\.json$/, ".refreshing");
+  let at = 0;
+  try {
+    at = Number(readFileSync(marker, "utf8")) || 0;
+  } catch {
+    // No marker: no refresh under way.
+  }
+  if (now - at < REFRESH_MARKER) return false;
+  try {
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, String(now));
+    spawner(process.execPath, [script, "cost"], { ...process.env, WORKFLOW_ROOT: root });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 let reuseRead = null;
 /**
- * The reuse inputs, read once a run: a hook's from the summary alone, a
- * command's measured when the summary is an hour old (`reuseInputs`).
+ * The reuse inputs, read once a run: a hook's from the summary alone, with a
+ * background refresh when it is missing or an hour old; a command's measured
+ * when the summary is an hour old (`reuseInputs`).
  */
 function reuseNow() {
-  if (!reuseRead) reuseRead = reuseInputs({ cachedOnly: hookRun() });
+  if (!reuseRead) reuseRead = reuseInputs({ cachedOnly: hookRun(), stale: refreshLater });
   return reuseRead;
 }
 

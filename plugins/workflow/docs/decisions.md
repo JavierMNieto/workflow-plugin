@@ -548,6 +548,9 @@ on the machine that planned them.
   cost. plans/adaptive-reuse.md.
   6 November: a hook never measures; the plans commands refresh the
   summary. plans/reuse-measured-outside-hooks.md.
+  6 November: a hook that finds the summary over an hour old starts
+  `plans cost` in the background and does not wait.
+  plans/hooks-refresh-reuse-in-background.md.
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel

@@ -35,6 +35,8 @@ import {
   REUSE_CAP,
   reuseInputs,
   REUSE_REFRESH,
+  REFRESH_MARKER,
+  refreshLater,
   hookRun,
   sharedTokens,
   lastFreshLines,
@@ -7603,6 +7605,82 @@ describe("the reuse inputs are cached", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  });
+
+  describe("a hook refreshes the summary in the background", () => {
+    const t0 = Date.parse("2026-11-06T12:00:00Z");
+    const setUp = () => {
+      const base = mkdtempSync(join(tmpdir(), "reuse-"));
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 3));
+      const file = join(base, "reuse", "-checkout.json");
+      const spawned: string[][] = [];
+      let reads = 0;
+      /** One hook's read, at `now`, as `reuseNow` makes it with a stub spawner. */
+      const hookAt = (now: number) =>
+        reuseInputs({
+          cachedOnly: hookRun(["node", "plan-queue.mjs", "stop"]),
+          now,
+          dir,
+          file,
+          read: () => (reads++, null),
+          stale: (summary: string) =>
+            refreshLater(summary, {
+              now,
+              spawner: (_bin: string, args: string[]) => spawned.push(args),
+            }),
+        });
+      return { base, dir, file, spawned, reads: () => reads, hookAt };
+    };
+
+    it("with no summary, or one an hour old, starts one plans cost and goes on with what it holds", () => {
+      const none = setUp();
+      try {
+        expect(none.hookAt(t0)).toEqual({});
+        expect(none.spawned).toHaveLength(1);
+        expect(none.spawned[0].slice(-1)).toEqual(["cost"]);
+        expect(none.spawned[0][0]).toMatch(/plan-queue\.mjs$/);
+        expect(none.reads()).toBe(0);
+        expect(existsSync(none.file.replace(/\.json$/, ".refreshing"))).toBe(true);
+      } finally {
+        rmSync(none.base, { recursive: true, force: true });
+      }
+      const old = setUp();
+      try {
+        const measured = reuseInputs({ refresh: true, now: t0, dir: old.dir, file: old.file });
+        expect(old.hookAt(t0 + REUSE_REFRESH)).toEqual(measured);
+        expect(old.spawned).toHaveLength(1);
+        expect(old.reads()).toBe(0);
+      } finally {
+        rmSync(old.base, { recursive: true, force: true });
+      }
+    });
+
+    it("a second hook within ten minutes of the start starts nothing", () => {
+      const run = setUp();
+      try {
+        run.hookAt(t0);
+        run.hookAt(t0 + REFRESH_MARKER - 1);
+        expect(run.spawned).toHaveLength(1);
+        run.hookAt(t0 + REFRESH_MARKER);
+        expect(run.spawned).toHaveLength(2);
+      } finally {
+        rmSync(run.base, { recursive: true, force: true });
+      }
+    });
+
+    it("with a summary under the hour, starts nothing", () => {
+      const run = setUp();
+      try {
+        reuseInputs({ refresh: true, now: t0, dir: run.dir, file: run.file });
+        run.hookAt(t0 + REUSE_REFRESH - 1);
+        expect(run.spawned).toEqual([]);
+        expect(run.reads()).toBe(0);
+      } finally {
+        rmSync(run.base, { recursive: true, force: true });
+      }
+    });
   });
 
   it("keeps a changed transcript's row when it cannot be read", () => {
