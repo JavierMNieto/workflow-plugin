@@ -36,4 +36,6 @@ which every machine installs from; a red run holds `main` where it was.
 
 ## Reading
 
-The scripts are read whole with Read; they are the product.
+The scripts are read whole with Read, they are the product, but
+`plan-queue.mjs` by the functions a plan names and their callers, found
+by grep.

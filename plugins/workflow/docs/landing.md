@@ -32,8 +32,7 @@ origin/<base>`, a conflict settled from the plans and committed with
 `git commit --no-edit`; one that cannot be is left (`git merge --abort`)
 and named in the final message. Push it to that branch only; refused,
 `git fetch origin`, merge `origin/<name>` the same way, run the checks
-and push once more; refused again, leave it and name it. Each merge gets a line in "Built": `Merged <base> <date>, commit
-<sha>: <files or none>`, the files whose conflicts were settled.
+and push once more; refused again, leave it and name it. Each merge gets a line in "Built": `Merged <base> <date>, commit <sha>: <files or none>`, the files whose conflicts were settled.
 
 **A topic's branch** is the topic's name, after `git fetch --prune`. A
 name that is the branch, `main` or `fixes-` followed by anything is no
@@ -88,8 +87,7 @@ lacks is left and named. Merge its base, `origin/<baseRefName>`, in (one
 stacked on a pull request just refreshed merges that one's new head),
 the conflicts settled from the two plans; run the project's checks, not
 the suites, since its CI runs on the push; push it with `git push origin
-<head branch>`, never to the branch. Its plan's "Built" gets `Refreshed
-<date>: merged <base>, commit <sha>, <files>`. One that cannot be settled
+<head branch>`, never to the branch. Its plan's "Built" gets `Refreshed <date>: merged <base>, commit <sha>, <files>`. One that cannot be settled
 is left and named. Then `git checkout --detach origin/<branch>`.
 
 **"Before the push" runs once per plan**, a fix's included.
@@ -115,8 +113,7 @@ retried as for a merge. Then, by the topic:
   ```
 
   one `--attach` per screenshot of each plan of the topic. "Built" opens
-  with `Pull request #<n> (<url>) to <branch> from branch <name>, commit
-  <sha>; draft, checks green.`, and each earlier plan of the topic gets,
+  with `Pull request #<n> (<url>) to <branch> from branch <name>, commit <sha>; draft, checks green.`, and each earlier plan of the topic gets,
   after its "Built" section's first line,
   `Pull request #<n> (<url>) opened <date> with plans/<x>.md.`
 - **A pull request already open**: the description written again from

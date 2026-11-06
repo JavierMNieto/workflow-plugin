@@ -33,8 +33,7 @@ what the line says and nothing else in this chat.
 
 In this order: the paths ${user_config.owner} gives; the path a
 `<cross-session-message>` from a Planner or Assistant session gives
-(`Plan ready: plans/<topic>.md. Build it when you are free, in queue
-order; nothing to answer.`); else the ready plans `plans` lists, oldest
+(`Plan ready: plans/<topic>.md. Build it when you are free, in queue order; nothing to answer.`); else the ready plans `plans` lists, oldest
 first ("The queue"). Run `plans` before building a plan named by a path:
 one under "Asking ${user_config.owner}" waits until the time it prints
 ("Asked once") while you build the others, unless
@@ -59,9 +58,7 @@ what failed. Without the task tools, say so once in the final message.
    check before "Built". A decision in "Decisions for
    ${user_config.owner}" with no "Decided" line was asked and not
    answered ("Asked once"): build it by the recommended option and write
-   in "Decided" `<n>. <the option>: the recommended option, taken by the
-   executor since the question went unanswered for thirty minutes
-   ("Asked once").` A decision with no recommended option is asked once
+   in "Decided" `<n>. <the option>: the recommended option, taken by the executor since the question went unanswered for thirty minutes ("Asked once").` A decision with no recommended option is asked once
    with the question tool ("Asked in plain words"). A "Short plan" is the
    assistant's, built the same way.
 2. Read what its "Read with" line names, by the project file's
@@ -200,24 +197,19 @@ says.
   what you found, where, why it is not yours, the options, and its size,
   **ask** (a choice inside the plan), **assistant** (a change said in a
   few sentences, no named rule reversed, no schema, privacy or new word)
-  or **planner** (anything else; when unsure, the larger), else `Needs a
-  decision: nothing.`; then `Codex review: <n> findings; fixed C1; not a
+  or **planner** (anything else; when unsure, the larger), else `Needs a decision: nothing.`; then `Codex review: <n> findings; fixed C1; not a
   bug C2 (<why>); out of scope C3 (Needs a decision)`, or `not run
-  (<the script's reason>)`; then `Usage: <n> percent of the five-hour
-  window`, from `usage.json` in the plugin's data directory. Take the
+  (<the script's reason>)`; then `Usage: <n> percent of the five-hour window`, from `usage.json` in the plugin's data directory. Take the
   Building line out.
 - **A `For` section** (`## For <Project>: plans/<topic>.md`) is a brief
   for another queue ("A change the plugin leaves for the project it came
   from goes back as a brief"). After the push, with the checkout its
   plan's `From` line names, write `<path>/plans/<topic>.md`: `#
-  <Title>`, then `Brief for the planner, <date>, by <session> from
-  <path>/plans/<x>.md (commit <sha>). The planner's plan replaces this
-  file.`, then its `###` parts as `##`. A file there that names this
+  <Title>`, then `Brief for the planner, <date>, by <session> from <path>/plans/<x>.md (commit <sha>). The planner's plan replaces this file.`, then its `###` parts as `##`. A file there that names this
   plan's path stands; any other stays, and the brief takes the first
   free `<topic>-<n>.md` from 2. Then `cd <path> && plans start --agent
   planner plans/<the file>`, and send the message it prints, once. One
-  line in "Built" per section: `For <Project>: <path>/plans/<topic>.md
-  written; <planner started as <name> | handed to <name> by message |
+  line in "Built" per section: `For <Project>: <path>/plans/<topic>.md written; <planner started as <name> | handed to <name> by message |
   leased to <name> | already there, written by hand | not started: <the
   command's line>>.` Without a `From` line, a "Needs a decision" item
   sized assistant. Do this before the final message.
@@ -249,12 +241,9 @@ says.
   `<this session's name> started on: <paths>` the same way. A refused
   start's line goes in both.
 - A plan the usage limit cut off, or `plans end --now` ended, is handed
-  over: finish the step in hand, commit on the branch, write `##
-  Handing over, <date>` after the plan's header paragraph with `Step in
-  hand: <n>` first and the branch after it, take out the Building line,
+  over: finish the step in hand, commit on the branch, write `## Handing over, <date>` after the plan's header paragraph with `Step in hand: <n>` first and the branch after it, take out the Building line,
   stop. A prompt to resume from it starts there, on that branch, and
-  replaces the heading with `## Resumed, <date>, session <id>, at step
-  <n>`. Six Resumed lines, or two in a row at one step: "Needs a
+  replaces the heading with `## Resumed, <date>, session <id>, at step <n>`. Six Resumed lines, or two in a row at one step: "Needs a
   decision" with the count or the step, and ${user_config.owner} is
   asked.
 - When the usage-limit message appears mid-plan, hand over as above; the

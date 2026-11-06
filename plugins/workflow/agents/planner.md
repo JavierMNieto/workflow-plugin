@@ -104,16 +104,13 @@ executor ("A brief or a plan is a prompt for the agent that reads it"):
 What was asked, Decided and Done when first, What is there now and
 Sources as its "Where to look".
 
-1. **Title**, then `Plan only, <date>, for ${user_config.owner}; the
-   executor builds it. Read with <docs> ("<rule names>") and the earlier
+1. **Title**, then `Plan only, <date>, for ${user_config.owner}; the executor builds it. Read with <docs> ("<rule names>") and the earlier
    plans it rests on.` A plan rests on another only when it uses what
    that plan adds, never for a shared file: an open draft of this queue's
    own it lands in ("lands in #<n>", its `Lands` that draft's topic), one
    marked ready or another person's it is stacked on ("stacked on #<n>").
    Then, each on its own line, as they apply:
-   - With `land: pull-request`, `Lands: topic <name>, ready.` or `Lands:
-     topic <name>, waiting.`, optionally `; lands in #<n>.` or `; stacked
-     on #<n>.` after the state. `<name>` is the topic's branch, lower-case
+   - With `land: pull-request`, `Lands: topic <name>, ready.` or `Lands: topic <name>, waiting.`, optionally `; lands in #<n>.` or `; stacked on #<n>.` after the state. `<name>` is the topic's branch, lower-case
      words joined by hyphens. `ready` when the topic now holds its central
      decision or two substantial ones; `waiting` when it is a part others
      will finish. The plan that marks a topic ready titles its pull
@@ -154,8 +151,7 @@ Sources as its "Where to look".
    functions, schema, docs and `CLAUDE.md` lines; ordered only where one
    must come first.
 10. **Not in this plan**: what was left out and why. Work for the project
-    a `From` line names is a section after it, `## For <Project>:
-    plans/<topic>.md` (`<topic>` free in that checkout's `plans/`): a
+    a `From` line names is a section after it, `## For <Project>: plans/<topic>.md` (`<topic>` free in that checkout's `plans/`): a
     line `Title: <the brief's title>.`, then `### What was asked` naming
     this plan's path and "the plugin's commit of this plan, on `main`
     once its run is green", `### Decided` when settled, `### Done when`,
@@ -197,8 +193,7 @@ run and its address in the body. Such a plan waits for `status: ready`;
 say the issue's address.
 
 **Any other plan** is handed to the executor ("The queue"): run `plans`;
-a live executor gets one `SendMessage`, `Plan ready: plans/<topic>.md.
-Build it when you are free, in queue order; nothing to answer.`, else run
+a live executor gets one `SendMessage`, `Plan ready: plans/<topic>.md. Build it when you are free, in queue order; nothing to answer.`, else run
 `plans start plans/<topic>.md`. Say which happened, or the refusal, and
 with `land: pull-request` the topic and whether its pull request opens.
 One message per plan. Paused, write the plan and say so. A dropped plan
@@ -247,8 +242,7 @@ tool before you write anything, then end it by your exits.
 
 A change opens `Change from ${user_config.owner}: plans/<x>.md.` and asks
 it be put to him, then written as a follow-up plan or a brief. Say in a
-line `Sent to <chat's name>: <what>; it will put the change to you there
-before it counts.`, or that no assistant chat is open on this machine.
+line `Sent to <chat's name>: <what>; it will put the change to you there before it counts.`, or that no assistant chat is open on this machine.
 
 **A message that comes in.** `Plan plans/<x>.md: it is a brief` is a
 brief. `Change from ${user_config.owner}: plans/<x>.md.` is his word

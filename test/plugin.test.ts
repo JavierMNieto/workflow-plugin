@@ -903,7 +903,9 @@ describe("the handbook holds every rule the plugin cites", () => {
   const bold = [...prose.matchAll(/\*\*([^*]+?)\*\*/g)].map((m) =>
     m[1].replace(/\s+/g, " ").replace(/\.$/, ""),
   );
-  const headings = [...handbook.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  // A cited section is a heading of the handbook or of the landing steps the executor reads.
+  const landing = readFileSync(join(plugin, "docs", "landing.md"), "utf8");
+  const headings = [...`${handbook}\n${landing}`.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
   // The names the agent files, the scripts, the skills and the tests cite in
   // quotation marks, collected by hand on 2 November (plans/docs-as-a-prompt.md).
   const NAMES = [
@@ -973,6 +975,30 @@ describe("the handbook holds every rule the plugin cites", () => {
 
   it("holds each cited section as a heading", () => {
     for (const section of SECTIONS) expect(headings, section).toContain(section);
+  });
+
+  // plans/simpler-agent-files.md: an agent file cites a rule by its name, never by one gone.
+  it("every rule an agent file cites is in the handbook", () => {
+    const flatProse = prose.replace(/\s+/g, " ");
+    let cited = 0;
+    for (const agent of readdirSync(join(plugin, "agents"))) {
+      const text = readFileSync(join(plugin, "agents", agent), "utf8");
+      const flat = text.replace(/```[\s\S]*?```/g, "").replace(/\s+/g, " ");
+      const own = [
+        ...[...text.matchAll(/^## (.+)$/gm)].map((m) => m[1]),
+        ...[...flat.matchAll(/\*\*([^*]+?)\*\*/g)].map((m) => m[1]),
+      ];
+      for (const [, name] of flat.matchAll(/(?:the docs' |the handbook's |\()"([A-Z`][^"]+?)"/g)) {
+        cited++;
+        expect(
+          flatProse.includes(`**${name}`) ||
+            headings.includes(name) ||
+            own.some((lead) => lead.startsWith(name)),
+          `${agent}: "${name}"`,
+        ).toBe(true);
+      }
+    }
+    expect(cited).toBeGreaterThan(20);
   });
 });
 
