@@ -2640,22 +2640,33 @@ describe("the install check", () => {
     const old = cache("scripts/install-check.mjs");
     older(old.tmp);
     const folder = copy("scripts/install-check.mjs");
-    const layouts: [string, string][] = [
+    // The manifest's line carries the agent's steps; plans prints the line alone.
+    const ask =
+      ' Say this line to the owner, then ask once with the question tool, headed "Install", ' +
+      "whether to run the fix; on yes run it, then say to start a new chat; on no, say nothing " +
+      "is changed. Then stop.";
+    const say = " Say this line to the owner, then stop.";
+    const layouts: [string, string, string][] = [
       [
         atCommit.root,
         `The fix: git -C "${atCommit.clone}" archive ${atCommit.version}:plugins/workflow | ` +
           `tar -x -C "${atCommit.root}", then start a new chat.`,
+        ask,
       ],
-      [movedOn.root, "The fix: claude plugin update workflow@workflow, then start a new chat."],
-      [old.root, OLDER],
-      [folder, FOLDER],
+      [
+        movedOn.root,
+        "The fix: claude plugin update workflow@workflow, then start a new chat.",
+        ask,
+      ],
+      [old.root, OLDER, say],
+      [folder, FOLDER, say],
     ];
-    for (const [root, last] of layouts) {
+    for (const [root, last, steps] of layouts) {
       const fallback = `${first}${last}\n`;
       const env = { ...process.env, HOME: dir("workflow-home-"), CLAUDE_PLUGIN_ROOT: root };
       const hook = spawnSync("sh", ["-c", manifestCommand()], { encoding: "utf8", env });
       expect(hook.status, root).toBe(0);
-      expect(hook.stdout, root).toBe(fallback);
+      expect(hook.stdout, root).toBe(`${first}${last}${steps}\n`);
       const cwd = dir("workflow-plans-");
       execFileSync("git", ["init", "-q"], { cwd });
       const run = spawnSync("node", [join(root, "bin", "plans")], { cwd, encoding: "utf8", env });
