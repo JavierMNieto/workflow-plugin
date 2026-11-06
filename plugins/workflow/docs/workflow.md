@@ -223,7 +223,7 @@ deny:                     # MCP tools an agent here may never call, by agent
   assistant:
     - "mcp__server__write_.*"
 form: compact             # one chat decides and builds; omit for the full queue
-reuse: 200000             # the context above which a finished session retires: a number for every agent, or a map of executor, executor-related, planner, planner-related
+reuse: 200000             # the context above which a finished session retires while this project has under five sessions of the agent: one number, or a map of executor and planner; with history the queue works the ceiling out from this project's transcripts
 reviews:                  # the reviews before a push; omit for all three (none when compact)
   - code-review
 note: \JaviAI             # the writing plugin's note command; omit for notes in the report
@@ -444,14 +444,17 @@ the author answers with a `Related` line.
 another's edits are refused. Its Stop hook holds the stop on a red or
 unfinished run of its push, or pull request of the checkout, whose fix
 is pushed where the red one was, before anything else, then names
-the waiting plans to a session it may reuse (a context under its
-ceiling, the project file's `reuse`, 200k for an executor by default,
-for the work's relatedness; a cache still warm), else retires it and
-starts the next executor, judged at every stop while plans wait, the
-plans it was named included. A plan the usage limit cuts off, or `plans
-end --now` ends, is handed over (work committed, a "Handing over"
-section, stop); twice at the same step, or six times, the owner is
-asked.
+the waiting plans to a session it may reuse (a context under the
+ceiling the queue works out for this project and agent: the wash of
+"context-cost" from inputs measured in its transcripts, raised by what
+the plan shares with the chat, the project file's `reuse` (200k for an
+executor, 160k for a planner by default) only while it has under five
+sessions of the agent, and never over 480k; a cache still warm), else
+retires it and starts the next executor, judged at every stop while
+plans wait, the plans it was named included. A plan the usage limit cuts
+off, or `plans end --now` ends, is handed over (work committed, a
+"Handing over" section, stop); twice at the same step, or six times, the
+owner is asked.
 (decisions.md#one-executor, decisions.md#context-cost)
 
 **Starts are bounded**: one executor at a time; none while the five-hour
@@ -463,7 +466,8 @@ queue".
 
 **`plans cost` measures the queue**: each session's turns, context and
 cost by agent, from the transcripts, at the prices the script names with
-the date they were read. (decisions.md#context-cost)
+the date they were read, and the inputs the reuse ceiling is worked out
+from. (decisions.md#context-cost, decisions.md#reuse-check-cheap)
 
 **Sessions the queue starts are Remote Control chats named after the
 project and the machine**, `<Project> Executor 2 (lab)`.
@@ -507,9 +511,9 @@ taken by the planner's `## Planning, <date>, session <id>` line; `plans
 start --agent planner` starts a planner under the executor's bounds.
 (decisions.md#briefs-queued)
 
-**A planner with room left takes the next brief**: under 160k, the
-oldest; under 480k, the oldest brief related to its plans (one that names a file they name, or one of them);
-else it retires, and `plans start` leaves a brief with a live planner only
+**A planner with room left takes the next brief**: the oldest brief it
+is under its ceiling for, the ceiling raised by what the brief shares
+with its plans (the files both name, in tokens); else it retires, and `plans start` leaves a brief with a live planner only
 when it is under its ceiling for that brief and not waiting on a
 question, by message when it is idle and by its Stop hook when it is
 busy, leased for thirty minutes, each brief its own lease: `plans` says

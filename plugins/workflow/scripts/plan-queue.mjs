@@ -86,7 +86,7 @@ import {
   project,
   REUSE_DEFAULT,
 } from "./project.mjs";
-import { costWords, measure } from "./cost.mjs";
+import { costWords, inputsOf, measure, measureFile, priceOf } from "./cost.mjs";
 
 export { machine, owner, REUSE_DEFAULT };
 
@@ -193,6 +193,12 @@ export function parseDay(text) {
 
 /** A plan's or brief's day in either spelling `parseDay` reads. */
 const DAY = "\\d{1,2} [A-Z][a-z]+ \\d{4}|\\d{4}-\\d{2}-\\d{2}";
+
+/** "6 November", a day as the queue's lines say it within the year. */
+function dayMonth(at) {
+  const d = new Date(at);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
 
 /** Today as the plans write it: "24 October 2026". */
 export function today(now = Date.now()) {
@@ -601,12 +607,6 @@ export function pathsIn(text) {
   return [...new Set(found.filter((path) => !path.startsWith("plans/")))];
 }
 
-/** Whether a plan names a file this batch changed. */
-export function related(text, changed) {
-  const set = new Set(changed);
-  return pathsIn(text).some((path) => set.has(path));
-}
-
 /**
  * The paths a brief or a planner's plan names: `pathsIn`'s, and `plans/` and
  * `.claude/` too (plans/planner-continues.md, part 3). The executor's rule
@@ -618,10 +618,31 @@ export function briefPaths(text) {
   return [...new Set(found)];
 }
 
-/** Whether a brief names a file one of the planner's plans names, or one of those plans. */
-export function relatedBrief(briefText, ownTexts = [], ownPaths = []) {
-  const own = new Set([...ownPaths, ...ownTexts.flatMap((text) => briefPaths(text))]);
-  return briefPaths(briefText).some((path) => own.has(path));
+/**
+ * **What a plan or brief shares with a chat, in tokens**
+ * (plans/adaptive-reuse.md, part 2): the paths `briefPaths` finds in `text`
+ * that are in `ownPaths` (a planner's: its plans and the paths they name; an
+ * executor's: the files its batch changed), each that is a file in
+ * `checkout` counted at its size in bytes over four; 0 for none.
+ */
+export function sharedTokens(text = "", ownPaths = [], { checkout = root } = {}) {
+  const own = new Set(ownPaths);
+  let bytes = 0;
+  for (const path of briefPaths(text || "")) {
+    if (!own.has(path)) continue;
+    try {
+      const stat = statSync(join(checkout, path));
+      if (stat.isFile()) bytes += stat.size;
+    } catch {
+      // Named and gone: nothing to share.
+    }
+  }
+  return Math.round(bytes / 4);
+}
+
+/** A planner's own paths, for `sharedTokens`: its plans and every path they name. */
+export function plannerOwn(plans = [], textOf = planText) {
+  return [...plans, ...plans.flatMap((path) => briefPaths(textOf(path) || ""))];
 }
 
 /** The plans under `plans/`, each with its path and state, the queue's order (handed over first, then oldest). */
@@ -912,7 +933,8 @@ export function sessionsOf(
     plans = [],
     stateFor = readState,
     usageFor = (row) => sessionUsage(transcriptOf(row)),
-    ceiling = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+    fallback = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+    inputs = {},
     checkout = root,
   } = {},
 ) {
@@ -931,7 +953,9 @@ export function sessionsOf(
         status: statusOf(row),
         // Its context and the age of its last turn, from its transcript.
         usage: usageFor(row),
-        ceiling,
+        // What its ceiling is worked out from (plans/adaptive-reuse.md).
+        fallback,
+        inputs,
         where: !tree || tree.path === root ? "checkout" : basename(tree.path),
         branch: tree?.branch || "",
         holdsLock:
@@ -1019,24 +1043,29 @@ function endsWords(one, now = Date.now()) {
 }
 
 /**
- * "618k context, warm", "200k context, cold 130 min, over the reuse ceiling",
- * or "" with no usage: over the ceiling for any work, or, between the row's
- * two ceilings, "over the reuse ceiling for an unrelated brief" (a plan, for
- * an executor).
+ * "618k context, warm", "200k context, cold 130 min, over its ceiling", or ""
+ * with no usage: over the warm ceiling `ceilingFor` works out for the row's
+ * agent with what it shares (`shared`, 0 when no work is in hand). An
+ * assistant has no ceiling: the queue never replaces one.
  */
 export function usageWords(one, now = Date.now()) {
   if (!one.usage) return "";
   const age = now - one.usage.at;
-  const pair = pairOf(one.ceiling || REUSE_DEFAULT[one.kind] || REUSE_DEFAULT.executor);
   const context = one.usage.context;
+  const over =
+    one.kind !== "assistant" &&
+    context >
+      ceilingFor({
+        kind: one.kind === "planner" ? "planner" : "executor",
+        inputs: one.inputs,
+        model: one.usage.model,
+        shared: one.shared || 0,
+        fallback: one.fallback,
+      }).ceiling;
   return [
     `${kTokens(context)} context`,
     age <= WARM ? "warm" : `cold ${Math.round(age / MINUTE)} min`,
-    context > pair.related
-      ? "over the reuse ceiling"
-      : context > pair.any
-        ? `over the reuse ceiling for an unrelated ${one.kind === "planner" ? "brief" : "plan"}`
-        : "",
+    over ? "over its ceiling" : "",
   ]
     .filter(Boolean)
     .join(", ");
@@ -1102,18 +1131,27 @@ export function describeSession(one) {
 }
 
 /**
- * **`plans` says the ceilings** (plans/reuse-ceiling-per-agent.md, part 5):
- * "Ceilings: an executor retires past 200k; a planner past 160k, or past 480k
- * when the brief waiting is related to its plans.", from the project's.
+ * **`plans` says the ceilings** (plans/adaptive-reuse.md, part 4): each
+ * agent's worked out with nothing shared, and what it rests on; with no
+ * history for either, the project's numbers and that they are today's.
  */
-export function ceilingsLine(reuse = REUSE_DEFAULT) {
-  const past = (ceiling, work, own) => {
-    const pair = pairOf(ceiling);
-    return pair.any === pair.related
-      ? `past ${kTokens(pair.any)}`
-      : `past ${kTokens(pair.any)}, or past ${kTokens(pair.related)} when the ${work} waiting is related to its ${own}`;
-  };
-  return `Ceilings: an executor retires ${past(reuse.executor, "plan", "batch")}; a planner ${past(reuse.planner, "brief", "plans")}.`;
+export function ceilingsLine(reuse = REUSE_DEFAULT, inputs = {}) {
+  const at = (kind) => ceilingFor({ kind, inputs, fallback: reuse[kind] });
+  const executor = at("executor");
+  const planner = at("planner");
+  if (!executor.history && !planner.history)
+    return `Ceilings: an executor retires past ${kTokens(executor.ceiling)} and a planner past ${kTokens(planner.ceiling)} (no history yet: today's numbers).`;
+  const basis = (one) =>
+    one.capped
+      ? `the cap of ${kTokens(one.cap)}`
+      : one.history
+        ? `fresh start ${kTokens(one.start)}, ${one.turns} turns, ${one.prices} prices`
+        : "no history yet: today's numbers";
+  const measured = inputs.measured;
+  const when = measured?.at
+    ? `; measured from ${measured.transcripts} transcript${measured.transcripts === 1 ? "" : "s"} on ${dayMonth(measured.at)}`
+    : "";
+  return `Ceilings: an executor retires past ${kTokens(executor.ceiling)} (${basis(executor)}), a planner past ${kTokens(planner.ceiling)} (${basis(planner)}), plus what a plan or brief shares with the chat${when}.`;
 }
 
 /**
@@ -1307,22 +1345,82 @@ function annotate(plan) {
     : plan.path;
 }
 
-/**
- * A ceiling as one agent's pair: a number is both cases. `REUSE_DEFAULT`, in
- * project.mjs beside the key it defaults, gives each agent's and the formula.
- */
-export function pairOf(ceiling) {
-  return typeof ceiling === "number" ? { any: ceiling, related: ceiling } : ceiling;
-}
-
-/** The ceiling for one case: the pair's `related` when the plan or brief is related, else `any`. */
-export function ceilingOf(ceiling, related) {
-  const pair = pairOf(ceiling);
-  return related ? pair.related : pair.any;
-}
-
 /** "200k", a token count as the queue's lines say it. */
 const kTokens = (n) => `${Math.round(n / 1000)}k`;
+
+/**
+ * **The quality limit that stays fixed** (decisions.md#context-cost): no chat
+ * is kept past it, whatever the formula gives. Today's largest number (Javi,
+ * 5 November), and Chroma's context rot: models use a long context worse the
+ * longer it is, a loss no price measures.
+ */
+export const REUSE_CAP = 480_000;
+/** The sessions of an agent in a project before its measured inputs are trusted. */
+export const REUSE_HISTORY = 5;
+/** Today's cold ceiling, while an agent has no history here: a cold context over it is rewritten at a loss. */
+const COLD_DEFAULT = 60_000;
+
+/**
+ * **The ceiling worked out from measured inputs** (plans/adaptive-reuse.md,
+ * part 2, on decisions.md#context-cost): a kept chat and a fresh one cost the
+ * same when the kept one's context is
+ *
+ *     (S + shared) x (1 + w / (T x r))
+ *
+ * S the agent's fresh start here (its median first-turn context, which holds
+ * the agent file, the plugin's instructions and the project's CLAUDE.md), T
+ * its median turns, w and r the model's one-hour cache write and cache read,
+ * `shared` the tokens the waiting work shares with the chat. Cold, the kept
+ * context is written again at the write price, as a fresh start is: S +
+ * shared. Under `REUSE_HISTORY` sessions of the agent, `fallback` (the
+ * project file's `reuse`) and today's cold 60k. Never over `cap`.
+ * `{ ceiling, wash, cap, capped, history, start, turns, prices, why }`.
+ */
+export function ceilingFor({
+  kind = "executor",
+  inputs = {},
+  model = "",
+  shared = 0,
+  warm = true,
+  fallback = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+  cap = REUSE_CAP,
+}) {
+  const measured = inputs?.[kind];
+  if (!measured || !(measured.sessions >= REUSE_HISTORY) || !(measured.start > 0)) {
+    const wash = warm ? fallback : Math.min(fallback, COLD_DEFAULT);
+    const ceiling = Math.min(cap, wash);
+    const capped = ceiling < wash;
+    return {
+      ceiling,
+      wash,
+      cap,
+      capped,
+      history: false,
+      why: capped
+        ? `the cap of ${kTokens(cap)}`
+        : `the ceiling of ${kTokens(ceiling)} (no history yet: today's numbers)`,
+    };
+  }
+  const { price } = priceOf(model || measured.model);
+  const start = measured.start;
+  const turns = Math.max(1, measured.turns || 1);
+  const wash = warm ? (start + shared) * (1 + price.write / (turns * price.read)) : start + shared;
+  const ceiling = Math.min(cap, wash);
+  const capped = ceiling < wash;
+  return {
+    ceiling,
+    wash,
+    cap,
+    capped,
+    history: true,
+    start,
+    turns,
+    prices: price.name,
+    why: capped
+      ? `the cap of ${kTokens(cap)}`
+      : `the ceiling of ${kTokens(ceiling)} worked out here (fresh start ${kTokens(start)}, ${turns} turns, ${kTokens(shared)} shared, ${price.name} prices)`,
+  };
+}
 /** The prompt cache's life, and how long before its end a context counts as cold. */
 export const CACHE_TTL = 60 * MINUTE;
 export const WARM = CACHE_TTL - 5 * MINUTE;
@@ -1383,6 +1481,8 @@ export function sessionUsage(transcriptPath) {
         (u.cache_read_input_tokens || 0) +
         (u.cache_creation_input_tokens || 0),
       at: Date.parse(entry.timestamp) || 0,
+      // Its prices, for the ceiling (plans/adaptive-reuse.md).
+      ...(entry.message?.model ? { model: entry.message.model } : {}),
     };
   }
   return null;
@@ -1398,6 +1498,85 @@ export function transcriptOf(
 ) {
   if (!row?.cwd || !row.sessionId) return "";
   return join(projects, row.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${row.sessionId}.jsonl`);
+}
+
+/** This checkout's transcript folder, named as `transcriptOf` names it. */
+export function transcriptsDir(
+  cwd = root,
+  projects = process.env.WORKFLOW_PROJECTS || join(homedir(), ".claude", "projects"),
+) {
+  return join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+}
+
+/** How long a hook takes the cached reuse inputs as they are. */
+export const REUSE_REFRESH = 60 * MINUTE;
+
+/**
+ * **The reuse ceiling's inputs, measured and cached**
+ * (decisions.md#reuse-check-cheap): the summary at
+ * `<data()>/reuse/<the transcript folder's name>.json`, `{ measuredAt, rows: {
+ * <id>: row }, inputs }`, this machine's and never the checkout's. A
+ * transcript whose `mtime` or `size` differs from its row, or has none, is
+ * measured alone (`read`), keeping its row when that read fails; the rows of
+ * files gone are dropped; the file is written atomically. From a hook (`refresh` false) a summary measured under
+ * `REUSE_REFRESH` ago is taken as it is, nothing listed; `plans cost` passes
+ * `refresh`. No folder, or a read that fails: what the cache holds, or none.
+ */
+export function reuseInputs({
+  refresh = false,
+  now = Date.now(),
+  dir = transcriptsDir(),
+  file = join(data(), "reuse", `${basename(dir)}.json`),
+  read = measureFile,
+} = {}) {
+  const cached = readJson(file);
+  const rows = cached?.rows && typeof cached.rows === "object" ? cached.rows : {};
+  if (!refresh && cached?.measuredAt && now - cached.measuredAt < REUSE_REFRESH)
+    return cached.inputs || {};
+  let names;
+  try {
+    names = readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
+  } catch {
+    return cached?.inputs || {};
+  }
+  const next = {};
+  for (const name of names) {
+    const id = name.replace(/\.jsonl$/, "");
+    let stat;
+    try {
+      stat = statSync(join(dir, name));
+    } catch {
+      continue;
+    }
+    const old = rows[id];
+    if (old && old.mtime === stat.mtimeMs && old.size === stat.size) {
+      next[id] = old;
+      continue;
+    }
+    // A transcript that cannot be read now keeps the row it had, with its old
+    // stat, so the next refresh reads it again (Codex, 6 November).
+    const row = read(join(dir, name)) || (old?.agent ? old : null);
+    if (row) next[id] = row;
+  }
+  // When and over how many transcripts, which `plans` says beside the ceilings.
+  const inputs = {
+    ...inputsOf(Object.values(next)),
+    measured: { at: now, transcripts: Object.keys(next).length },
+  };
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeJson(file, { measuredAt: now, rows: next, inputs });
+  } catch {
+    // A summary that cannot be written is measured again next time.
+  }
+  return inputs;
+}
+
+let reuseRead = null;
+/** The reuse inputs, read once a run, as a hook reads them (`reuseInputs`, cached). */
+function reuseNow() {
+  if (!reuseRead) reuseRead = reuseInputs();
+  return reuseRead;
 }
 
 /** "14:32", a time as the queue's lines say it. */
@@ -1514,48 +1693,40 @@ function askingWords(plan) {
 }
 
 /**
- * **One reuse rule, each agent held to its own ceiling**
- * (plans/reuse-ceiling-per-agent.md): a finished session takes the next plan
- * or brief when its context is under its ceiling
- * for that work (`ceiling`, a number or the agent's `{ any, related }` pair:
- * `related` when the work waiting is related to its own), and its cache is
- * warm or its context small; every turn re-reads the whole context at the
+ * **One reuse rule, each agent held to the ceiling worked out for it**
+ * (plans/adaptive-reuse.md, part 2): a finished session takes the next plan
+ * or brief when its context is under `ceilingFor`'s ceiling for that work
+ * (`shared`, the tokens the work shares with it), and, its cache cold, under
+ * the cold ceiling too: every turn re-reads the whole context at the
  * cache-read price, and a fresh session writes its start and the reading it
- * shares at the write price. With no usage known, it is kept
- * (plans/simpler-agents.md).
- * `{ reuse, why }` either way; a keep's `related` says only related work may
- * be taken (the context is over `any`). `kind`
- * names the work: a plan for the executor, a brief for the planner.
+ * shares at the write price. `kind` the agent, `inputs` what `reuseInputs`
+ * measured, `fallback` the project file's number for it, `model` the
+ * session's (its usage's, else the agent's commonest here). With no usage
+ * known, it is kept (plans/simpler-agents.md). `{ reuse, why }` either way.
  */
 export function mayReuse({
-  related = false,
   usage = null,
-  now = Date.now(),
-  ceiling = REUSE_DEFAULT.executor,
+  shared = 0,
+  inputs = {},
   kind = "executor",
+  model = usage?.model || "",
+  fallback = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+  now = Date.now(),
 }) {
-  const work = kind === "planner" ? "brief" : "plan";
-  const pair = pairOf(ceiling);
-  const equal = pair.any === pair.related;
-  const limit = ceilingOf(pair, related);
-  if (usage && usage.context > limit)
-    return {
-      reuse: false,
-      why: `its context is ${kTokens(usage.context)} tokens, over the reuse ceiling of ${equal ? kTokens(limit) : related ? `${kTokens(pair.related)} for a related ${work}` : `${kTokens(pair.any)} for an unrelated ${work} (${kTokens(pair.related)} for a related one)`}: every turn would re-read it`,
-    };
-  if (usage && usage.at && now - usage.at > WARM && usage.context > 60_000)
+  if (!usage) return { reuse: true, why: "no context known" };
+  const warm = ceilingFor({ kind, inputs, model, shared, fallback });
+  const context = `its context is ${kTokens(usage.context)} tokens`;
+  if (usage.context > warm.ceiling) return { reuse: false, why: `${context}, over ${warm.why}` };
+  if (
+    usage.at &&
+    now - usage.at > WARM &&
+    usage.context > ceilingFor({ kind, inputs, model, shared, fallback, warm: false }).ceiling
+  )
     return {
       reuse: false,
       why: `its cache has gone cold after ${Math.round((now - usage.at) / MINUTE)} minutes idle, and rewriting ${kTokens(usage.context)} tokens costs more than a fresh start`,
     };
-  const overAny = Boolean(usage && usage.context > pair.any);
-  return {
-    reuse: true,
-    why: usage
-      ? `its context is ${kTokens(usage.context)} tokens, under the reuse ceiling of ${overAny ? `${kTokens(pair.related)} for a related ${work}` : kTokens(pair.any)}`
-      : "no context known",
-    related: overAny,
-  };
+  return { reuse: true, why: `${context}, under ${warm.why}` };
 }
 
 /**
@@ -1608,7 +1779,8 @@ export function decideStop({
   continuing = false,
   refusedRun = null,
   usage = null,
-  ceiling = REUSE_DEFAULT.executor,
+  inputs = {},
+  fallback = REUSE_DEFAULT.executor,
   now = Date.now(),
   carry = [],
 }) {
@@ -1672,30 +1844,29 @@ export function decideStop({
   // (plans/executor-over-ceiling-hands-on.md): the plans the session was
   // already named included, so a session named plans under the ceiling and
   // over it at a later stop is retired on all of them; only the untold ones
-  // are named when it may go on. `related` is read over the plans not yet
-  // named when there are any, else over all: a session that declined a
-  // related plan is not kept for it past its ceiling for unrelated work while
-  // an unrelated one waits (Javi, 5 November).
+  // are named when it may go on. Each plan is judged with what it shares
+  // with the batch (`shared`, plans/adaptive-reuse.md, part 2), over the
+  // plans not yet named when there are any, else over all: a session that
+  // declined a plan it had room for is not kept for it while one it has no
+  // room for waits (Javi, 5 November).
   if (!waiting.length) return null;
   const fresh = waiting.filter((plan) => !told.includes(plan.path));
-  const verdict = mayReuse({
-    related: (fresh.length ? fresh : waiting).some((plan) => plan.related),
-    usage,
-    now,
-    ceiling,
-  });
-  if (!verdict.reuse)
-    return { retire: true, paths: waiting.map((plan) => plan.path), why: verdict.why };
-  // **Kept for related work only**, the related plans are taken, and the rest
-  // go to a fresh executor at the next stop.
-  const taken = verdict.related ? fresh.filter((plan) => plan.related) : fresh;
+  const judge = (plan) =>
+    mayReuse({ usage, shared: plan.shared || 0, inputs, kind: "executor", fallback, now });
+  const pool = (fresh.length ? fresh : waiting).map((plan) => ({ plan, verdict: judge(plan) }));
+  if (!pool.some(({ verdict }) => verdict.reuse))
+    return { retire: true, paths: waiting.map((plan) => plan.path), why: pool[0].verdict.why };
+  // **Kept for the plans it has room for**, those are taken, and the rest go
+  // to a fresh executor at the next stop.
+  const taken = fresh.length ? pool.filter(({ verdict }) => verdict.reuse) : [];
   if (!taken.length) return null;
-  const paths = taken.map((plan) => plan.path);
+  const paths = taken.map(({ plan }) => plan.path);
+  const why = taken[0].verdict.why;
   return {
     refuse: true,
     told: paths,
-    kept: { paths, why: verdict.why },
-    reason: `Plans are waiting and this session can take them: ${taken.map(annotate).join(", ")} (${verdict.why}). Build them as a new batch.`,
+    kept: { paths, why },
+    reason: `Plans are waiting and this session can take them: ${taken.map(({ plan }) => annotate(plan)).join(", ")} (${why}). Build them as a new batch.`,
   };
 }
 
@@ -1780,7 +1951,8 @@ export function canStart({
   sessions = [],
   brief = "",
   name = "",
-  ceiling = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+  fallback = REUSE_DEFAULT[kind] || REUSE_DEFAULT.executor,
+  inputs = {},
   taken = [],
   machine = "",
   unwatched = false,
@@ -1819,8 +1991,8 @@ export function canStart({
   // one whose context is over its reuse ceiling, or cold, is replaced when
   // idle; a busy planner so is left to finish, and a fresh one starts beside
   // it. A busy executor, or any session still worth reusing, refuses as before.
-  // A planner is judged by the brief's relatedness to its plans (`related`,
-  // set by `startHere`; plans/reuse-ceiling-per-agent.md, part 4).
+  // A session is judged with what the work shares with it (`shared`, set by
+  // `startHere`; plans/adaptive-reuse.md, part 2).
   // An executor with a plan under way (its Building line) is never stale:
   // replacing it would orphan that work.
   // **A planner is judged by what it can do now** (plans/briefs-reach-a-
@@ -1847,9 +2019,10 @@ export function canStart({
             }
           : mayReuse({
               usage: one.usage,
-              related: Boolean(one.related),
+              shared: one.shared || 0,
+              inputs,
               now,
-              ceiling,
+              fallback,
               kind,
             });
   let replace = [];
@@ -2429,9 +2602,10 @@ export function endSession(
   killTimer(state.end?.pid, sessionId);
   clearEnd(sessionId, null);
   const kind = state.agent === "planner" ? "planner" : "executor";
-  const words = [row.state, usageWords({ kind, usage, ceiling: proj().reuse[kind] })].filter(
-    Boolean,
-  );
+  const words = [
+    row.state,
+    usageWords({ kind, usage, fallback: proj().reuse[kind], inputs: reuseNow() }),
+  ].filter(Boolean);
   const line = `Ended ${who}: ${words.join(", ")}.`;
   if (!verdict.on || !plan) return { ended: true, line };
   // **The plan under way is handed over once its session is stopped**, read
@@ -2875,10 +3049,11 @@ function startHere(
   // A timer's start replacing a session takes the retirement's why its deferral kept.
   if (timer && replace && !why) why = readJson(files.deferred(deferral || kind))?.retired || "";
   // **A brief is judged against the planner it would go to**
-  // (plans/reuse-ceiling-per-agent.md, part 4): read once, and each live
-  // planner's ceiling is the related one when the brief names its ground.
+  // (plans/adaptive-reuse.md, part 2): read once, and each live session's
+  // ceiling is raised by what the work shares with it.
   const briefText = kind === "planner" ? plans.find((p) => p.path === paths[0])?.text || "" : "";
-  const ceiling = kind === "planner" ? proj().reuse.planner : proj().reuse.executor;
+  const fallback = kind === "planner" ? proj().reuse.planner : proj().reuse.executor;
+  const inputs = probe || kind === "assistant" ? {} : reuseNow();
   const decision = probe
     ? { start: true, name: `Probe ${Date.now() % 1000}`, note: "" }
     : canStart({
@@ -2898,25 +3073,22 @@ function startHere(
         sessions:
           kind === "assistant"
             ? []
-            : sessionsOf(kind, live, readJson(files.lock()), { plans, ceiling })
+            : sessionsOf(kind, live, readJson(files.lock()), { plans, fallback, inputs })
                 .filter((one) => one.sessionId !== replace && !one.retired)
-                .map((one) =>
-                  kind === "planner"
-                    ? {
-                        ...one,
-                        related: relatedBrief(briefText, one.holds.map(planText), one.holds),
-                      }
-                    : // An executor's plans are related by its Stop hook's rule, a
-                      // file its batch changed; read only when its two ceilings differ.
-                      ceiling.any !== ceiling.related
-                      ? { ...one, related: executorRelated(one.sessionId, paths) }
-                      : one,
-                ),
+                .map((one) => ({
+                  ...one,
+                  // A planner shares what its plans name; an executor, its batch's files.
+                  shared:
+                    kind === "planner"
+                      ? sharedTokens(briefText, plannerOwn(one.holds))
+                      : executorShared(one.sessionId, paths),
+                })),
         brief: kind === "executor" ? "" : paths[0],
         // This checkout's chats only: one in another checkout reads another queue (Codex).
         open: kind === "assistant" ? openAssistants(live, proj().name) : [],
         name: proj().name,
-        ceiling,
+        fallback,
+        inputs,
         taken: liveNames(),
         machine: machine().name,
         // Only the window's and a lease's timer: a usage limit's restart
@@ -3284,7 +3456,12 @@ export function list({ all = false, live, related = true, readers = null } = {})
   if (live)
     executor = sessionsLine(
       "executor",
-      sessionsOf("executor", live, lock, { trees, plans, ceiling: proj().reuse.executor }),
+      sessionsOf("executor", live, lock, {
+        trees,
+        plans,
+        fallback: proj().reuse.executor,
+        inputs: reuseNow(),
+      }),
     );
   else if (lock && !lock.released)
     executor = `The executor: ${lock.name || nameOf(lock.sessionId)} [${String(lock.sessionId).slice(0, 8)}], status unknown.`;
@@ -3295,17 +3472,21 @@ export function list({ all = false, live, related = true, readers = null } = {})
     out.push(
       sessionsLine(
         "planner",
-        sessionsOf("planner", live, lock, { trees, plans, ceiling: proj().reuse.planner }),
+        sessionsOf("planner", live, lock, {
+          trees,
+          plans,
+          fallback: proj().reuse.planner,
+          inputs: reuseNow(),
+        }),
       ),
     );
   // **The ceilings, and why the last fresh session of each kind started**
   // (plans/reuse-ceiling-per-agent.md, part 5), with a project file.
-  if (proj().found) out.push(ceilingsLine(proj().reuse), ...lastFreshLines(readLog(), proj().name));
+  if (proj().found)
+    out.push(ceilingsLine(proj().reuse, reuseNow()), ...lastFreshLines(readLog(), proj().name));
   // **The assistant line**, only while a chat the queue started is alive
   // (plans/project-follow-ups-reach-the-project.md, part 6).
-  const assistants = live
-    ? sessionsOf("assistant", live, lock, { trees, plans, ceiling: proj().reuse.executor })
-    : [];
+  const assistants = live ? sessionsOf("assistant", live, lock, { trees, plans }) : [];
   if (assistants.length) out.push(sessionsLine("assistant", assistants));
   const versions = versionLine(live);
   if (versions) out.push(versions);
@@ -3552,10 +3733,10 @@ export function changedFiles(state, dir = root) {
   return [...new Set([...changed, ...(turn?.wrote || [])])];
 }
 
-/** Whether any of `paths` names a file the executor `sessionId`'s batch changed. */
-function executorRelated(sessionId, paths) {
+/** The most any of `paths` shares with the files the executor `sessionId`'s batch changed, in tokens. */
+function executorShared(sessionId, paths) {
   const changed = changedFiles({ ...readState(sessionId), sessionId });
-  return paths.some((path) => related(planText(path), changed));
+  return Math.max(0, ...paths.map((path) => sharedTokens(planText(path), changed)));
 }
 
 /** The branch's tip, for a session's `base`; "" when the ref is missing. */
@@ -4077,7 +4258,8 @@ export function decidePlannerStop({
   paused = false,
   retired = false,
   usage = null,
-  ceiling = REUSE_DEFAULT.planner,
+  inputs = {},
+  fallback = REUSE_DEFAULT.planner,
   now = Date.now(),
 }) {
   if (retired || current || paused) return null;
@@ -4085,12 +4267,22 @@ export function decidePlannerStop({
   // **A brief named and not taken goes to a fresh planner** (/code-review, 27
   // October): this live planner refuses every start, so the brief it
   // stopped without taking would otherwise wait for good.
-  if (!fresh.length)
-    return waiting.length ? { retire: true, related: false, declined: true } : null;
-  const related = fresh.some((brief) => brief.related);
-  const verdict = mayReuse({ related, usage, now, ceiling, kind: "planner" });
-  if (!verdict.reuse) return { retire: true, related, why: verdict.why };
-  const next = verdict.related ? fresh.find((brief) => brief.related) : fresh[0];
+  if (!fresh.length) return waiting.length ? { retire: true, declined: true } : null;
+  // Each brief with what it shares with this planner's plans (plans/adaptive-reuse.md, part 2).
+  const judged = fresh.map((brief) => ({
+    brief,
+    verdict: mayReuse({
+      usage,
+      shared: brief.shared || 0,
+      inputs,
+      kind: "planner",
+      fallback,
+      now,
+    }),
+  }));
+  const taken = judged.find(({ verdict }) => verdict.reuse);
+  if (!taken) return { retire: true, why: judged[0].verdict.why };
+  const { brief: next, verdict } = taken;
   return {
     refuse: true,
     told: [next.path],
@@ -4315,11 +4507,17 @@ function byMessage() {
 export function tiredFor(
   state,
   brief,
-  { usage = null, ceiling = REUSE_DEFAULT.planner, now = Date.now(), textOf = planText } = {},
+  {
+    usage = null,
+    inputs = {},
+    fallback = REUSE_DEFAULT.planner,
+    now = Date.now(),
+    textOf = planText,
+    checkout = root,
+  } = {},
 ) {
-  const plans = state.plans || [];
-  const related = relatedBrief(textOf(brief), plans.map(textOf), plans);
-  const verdict = mayReuse({ related, usage, now, ceiling, kind: "planner" });
+  const shared = sharedTokens(textOf(brief), plannerOwn(state.plans || [], textOf), { checkout });
+  const verdict = mayReuse({ usage, shared, inputs, fallback, now, kind: "planner" });
   return verdict.reuse ? "" : verdict.why;
 }
 
@@ -4527,7 +4725,8 @@ function plannerHook(mode, input, sessionId, statePath) {
     const tired = named
       ? tiredFor({ ...state, agent: "planner" }, named, {
           usage: sessionUsage(input.transcript_path),
-          ceiling: proj().reuse.planner,
+          inputs: reuseNow(),
+          fallback: proj().reuse.planner,
         })
       : "";
     const queued = named ? readPlans(join(root, "plans"), liveIds(live)) : [];
@@ -4591,12 +4790,12 @@ function plannerHook(mode, input, sessionId, statePath) {
   if (mode === "stop") {
     // A planner the queue gave nothing (the owner's own) is left alone.
     if (!state.brief && !state.plans.length) return;
-    const ownTexts = state.plans.map((path) => planText(path));
+    const own = plannerOwn(state.plans);
     // A brief sent by message to another live planner is that planner's
     // (plans/brief-lease-per-brief.md, part 3), so two never plan one brief.
     const waiting = freeBriefs(plans, { live, self: sessionId }).map((p) => ({
       ...p,
-      related: relatedBrief(p.text, ownTexts, state.plans),
+      shared: sharedTokens(p.text, own),
     }));
     const decision = decidePlannerStop({
       current,
@@ -4605,7 +4804,8 @@ function plannerHook(mode, input, sessionId, statePath) {
       paused: Boolean(pausedSince()),
       retired: state.retired,
       usage: sessionUsage(input.transcript_path),
-      ceiling: proj().reuse.planner,
+      inputs: reuseNow(),
+      fallback: proj().reuse.planner,
     });
     if (!decision) {
       writeJson(statePath, state);
@@ -4936,7 +5136,7 @@ function hook(mode, input) {
       live,
     )
       .filter((p) => !p.askingIn)
-      .map((p) => ({ ...p, related: related(p.text, changed) }));
+      .map((p) => ({ ...p, shared: sharedTokens(p.text, changed) }));
     const handed = plans.filter((p) => p.state === "handed");
     const building = new RegExp(`^## Building, [^,\\n]+, session ${sessionId}\\b`, "m");
     const carry = carryOf(
@@ -4969,7 +5169,8 @@ function hook(mode, input) {
       continuing: Boolean(input.stop_hook_active),
       refusedRun: state.runRefused ?? null,
       usage: sessionUsage(input.transcript_path),
-      ceiling: proj().reuse.executor,
+      inputs: reuseNow(),
+      fallback: proj().reuse.executor,
     });
     if (!decision) {
       armEnd(sessionId, live);
@@ -5891,14 +6092,24 @@ export function main(args = process.argv.slice(2)) {
       process.exitCode = 1;
       return;
     }
-    const folder =
-      rest.filter((_, i) => at < 0 || (i !== at && i !== at + 1))[0] ||
-      dirname(transcriptOf({ cwd: root, sessionId: "x" }));
+    // Resolved, so the reuse summary is keyed by the folder's own name.
+    const given = rest.filter((_, i) => at < 0 || (i !== at && i !== at + 1))[0];
+    const folder = given ? resolve(given) : transcriptsDir();
     const rows = measure(folder, { since });
     const home = homedir();
     const shown = folder.startsWith(`${home}/`) ? `~${folder.slice(home.length)}` : folder;
+    // **The reuse inputs, refreshed** (plans/adaptive-reuse.md, part 1), and
+    // each agent's ceiling from them, which the report says after its line.
+    const inputs = reuseInputs({ refresh: true, dir: folder });
+    const reuse = Object.fromEntries(
+      ["executor", "planner"].map((kind) => {
+        const warm = ceilingFor({ kind, inputs, fallback: proj().reuse[kind] });
+        const cold = ceilingFor({ kind, inputs, fallback: proj().reuse[kind], warm: false });
+        return [kind, { ...inputs[kind], warm, cold }];
+      }),
+    );
     process.stdout.write(
-      `${costWords(rows, { ceilings: proj().reuse, machine: machine().name, since, dir: shown }).join("\n")}\n`,
+      `${costWords(rows, { reuse, machine: machine().name, since, dir: shown }).join("\n")}\n`,
     );
     return;
   }

@@ -406,52 +406,40 @@ export function project(root) {
 }
 
 /**
- * **Each agent is held to its own reuse ceiling** (plans/reuse-ceiling-per-
- * agent.md): the context, in tokens, above which a finished session retires
- * rather than take the next plan or brief, `any` for work on other ground and
- * `related` for work related to its own. Where a kept session and a fresh one
- * cost the same over a job of T turns:
+ * **The ceiling while a project has no history** (plans/adaptive-reuse.md,
+ * part 3): the context, in tokens, above which a finished session retires
+ * rather than take the next plan or brief, used while the project has under
+ * five sessions of the agent. With history the queue works the ceiling out
+ * where a kept session and a fresh one cost the same over a job of T turns:
  *
  *     C = (S + R) x (1 + w / (T x r))
  *
- * S the fresh session's start (50k, measured 27 October), R the reading it
- * would do again that the kept one holds, w the one-hour cache write and r
- * the cache read a million tokens, as Anthropic's pricing page gave them on 5
- * November 2026 (Fable 5.1 $20 and $0.25, Opus 5.5 $8 and $0.20). A planner
- * on Fable, T = 36, washes at 160k with nothing shared and 480k with 100k
- * shared; an executor on Opus, T = 120, at about 70k and 110k, and 200k stays
- * the owner's allowance of 27 October for the batch's continuity.
+ * S the agent's fresh start here (its median first-turn context), R the
+ * tokens the waiting work shares with the chat, w the one-hour cache write
+ * and r the cache read a million tokens (Fable 5.1 $20 and $0.25, Opus 5.5 $8
+ * and $0.20, read 5 November 2026), never over 480k. Measured in the plugin's
+ * own checkout on 6 November: an executor 49k and 79 turns on Opus, about
+ * 74k; a planner 35k and 26 turns on Fable, about 144k. 200k is the owner's
+ * allowance of 27 October for the batch's continuity, 160k his of 5 November.
  */
-export const REUSE_DEFAULT = Object.freeze({
-  executor: Object.freeze({ any: 200_000, related: 200_000 }),
-  planner: Object.freeze({ any: 160_000, related: 480_000 }),
-});
+export const REUSE_DEFAULT = Object.freeze({ executor: 200_000, planner: 160_000 });
 
 /**
- * The `reuse` key as `{ executor, planner }` pairs: one number sets all four;
- * a map sets `executor`, `executor-related`, `planner` and `planner-related`,
- * each missing one the default (`executor-related` the executor's own number,
- * `planner-related` 480k); a related one is never under its agent's own. A
- * value that is no number above zero is the default.
+ * The `reuse` key as `{ executor, planner }`: one number sets both; a map
+ * sets `executor` and `planner`, each missing one the default. A value that
+ * is no number above zero is the default.
  */
 export function reuseOf(value) {
   const number = (one) => {
     const n = Number(Array.isArray(one) ? one[0] : one);
     return n > 0 ? n : 0;
   };
-  const pair = (any, related) => ({ any, related });
   const one = typeof value === "string" ? number(value) : 0;
-  if (one) return { executor: pair(one, one), planner: pair(one, one) };
+  if (one) return { executor: one, planner: one };
   const map = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const executor = number(map.executor) || REUSE_DEFAULT.executor.any;
-  const planner = number(map.planner) || REUSE_DEFAULT.planner.any;
-  // Related work is never held to less than any work.
   return {
-    executor: pair(executor, Math.max(number(map["executor-related"]), executor)),
-    planner: pair(
-      planner,
-      Math.max(number(map["planner-related"]) || REUSE_DEFAULT.planner.related, planner),
-    ),
+    executor: number(map.executor) || REUSE_DEFAULT.executor,
+    planner: number(map.planner) || REUSE_DEFAULT.planner,
   };
 }
 
@@ -475,10 +463,7 @@ branch: ${defaultBranch(root, { checkedOut: true })}
 #   assistant:
 #     - "mcp__server__write_.*"
 # form: compact          one chat decides and builds; omit for the full queue
-# reuse: 200000          the context, in tokens, above which a finished session retires: one number for every agent, or
-#   executor: 200000     the executor's (default 200000)
-#   planner: 160000      the planner's for a brief on other ground (default 160000)
-#   planner-related: 480000  the planner's for a brief related to its plans (default 480000)
+# reuse: 200000 # the context above which a finished session retires while this project has under five sessions of the agent: one number, or a map of executor and planner; with history the queue works the ceiling out from this project's transcripts
 # reviews:               the reviews before a push: plan, code-review, codex, or a plugin skill; omit for all three
 #   - code-review
 ---

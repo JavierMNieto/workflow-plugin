@@ -27,10 +27,14 @@ import {
   treeFiles,
   untiered,
 } from "../plugins/workflow/scripts/turn-audit.mjs";
-import { costWords, measure } from "../plugins/workflow/scripts/cost.mjs";
+import { costWords, measure, measureFile } from "../plugins/workflow/scripts/cost.mjs";
 import {
   allowedWhileLocked,
+  ceilingFor,
   ceilingsLine,
+  REUSE_CAP,
+  reuseInputs,
+  sharedTokens,
   lastFreshLines,
   tiredFor,
   usageWords,
@@ -86,14 +90,13 @@ import {
   editedText,
   ANSWER_WINDOW,
   briefPaths,
-  relatedBrief,
+  plannerOwn,
   withPlans,
   describeSession,
   stopPlannersOn,
   stopRetiredPlanners,
   stopTakenPlanners,
   whoTook,
-  related,
   resetTime,
   stateOf,
   today,
@@ -599,7 +602,6 @@ describe("plan-queue", () => {
     `# A plan\n\nPlan only, ${day}, for Javi; the executor builds it.\n\n`;
   const plan = (path: string, extra: object = {}) => ({
     path,
-    related: false,
     asks: false,
     ...extra,
   });
@@ -869,8 +871,6 @@ describe("plan-queue", () => {
       "packages/editor/src/y.tsx",
       "docs/editor.md",
     ]);
-    expect(related(text, ["docs/editor.md"])).toBe(true);
-    expect(related(text, ["docs/copy.md"])).toBe(false);
   });
 
   describe("checksVerdict", () => {
@@ -1013,11 +1013,11 @@ describe("plan-queue", () => {
       const told = ["plans/a.md", "plans/b.md"];
       const fresh = decideStop({ waiting: [plan("plans/a.md")], usage: at(0, 300), now });
       expect(fresh).toMatchObject({ retire: true, paths: ["plans/a.md"] });
-      expect(fresh!.why).toContain("over the reuse ceiling");
+      expect(fresh!.why).toContain("over the ceiling of 200k (no history yet: today's numbers)");
       expect(decideStop({ waiting: both, told, usage: at(0, 187), now })).toBeNull();
       const over = decideStop({ waiting: both, told, usage: at(0, 202), now });
       expect(over).toMatchObject({ retire: true, paths: ["plans/a.md", "plans/b.md"] });
-      expect(over!.why).toContain("over the reuse ceiling");
+      expect(over!.why).toContain("over the ceiling of 200k");
       const one = decideStop({
         waiting: both,
         told: ["plans/a.md"],
@@ -1190,9 +1190,9 @@ describe("plan-queue", () => {
         decideStop({ carry: [owed, second], told: ["for:plans/a.md:plans/x.md"] })!.told,
       ).toEqual(["for:plans/a.md:plans/y.md"]);
       // Before the waiting plans, which would retire or hand on the session.
-      expect(
-        decideStop({ carry: [owed], waiting: [{ path: "plans/w.md", related: false }] })!.told,
-      ).toEqual(["for:plans/a.md:plans/x.md"]);
+      expect(decideStop({ carry: [owed], waiting: [{ path: "plans/w.md" }] })!.told).toEqual([
+        "for:plans/a.md:plans/x.md",
+      ]);
     });
   });
 
@@ -2142,11 +2142,15 @@ describe("the planner queue", () => {
   });
 
   // plans/planner-continues.md, part 2: the executor's rule, for briefs.
-  it("keeps a planner under its ceiling on the oldest waiting brief, one over it for other ground on the oldest related brief, and retires a tired one", () => {
+  it("keeps a planner under its ceiling on the oldest waiting brief, one over it for a brief that shares nothing on the oldest it has room for, and retires a tired one", () => {
     const now = Date.now();
     const usage = (k: number) => ({ context: k * 1000, at: now });
-    const older = { path: "plans/older.md", related: false };
-    const newer = { path: "plans/newer.md", related: true };
+    // A planner here: fresh start 35k, 70 turns, Fable (plans/adaptive-reuse.md).
+    const inputs = {
+      planner: { sessions: 21, start: 35_000, turns: 70, model: "claude-fable-5-1" },
+    };
+    const older = { path: "plans/older.md", shared: 0 };
+    const newer = { path: "plans/newer.md", shared: 100_000 };
     expect(decidePlannerStop({ waiting: [older, newer] })).toMatchObject({
       refuse: true,
       told: ["plans/older.md"],
@@ -2154,18 +2158,16 @@ describe("the planner queue", () => {
     expect((decidePlannerStop({ waiting: [older, newer] }) as { reason: string }).reason).toContain(
       "A brief is waiting and this session can take it: plans/older.md (no context known).",
     );
-    expect(decidePlannerStop({ waiting: [older, newer], usage: usage(200), now })).toMatchObject({
-      refuse: true,
-      told: ["plans/newer.md"],
-    });
-    expect(decidePlannerStop({ waiting: [older], usage: usage(200), now })).toMatchObject({
+    expect(
+      decidePlannerStop({ waiting: [older, newer], usage: usage(200), now, inputs }),
+    ).toMatchObject({ refuse: true, told: ["plans/newer.md"] });
+    expect(decidePlannerStop({ waiting: [older], usage: usage(200), now, inputs })).toMatchObject({
       retire: true,
-      related: false,
+      why: expect.stringContaining("over the ceiling of 75k worked out here"),
     });
-    expect(decidePlannerStop({ waiting: [older, newer], usage: usage(500), now })).toMatchObject({
-      retire: true,
-      related: true,
-    });
+    expect(
+      decidePlannerStop({ waiting: [older, newer], usage: usage(500), now, inputs }),
+    ).toMatchObject({ retire: true });
     // Nothing waiting: alive, idle and unretired.
     expect(decidePlannerStop({ waiting: [] })).toBeNull();
     expect(decidePlannerStop({ waiting: [older], current: { path: "plans/x.md" } })).toBeNull();
@@ -2174,7 +2176,6 @@ describe("the planner queue", () => {
     // A brief named once and not taken goes to a fresh planner at the next Stop.
     expect(decidePlannerStop({ waiting: [older], told: ["plans/older.md"] })).toEqual({
       retire: true,
-      related: false,
       declined: true,
     });
   });
@@ -2232,13 +2233,14 @@ describe("the planner queue", () => {
     }
   });
 
-  it("a brief is related when it names a file or a plan the planner's plans name", () => {
+  it("a planner's own paths are its plans and every file they name, plans/ and .claude/ included", () => {
     const own = "Read `scripts/hooks/plan-queue.mjs` and `.claude/agents/planner.md`.";
     expect(briefPaths(own)).toEqual(["scripts/hooks/plan-queue.mjs", ".claude/agents/planner.md"]);
-    expect(relatedBrief("Where to look: plans/a.md.", [], ["plans/a.md"])).toBe(true);
-    expect(relatedBrief("Change .claude/agents/planner.md", [own])).toBe(true);
-    expect(relatedBrief("See scripts/hooks/plan-queue.mjs, the hooks.", [own])).toBe(true);
-    expect(relatedBrief("Change docs/editor.md", [own], ["plans/a.md"])).toBe(false);
+    expect(plannerOwn(["plans/a.md"], () => own)).toEqual([
+      "plans/a.md",
+      "scripts/hooks/plan-queue.mjs",
+      ".claude/agents/planner.md",
+    ]);
     // The executor's rule stays narrow: plans/ and .claude/ are not its paths.
     expect(pathsIn("plans/a.md and .claude/agents/planner.md")).toEqual([]);
   });
@@ -4253,25 +4255,20 @@ describe("the cache-aware queue", () => {
   const now = Date.UTC(2026, 9, 27, 14, 0);
   const at = (minutes: number, k: number) => ({ context: k * 1000, at: now - minutes * MIN });
 
-  it("mayReuse: by the ceiling and the cache", () => {
+  it("mayReuse: by the ceiling and the cache, today's numbers with no history", () => {
     expect(mayReuse({ usage: at(1, 150), now })).toEqual({
       reuse: true,
-      why: "its context is 150k tokens, under the reuse ceiling of 200k",
-      related: false,
+      why: "its context is 150k tokens, under the ceiling of 200k (no history yet: today's numbers)",
     });
-    expect(mayReuse({ usage: at(1, 250), now }).why).toContain(
-      "its context is 250k tokens, over the reuse ceiling of 200k",
+    expect(mayReuse({ usage: at(1, 250), now }).why).toBe(
+      "its context is 250k tokens, over the ceiling of 200k (no history yet: today's numbers)",
     );
-    expect(mayReuse({ usage: at(1, 150), now, ceiling: 100_000 }).reuse).toBe(false);
+    expect(mayReuse({ usage: at(1, 150), now, fallback: 100_000 }).reuse).toBe(false);
     expect(mayReuse({ usage: at(70, 200), now }).why).toContain(
       "its cache has gone cold after 70 minutes idle",
     );
     expect(mayReuse({ usage: at(70, 40), now })).toMatchObject({ reuse: true });
-    expect(mayReuse({})).toEqual({
-      reuse: true,
-      why: "no context known",
-      related: false,
-    });
+    expect(mayReuse({})).toEqual({ reuse: true, why: "no context known" });
   });
 
   it("sessionUsage reads the last assistant turn's context and time, and null without a file", () => {
@@ -4304,6 +4301,12 @@ describe("the cache-aware queue", () => {
         context: 3 + 3000 + 10,
         at: Date.parse("2026-10-27T13:59:00Z"),
       });
+      // Its model, for the ceiling's prices, when the turn names one.
+      writeFileSync(
+        file,
+        `${JSON.stringify({ type: "assistant", timestamp: "2026-10-27T13:59:00Z", message: { model: "claude-fable-5-1", usage: { input_tokens: 5 } } })}\n`,
+      );
+      expect(sessionUsage(file)).toMatchObject({ context: 5, model: "claude-fable-5-1" });
       expect(sessionUsage(join(dir, "none.jsonl"))).toBeNull();
       expect(transcriptOf({ sessionId: "s1", cwd: "/home/v/.claude/x" }, "/p")).toBe(
         "/p/-home-v--claude-x/s1.jsonl",
@@ -4314,14 +4317,14 @@ describe("the cache-aware queue", () => {
   });
 
   it("decideStop and decidePlannerStop retire with the ceiling's reason", () => {
-    const waiting = [{ path: "plans/a.md", related: true, asks: false }];
+    const waiting = [{ path: "plans/a.md", shared: 0, asks: false }];
     expect(decideStop({ waiting, usage: at(1, 300), now })).toMatchObject({
       retire: true,
-      why: expect.stringContaining("over the reuse ceiling"),
+      why: expect.stringContaining("over the ceiling of 200k"),
     });
     expect(decidePlannerStop({ waiting, usage: at(1, 500), now })).toMatchObject({
       retire: true,
-      why: expect.stringContaining("over the reuse ceiling"),
+      why: expect.stringContaining("over the ceiling of 160k"),
     });
     expect(decideStop({ waiting, usage: at(1, 100), now })).toMatchObject({ refuse: true });
   });
@@ -4333,7 +4336,7 @@ describe("the cache-aware queue", () => {
     name: `Test ${kind === "planner" ? "Planner" : "Executor"} 1`,
     status,
     usage: at(minutes, k),
-    ceiling: 200_000,
+    fallback: 200_000,
     where: "checkout",
     branch: "",
     holdsLock: false,
@@ -4454,119 +4457,122 @@ describe("the cache-aware queue", () => {
   it("describeSession shows the context and its warmth", () => {
     const warm = {
       ...one("busy", 618),
-      ceiling: 700_000,
+      fallback: 700_000,
       usage: { context: 618_000, at: Date.now() - 2 * MIN },
     };
     expect(describeSession(warm as never)).toContain("618k context, warm");
     const cold = { ...one("idle", 200), usage: { context: 200_000, at: Date.now() - 130 * MIN } };
     expect(describeSession(cold as never)).toContain("200k context, cold 130 min");
-    expect(describeSession(one("idle", 300) as never)).toContain("over the reuse ceiling");
+    expect(describeSession(one("idle", 300) as never)).toContain(", over its ceiling,");
   });
 
-  // plans/reuse-ceiling-per-agent.md: each agent its own ceiling, the planner's by relatedness.
-  const planner = { any: 160_000, related: 480_000 };
+  // plans/adaptive-reuse.md: each agent's ceiling worked out from measured
+  // inputs and raised by what the work shares with the chat.
+  const inputs = {
+    planner: { sessions: 21, start: 35_000, turns: 70, model: "claude-fable-5-1" },
+    executor: { sessions: 39, start: 49_000, turns: 79, model: "claude-opus-5-5" },
+  };
+  const plannerUnder =
+    "its context is 200k tokens, under the ceiling of 289k worked out here (fresh start 35k, 70 turns, 100k shared, Fable 5.1 prices)";
+  const plannerOver =
+    "its context is 200k tokens, over the ceiling of 75k worked out here (fresh start 35k, 70 turns, 0k shared, Fable 5.1 prices)";
 
-  it("mayReuse holds a planner to 160k for any brief and 480k for a related one, and says why either way", () => {
-    expect(
-      mayReuse({ usage: at(1, 300), related: true, now, ceiling: planner, kind: "planner" }),
-    ).toEqual({
+  it("mayReuse with a context of 200k keeps a planner that shares 100k and retires one that shares nothing, and says why either way", () => {
+    const usage = at(1, 200);
+    expect(mayReuse({ usage, shared: 100_000, inputs, kind: "planner", now })).toEqual({
       reuse: true,
-      why: "its context is 300k tokens, under the reuse ceiling of 480k for a related brief",
-      related: true,
+      why: plannerUnder,
     });
-    expect(
-      mayReuse({ usage: at(1, 300), related: false, now, ceiling: planner, kind: "planner" }),
-    ).toEqual({
+    expect(mayReuse({ usage, inputs, kind: "planner", now })).toEqual({
       reuse: false,
-      why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+      why: plannerOver,
     });
-    expect(
-      mayReuse({ usage: at(1, 500), related: true, now, ceiling: planner, kind: "planner" }).why,
-    ).toBe(
-      "its context is 500k tokens, over the reuse ceiling of 480k for a related brief: every turn would re-read it",
+    // Cold, the shared reading is written again: 135k cold, so 200k retires
+    // with the cold words, and 100k is kept.
+    expect(mayReuse({ usage: at(70, 200), shared: 100_000, inputs, kind: "planner", now })).toEqual(
+      {
+        reuse: false,
+        why: "its cache has gone cold after 70 minutes idle, and rewriting 200k tokens costs more than a fresh start",
+      },
     );
-    expect(mayReuse({ usage: at(1, 150), now, ceiling: planner, kind: "planner" })).toEqual({
-      reuse: true,
-      why: "its context is 150k tokens, under the reuse ceiling of 160k",
-      related: false,
-    });
-    // A number is still the ceiling for both cases.
-    expect(mayReuse({ usage: at(1, 300), related: true, now, ceiling: 200_000 })).toMatchObject({
-      reuse: false,
-      why: expect.stringContaining("over the reuse ceiling of 200k: every turn"),
-    });
-    expect(mayReuse({ usage: at(1, 150), related: false, now, ceiling: 200_000 }).reuse).toBe(true);
+    expect(
+      mayReuse({ usage: at(70, 100), shared: 100_000, inputs, kind: "planner", now }).reuse,
+    ).toBe(true);
+    // The session's own model sets the prices: Opus's for a planner gives a lower ceiling.
+    expect(
+      mayReuse({
+        usage: { ...usage, model: "claude-opus-5-5" },
+        shared: 100_000,
+        inputs,
+        kind: "planner",
+        now,
+      }).why,
+    ).toContain("Opus 5.5 prices");
   });
 
-  it("decidePlannerStop over 160k names the related brief, under it the oldest, and says why", () => {
-    const older = { path: "plans/older.md", related: false };
-    const newer = { path: "plans/newer.md", related: true };
-    const kept = decidePlannerStop({ waiting: [older, newer], usage: at(1, 300), now });
+  it("decidePlannerStop names the oldest brief it has room for with what it shares, and says why", () => {
+    const older = { path: "plans/older.md", shared: 0 };
+    const newer = { path: "plans/newer.md", shared: 100_000 };
+    const kept = decidePlannerStop({ waiting: [older, newer], usage: at(1, 200), now, inputs });
     expect(kept).toMatchObject({
       refuse: true,
       told: ["plans/newer.md"],
-      kept: {
-        paths: ["plans/newer.md"],
-        why: "its context is 300k tokens, under the reuse ceiling of 480k for a related brief",
-      },
+      kept: { paths: ["plans/newer.md"], why: plannerUnder },
     });
     expect((kept as { reason: string }).reason).toContain(
-      "A brief is waiting and this session can take it: plans/newer.md (its context is 300k tokens, under the reuse ceiling of 480k for a related brief).",
+      `A brief is waiting and this session can take it: plans/newer.md (${plannerUnder}).`,
     );
-    expect(decidePlannerStop({ waiting: [older, newer], usage: at(1, 100), now })).toMatchObject({
-      refuse: true,
-      told: ["plans/older.md"],
-    });
-    expect(decidePlannerStop({ waiting: [older], usage: at(1, 300), now })).toMatchObject({
+    expect(
+      decidePlannerStop({ waiting: [older, newer], usage: at(1, 50), now, inputs }),
+    ).toMatchObject({ refuse: true, told: ["plans/older.md"] });
+    expect(decidePlannerStop({ waiting: [older], usage: at(1, 200), now, inputs })).toEqual({
       retire: true,
-      why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+      why: plannerOver,
     });
   });
 
-  it("decideStop between an executor's two ceilings names the related plans only", () => {
+  it("decideStop takes the plans an executor has room for with what they share, and leaves the rest to a fresh executor", () => {
     const waiting = [
-      { path: "plans/a.md", related: false, asks: false },
-      { path: "plans/b.md", related: true, asks: false },
+      { path: "plans/a.md", shared: 0, asks: false },
+      { path: "plans/b.md", shared: 100_000, asks: false },
     ];
-    const ceiling = { any: 100_000, related: 300_000 };
-    const kept = decideStop({ waiting, usage: at(1, 200), now, ceiling });
+    const kept = decideStop({ waiting, usage: at(1, 200), now, inputs });
     expect(kept).toMatchObject({
       refuse: true,
       told: ["plans/b.md"],
       kept: { paths: ["plans/b.md"] },
     });
     expect((kept as { reason: string }).reason).toContain(
-      "can take them: plans/b.md (its context is 200k tokens, under the reuse ceiling of 300k for a related plan).",
+      "can take them: plans/b.md (its context is 200k tokens, under the ceiling of 224k worked out here (fresh start 49k, 79 turns, 100k shared, Opus 5.5 prices)).",
     );
-    // At the next stop, b built, the unrelated one goes to a fresh executor.
+    // At the next stop, b built, a goes to a fresh executor.
     expect(
-      decideStop({ waiting: [waiting[0]], told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+      decideStop({ waiting: [waiting[0]], told: ["plans/b.md"], usage: at(1, 210), now, inputs }),
     ).toMatchObject({ retire: true, paths: ["plans/a.md"] });
     // b declined and still waiting: a is not held for it; both go to a fresh
     // executor (Javi, 5 November).
     expect(
-      decideStop({ waiting, told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+      decideStop({ waiting, told: ["plans/b.md"], usage: at(1, 210), now, inputs }),
     ).toMatchObject({ retire: true, paths: ["plans/a.md", "plans/b.md"] });
-    // Every plan named and b related: kept for b under 300k.
+    // Every plan named and b with room: kept for b.
     expect(
-      decideStop({ waiting: [waiting[1]], told: ["plans/b.md"], usage: at(1, 210), now, ceiling }),
+      decideStop({ waiting: [waiting[1]], told: ["plans/b.md"], usage: at(1, 210), now, inputs }),
     ).toBeNull();
     // Under both, every plan, as before.
-    expect(decideStop({ waiting, usage: at(1, 50), now, ceiling })).toMatchObject({
+    expect(decideStop({ waiting, usage: at(1, 50), now, inputs })).toMatchObject({
       told: ["plans/a.md", "plans/b.md"],
     });
   });
 
-  it("canStart waits for a busy planner at 300k for a related brief, starts beside it for another, and replaces it idle", () => {
+  it("canStart waits for a busy planner at 250k for a brief that shares 100k, starts beside it for one that shares nothing, and replaces it idle", () => {
     const usage = {
       at: now / 1000,
       five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
     };
-    const held = (status: string, related: boolean) => ({
-      ...one(status, 300, "planner"),
-      ceiling: planner,
+    const held = (status: string, shared: number) => ({
+      ...one(status, 250, "planner"),
       holds: ["plans/own.md"],
-      related,
+      shared,
     });
     const messaged = canStart({
       kind: "planner",
@@ -4574,13 +4580,13 @@ describe("the cache-aware queue", () => {
       usage,
       name: "Test",
       brief: "plans/next.md",
-      ceiling: planner,
-      sessions: [held("busy", true)] as never,
+      inputs,
+      sessions: [held("busy", 100_000)] as never,
     });
     // Busy: nothing is sent; its Stop hook names the brief (plans/briefs-reach-a-free-planner.md).
     expect(messaged).toMatchObject({ wait: true });
     expect(messaged.why).toContain(
-      "Test Planner 1 [planner-] is busy, with room for plans/next.md (its context is 300k tokens, under the reuse ceiling of 480k for a related brief): its Stop hook names the next brief waiting, so nothing is sent.",
+      "Test Planner 1 [planner-] is busy, with room for plans/next.md (its context is 250k tokens, under the ceiling of 289k worked out here (fresh start 35k, 70 turns, 100k shared, Fable 5.1 prices)): its Stop hook names the next brief waiting, so nothing is sent.",
     );
     expect(messaged.why).not.toContain("SendMessage");
     const beside = canStart({
@@ -4588,8 +4594,8 @@ describe("the cache-aware queue", () => {
       now,
       usage,
       name: "Test",
-      ceiling: planner,
-      sessions: [held("busy", false)] as never,
+      inputs,
+      sessions: [held("busy", 0)] as never,
     });
     expect(beside).toMatchObject({ start: true });
     expect(beside.note).toContain("Started beside Test Planner 1");
@@ -4599,67 +4605,59 @@ describe("the cache-aware queue", () => {
         now,
         usage,
         name: "Test",
-        ceiling: planner,
-        sessions: [held("idle", false)] as never,
+        inputs,
+        sessions: [held("idle", 0)] as never,
       }),
     ).toMatchObject({
       start: true,
       replace: [
         {
-          sessionId: "planner-idle-300",
-          why: "its context is 300k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+          sessionId: "planner-idle-250",
+          why: "its context is 250k tokens, over the ceiling of 75k worked out here (fresh start 35k, 70 turns, 0k shared, Fable 5.1 prices)",
         },
       ],
     });
   });
 
-  it("canStart keeps an executor between its two ceilings for related plans only (Codex C1)", () => {
+  it("canStart keeps an executor for plans that share enough with its batch (Codex C1)", () => {
     const usage = {
       at: now / 1000,
       five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
     };
-    const ceiling = { any: 100_000, related: 300_000 };
-    const idle = (related: boolean) => ({ ...one("idle", 200), ceiling, related });
+    const idle = (shared: number) => ({ ...one("idle", 200), shared });
     expect(
-      canStart({ now, usage, name: "Test", ceiling, sessions: [idle(true)] as never }).why,
+      canStart({ now, usage, name: "Test", inputs, sessions: [idle(100_000)] as never }).why,
     ).toContain("An executor is alive");
     expect(
-      canStart({ now, usage, name: "Test", ceiling, sessions: [idle(false)] as never }),
+      canStart({ now, usage, name: "Test", inputs, sessions: [idle(0)] as never }),
     ).toMatchObject({ start: true, replace: [{ sessionId: "executor-idle-200" }] });
   });
 
-  it("usageWords says over the ceiling for an unrelated brief between the two, and over it past both", () => {
-    const row = (k: number) => ({
+  it("usageWords says over its ceiling, worked out with what the row shares, and never for an assistant", () => {
+    const row = (k: number, shared = 0) => ({
       kind: "planner",
-      ceiling: planner,
+      inputs,
+      shared,
       usage: { context: k * 1000, at: Date.now() - MIN },
     });
-    expect(usageWords(row(300) as never)).toBe(
-      "300k context, warm, over the reuse ceiling for an unrelated brief",
-    );
-    expect(usageWords(row(500) as never)).toBe("500k context, warm, over the reuse ceiling");
-    expect(usageWords(row(100) as never)).toBe("100k context, warm");
-    expect(
-      usageWords({
-        ...row(300),
-        kind: "executor",
-        ceiling: { any: 100_000, related: 400_000 },
-      } as never),
-    ).toContain("over the reuse ceiling for an unrelated plan");
+    expect(usageWords(row(300) as never)).toBe("300k context, warm, over its ceiling");
+    expect(usageWords(row(200, 100_000) as never)).toBe("200k context, warm");
+    expect(usageWords(row(50) as never)).toBe("50k context, warm");
+    // No history: today's 160k for a planner.
+    expect(usageWords({ ...row(150), inputs: {} } as never)).toBe("150k context, warm");
+    expect(usageWords({ ...row(500), kind: "assistant" } as never)).toBe("500k context, warm");
   });
 
   it("describeSession shows why a kept session was kept, and not once it is retired", () => {
     const kept = {
       ...one("busy", 180, "planner"),
-      ceiling: planner,
+      inputs,
+      shared: 100_000,
       on: "plans/x.md",
-      kept: {
-        paths: ["plans/x.md"],
-        why: "its context is 180k tokens, under the reuse ceiling of 480k for a related brief",
-      },
+      kept: { paths: ["plans/x.md"], why: plannerUnder },
     };
     expect(describeSession(kept as never)).toContain(
-      "planning plans/x.md, kept for plans/x.md: its context is 180k tokens, under the reuse ceiling of 480k for a related brief",
+      `planning plans/x.md, kept for plans/x.md: ${plannerUnder}`,
     );
     expect(describeSession({ ...kept, retired: true } as never)).not.toContain("kept for");
     // Once the work it was kept for is done, the reason is stale.
@@ -4669,17 +4667,31 @@ describe("the cache-aware queue", () => {
       on: "plans/b.md",
       kept: {
         paths: ["plans/a.md", "plans/b.md"],
-        why: "its context is 150k tokens, under the reuse ceiling of 200k",
+        why: "its context is 150k tokens, under the ceiling of 200k (no history yet: today's numbers)",
       },
     };
     expect(describeSession(executor as never)).toContain(
-      "kept for plans/a.md and plans/b.md: its context is 150k tokens, under the reuse ceiling of 200k",
+      "kept for plans/a.md and plans/b.md: its context is 150k tokens, under the ceiling of 200k (no history yet: today's numbers)",
     );
   });
 
-  it("plans says the ceilings, and the last fresh start of each kind with why", () => {
-    expect(ceilingsLine({ executor: { any: 200_000, related: 200_000 }, planner })).toBe(
-      "Ceilings: an executor retires past 200k; a planner past 160k, or past 480k when the brief waiting is related to its plans.",
+  it("plans says the ceilings worked out here, or today's numbers with no history, and the last fresh start of each kind with why", () => {
+    const reuse = { executor: 200_000, planner: 160_000 };
+    expect(ceilingsLine(reuse)).toBe(
+      "Ceilings: an executor retires past 200k and a planner past 160k (no history yet: today's numbers).",
+    );
+    const measured = { at: new Date(2026, 10, 6, 19, 0).getTime(), transcripts: 65 };
+    expect(ceilingsLine(reuse, { ...inputs, measured })).toBe(
+      "Ceilings: an executor retires past 74k (fresh start 49k, 79 turns, Opus 5.5 prices), a planner past 75k (fresh start 35k, 70 turns, Fable 5.1 prices), plus what a plan or brief shares with the chat; measured from 65 transcripts on 6 November.",
+    );
+    // A planner with too few sessions keeps today's number beside an executor worked out.
+    expect(
+      ceilingsLine(reuse, {
+        executor: inputs.executor,
+        planner: { ...inputs.planner, sessions: 4 },
+      }),
+    ).toBe(
+      "Ceilings: an executor retires past 74k (fresh start 49k, 79 turns, Opus 5.5 prices), a planner past 160k (no history yet: today's numbers), plus what a plan or brief shares with the chat.",
     );
     const log = [
       { at: Date.UTC(2026, 10, 5, 9, 0), name: "Reuse Planner 1 (wp)", paths: ["plans/a.md"] },
@@ -4687,12 +4699,12 @@ describe("the cache-aware queue", () => {
         at: new Date(2026, 10, 5, 12, 40).getTime(),
         name: "Reuse Planner 2 (wp)",
         paths: ["plans/x.md"],
-        why: "Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it.",
+        why: "Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the ceiling of 160k (no history yet: today's numbers).",
       },
       { at: now, name: "Other Executor 3 (wp)", paths: ["plans/b.md"], why: "Other." },
     ];
     expect(lastFreshLines(log, "Reuse")).toEqual([
-      "Last fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it.",
+      "Last fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired: its context is 250k tokens, over the ceiling of 160k (no history yet: today's numbers).",
     ]);
     const repo = mkdtempSync(join(tmpdir(), "ceilings-"));
     try {
@@ -4721,7 +4733,7 @@ describe("the cache-aware queue", () => {
         },
       );
       expect(out).toContain(
-        "The planner: none alive.\nCeilings: an executor retires past 200k; a planner past 160k, or past 480k when the brief waiting is related to its plans.\nLast fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired:",
+        "The planner: none alive.\nCeilings: an executor retires past 200k and a planner past 160k (no history yet: today's numbers).\nLast fresh planner: Reuse Planner 2 (wp) at 12:40 on 5 November, on plans/x.md; Reuse Planner 1 (wp) [17515cb3] was retired:",
       );
       expect(out).not.toContain("Last fresh executor");
     } finally {
@@ -4729,7 +4741,7 @@ describe("the cache-aware queue", () => {
     }
   });
 
-  it("tiredFor and the planner's prompt hook call a planner over its ceiling tired for the brief, and say why", () => {
+  it("tiredFor and the planner's prompt hook call a planner over its worked-out ceiling tired for a brief that shares too little, and say why", () => {
     const repo = mkdtempSync(join(tmpdir(), "tired-"));
     const id = `tired-${process.pid}`;
     const stateFile = join(tmpdir(), `workflow-queue-${id}.json`);
@@ -4750,13 +4762,17 @@ describe("the cache-aware queue", () => {
         join(repo, "plans", "near.md"),
         "# Near\n\nBrief for the planner, 5 November 2026, by the assistant with Javi.\n\nChanges `src/a.mjs` again.\n",
       );
+      // src/a.mjs, which own.md and near.md both name: 100k tokens.
+      mkdirSync(join(repo, "src"));
+      writeFileSync(join(repo, "src", "a.mjs"), "x".repeat(400_000));
       const textOf = (path: string) => readFileSync(join(repo, path), "utf8");
       const state = { agent: "planner", plans: ["plans/own.md"] };
       const usage = { context: 250_000, at: Date.now() - MIN };
-      expect(tiredFor(state, "plans/other.md", { usage, textOf })).toBe(
-        "its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it",
+      const options = { usage, textOf, inputs, checkout: repo };
+      expect(tiredFor(state, "plans/other.md", options)).toBe(
+        "its context is 250k tokens, over the ceiling of 75k worked out here (fresh start 35k, 70 turns, 0k shared, Fable 5.1 prices)",
       );
-      expect(tiredFor(state, "plans/near.md", { usage, textOf })).toBe("");
+      expect(tiredFor(state, "plans/near.md", options)).toBe("");
       const transcript = join(repo, "t.jsonl");
       writeFileSync(
         transcript,
@@ -4783,7 +4799,7 @@ describe("the cache-aware queue", () => {
         },
       });
       expect(out).toContain(
-        "This session is too full for plans/other.md (its context is 250k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it): do not plan it; say so and stop.",
+        "This session is too full for plans/other.md (its context is 250k tokens, over the ceiling of 160k (no history yet: today's numbers)): do not plan it; say so and stop.",
       );
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -4891,12 +4907,12 @@ describe("a brief reaches a free planner", () => {
     at: now / 1000,
     five_hour: { used_percentage: 10, resets_at: now / 1000 + 3600 },
   };
-  const ceiling = { any: 160_000, related: 480_000 };
+  const fallback = 160_000;
   const planner = (
     n: number,
     status: string,
     k: number | null,
-    { on = "", related = false, id = "" } = {},
+    { on = "", shared = 0, id = "" } = {},
   ) => ({
     kind: "planner",
     sessionId: id || `planner-${n}-0000`,
@@ -4904,32 +4920,32 @@ describe("a brief reaches a free planner", () => {
     name: `Docs Planner ${n}`,
     status,
     usage: k === null ? null : { context: k * 1000, at: now - MIN },
-    ceiling,
+    fallback,
     where: "checkout",
     branch: "",
     holdsLock: false,
     retired: false,
     on,
     holds: [],
-    related,
+    shared,
   });
   const facts = (sessions: object[], brief: string, more: object = {}) => ({
     kind: "planner" as const,
     now,
     usage,
     name: "Docs",
-    ceiling,
+    fallback,
     brief,
     sessions: sessions as never,
     taken: sessions.map((one) => (one as { name: string }).name),
     ...more,
   });
   const over230 =
-    "its context is 230k tokens, over the reuse ceiling of 160k for an unrelated brief (480k for a related one): every turn would re-read it";
+    "its context is 230k tokens, over the ceiling of 160k (no history yet: today's numbers)";
   const blockedWhy =
     "it is waiting for Javi's answer to a question, and takes nothing until he answers";
 
-  it("canStart starts beside a busy planner at 230k with a brief under way and an unrelated brief, saying why", () => {
+  it("canStart starts beside a busy planner at 230k with a brief under way and a brief that shares nothing, saying why", () => {
     const busy = planner(34, "busy", 230, { on: "plans/own.md" });
     const decision = canStart(facts([busy], "plans/a.md"));
     expect(decision).toMatchObject({ start: true, name: "Docs Planner 35" });
@@ -4942,7 +4958,7 @@ describe("a brief reaches a free planner", () => {
   it("canStart starts beside a planner waiting for input whatever its context, saying it waits for Javi's answer", () => {
     for (const k of [10, 230, null]) {
       for (const on of ["", "plans/own.md"]) {
-        const blocked = planner(34, "waiting for input", k, { on, related: true });
+        const blocked = planner(34, "waiting for input", k, { on, shared: 100_000 });
         const decision = canStart(facts([blocked], "plans/a.md"));
         expect(decision).toMatchObject({ start: true });
         expect(decision.note).toContain(
@@ -4958,7 +4974,7 @@ describe("a brief reaches a free planner", () => {
     const decision = canStart(facts([idle], "plans/b.md"));
     expect(decision).toEqual({
       wait: true,
-      why: `Docs Planner 35 [planner-] is idle with room for plans/b.md (its context is 50k tokens, under the reuse ceiling of 160k): send it the brief with SendMessage, one message per brief: ${plannerPrompt("plans/b.md")} It has until ${until} to take it; then a fresh planner is started on it.`,
+      why: `Docs Planner 35 [planner-] is idle with room for plans/b.md (its context is 50k tokens, under the ceiling of 160k (no history yet: today's numbers)): send it the brief with SendMessage, one message per brief: ${plannerPrompt("plans/b.md")} It has until ${until} to take it; then a fresh planner is started on it.`,
       lease: `handed to Docs Planner 35 [planner-] at ${hhmm(now)} by message`,
       holder: "planner-35-0000",
       until: now + 30 * MIN,
@@ -5186,7 +5202,7 @@ describe("a brief reaches a free planner", () => {
     });
     // 5. The fresh planner, after its first plan, with four briefs waiting
     // and none told: names the oldest.
-    const waiting = ["b", "c", "d", "e"].map((x) => ({ path: `plans/${x}.md`, related: false }));
+    const waiting = ["b", "c", "d", "e"].map((x) => ({ path: `plans/${x}.md`, shared: 0 }));
     expect(
       decidePlannerStop({ waiting, usage: { context: 80_000, at: now - MIN }, now }),
     ).toMatchObject({ refuse: true, told: ["plans/b.md"] });
@@ -5194,6 +5210,83 @@ describe("a brief reaches a free planner", () => {
     expect(
       decidePlannerStop({ waiting: [], usage: { context: 240_000, at: now - MIN }, now }),
     ).toBeNull();
+  });
+});
+
+/**
+ * **The ceiling is worked out from measured inputs** (plans/adaptive-reuse.md,
+ * part 2): the wash of decisions.md#context-cost from the agent's fresh start
+ * and turns here, raised by what the work shares, capped at 480k, and today's
+ * numbers while the agent has under five sessions.
+ */
+describe("the ceiling is worked out from measured inputs", () => {
+  const fable = { sessions: 21, start: 35_000, turns: 70, model: "claude-fable-5-1" };
+  const inputs = { planner: fable };
+
+  it("gives a planner's wash, warm and cold, and says what it rests on", () => {
+    const warm = ceilingFor({ kind: "planner", inputs });
+    expect(warm.wash).toBeCloseTo(75_000);
+    expect(warm.ceiling).toBeCloseTo(75_000);
+    expect(warm.why).toBe(
+      "the ceiling of 75k worked out here (fresh start 35k, 70 turns, 0k shared, Fable 5.1 prices)",
+    );
+    const cold = ceilingFor({ kind: "planner", inputs, warm: false });
+    expect(cold.wash).toBe(35_000);
+    expect(cold.ceiling).toBe(35_000);
+  });
+
+  it("raises the ceiling by what is shared, times the warm factor, and caps it at 480k", () => {
+    const shared = ceilingFor({ kind: "planner", inputs, shared: 100_000 });
+    expect(Math.round(shared.ceiling / 1000)).toBe(289);
+    expect(shared.why).toContain("the ceiling of 289k worked out here");
+    expect(shared.why).toContain("100k shared");
+    const capped = ceilingFor({ kind: "planner", inputs, shared: 600_000 });
+    expect(capped.ceiling).toBe(480_000);
+    expect(REUSE_CAP).toBe(480_000);
+    expect(capped.why).toBe("the cap of 480k");
+    // Cold, the shared reading is written again at the write price.
+    expect(ceilingFor({ kind: "planner", inputs, shared: 100_000, warm: false }).ceiling).toBe(
+      135_000,
+    );
+  });
+
+  it("gives a larger project's fresh start a larger ceiling: twice the start, twice the wash", () => {
+    const small = ceilingFor({ kind: "planner", inputs });
+    const large = ceilingFor({ kind: "planner", inputs: { planner: { ...fable, start: 70_000 } } });
+    expect(large.wash).toBeCloseTo(2 * small.wash);
+  });
+
+  it("gives today's number with under five sessions of the agent, and says so", () => {
+    const few = ceilingFor({
+      kind: "planner",
+      inputs: { planner: { ...fable, sessions: 4 } },
+      fallback: 160_000,
+    });
+    expect(few.ceiling).toBe(160_000);
+    expect(few.why).toBe("the ceiling of 160k (no history yet: today's numbers)");
+    expect(ceilingFor({ kind: "executor", inputs }).why).toBe(
+      "the ceiling of 200k (no history yet: today's numbers)",
+    );
+    // Cold, today's 60k.
+    expect(ceilingFor({ kind: "executor", warm: false }).ceiling).toBe(60_000);
+  });
+
+  it("sharedTokens sums the sizes of the files both sides name that exist, in tokens, and 0 for none", () => {
+    const checkout = mkdtempSync(join(tmpdir(), "shared-"));
+    try {
+      mkdirSync(join(checkout, "src"));
+      writeFileSync(join(checkout, "src", "a.mjs"), "x".repeat(4000));
+      writeFileSync(join(checkout, "src", "b.mjs"), "x".repeat(800));
+      writeFileSync(join(checkout, "src", "c.mjs"), "x".repeat(4000));
+      const text = "Change `src/a.mjs` and src/b.mjs, and src/gone.mjs; read src/c.mjs.";
+      const own = ["src/a.mjs", "src/b.mjs", "src/gone.mjs"];
+      // a and b: named by both and there; gone: named by both, missing; c: the brief's alone.
+      expect(sharedTokens(text, own, { checkout })).toBe(1200);
+      expect(sharedTokens(text, [], { checkout })).toBe(0);
+      expect(sharedTokens("Nothing named.", own, { checkout })).toBe(0);
+    } finally {
+      rmSync(checkout, { recursive: true, force: true });
+    }
   });
 });
 
@@ -5298,9 +5391,9 @@ describe("the cost report", () => {
         compactions: 1,
       });
       const lines = costWords(rows, {
-        ceilings: {
-          executor: { any: 200_000, related: 200_000 },
-          planner: { any: 160_000, related: 480_000 },
+        reuse: {
+          executor: { warm: { ceiling: 200_000 } },
+          planner: { warm: { ceiling: 160_000 } },
         },
         machine: "wp",
         dir: "~/.claude/projects/x",
@@ -5310,7 +5403,7 @@ describe("the cost report", () => {
       );
       // Planner: writes 200k x $20 = $4, reads 50k x $0.25 = $0.0125, output 3k x $50 = $0.15.
       expect(lines[1]).toBe(
-        "Planners: 1 session, median 2 turns, median context at the end 200k, 1 ended over 160k and 0 over 480k, 1 compacted; $4.16, cache writes 96%, output 4%, cache reads 0%.",
+        "Planners: 1 session, median 2 turns, median context at the end 200k, 1 ended over 160k, 1 compacted; $4.16, cache writes 96%, output 4%, cache reads 0%.",
       );
       // Executor: writes 100k x $8 = $0.80, reads 150k x $0.20 = $0.03, output 5k x $20 = $0.10.
       expect(lines[2]).toBe(
@@ -5336,6 +5429,35 @@ describe("the cost report", () => {
       expect(costWords(measure(dir, { since: "2026-11-03" }))[1]).toBe(
         "Assistants: 1 session, median 2 turns, median context at the end 1000k, none compacted; $14, input 100%, cache writes 0%, output 0%.",
       );
+      // With history, the inputs the ceiling is worked out from, after the agent's line.
+      const worked = costWords(rows, {
+        reuse: {
+          planner: {
+            sessions: 21,
+            start: 35_000,
+            turns: 70,
+            warm: ceilingFor({
+              kind: "planner",
+              inputs: {
+                planner: { sessions: 21, start: 35_000, turns: 70, model: "claude-fable-5-1" },
+              },
+            }),
+            cold: ceilingFor({
+              kind: "planner",
+              warm: false,
+              inputs: {
+                planner: { sessions: 21, start: 35_000, turns: 70, model: "claude-fable-5-1" },
+              },
+            }),
+          },
+        },
+      });
+      expect(worked[1]).toContain("1 ended over 75k");
+      expect(worked[2]).toBe(
+        "Reuse inputs: fresh start 35k (median first turn of 21 sessions), 70 turns; the ceiling is 75k warm and 35k cold at Fable 5.1 prices, capped at 480k.",
+      );
+      // Without history, no inputs line.
+      expect(lines.some((line: string) => line.startsWith("Reuse inputs"))).toBe(false);
       // Since a day: the older chat is left out.
       expect(measure(dir, { since: "2026-11-01" })).toHaveLength(3);
       expect(
@@ -7341,5 +7463,133 @@ describe("github webhook", () => {
       await new Promise((done) => setTimeout(done, 300));
       expect(() => process.kill(pid, 0)).toThrow();
     });
+  });
+});
+
+// plans/adaptive-reuse.md, part 1: the inputs measured into a cached summary.
+describe("the reuse inputs are cached", () => {
+  const session = (agent: string, start: number, turns: number) =>
+    [
+      JSON.stringify({ type: "agent-setting", agentSetting: `workflow:${agent}` }),
+      ...Array.from({ length: turns }, (_, i) =>
+        JSON.stringify({
+          type: "assistant",
+          timestamp: `2026-11-0${1 + i}T10:00:00Z`,
+          message: {
+            id: `m${i}`,
+            model: "claude-opus-5-5",
+            usage: {
+              input_tokens: 0,
+              cache_creation_input_tokens: start + i * 1000,
+              output_tokens: 1,
+            },
+          },
+        }),
+      ),
+      "",
+    ].join("\n");
+
+  it("keeps a changed transcript's row when it cannot be read", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("executor", 50_000, 3));
+      const file = join(base, "reuse", "-checkout.json");
+      const t0 = Date.parse("2026-11-06T12:00:00Z");
+      const first = reuseInputs({ refresh: true, now: t0, dir, file, read: measureFile });
+      expect(first.executor?.sessions).toBe(1);
+      const kept = JSON.parse(readFileSync(file, "utf8")).rows.a;
+      writeFileSync(join(dir, "a.jsonl"), session("executor", 50_000, 5));
+      const after = reuseInputs({ refresh: true, now: t0 + 1000, dir, file, read: () => null });
+      expect(after.executor).toEqual(first.executor);
+      // Its old stat too, so the next refresh reads the transcript again.
+      expect(JSON.parse(readFileSync(file, "utf8")).rows).toEqual({ a: kept });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("measures each transcript once, then only the changed, and a hook within the hour none", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      const dir = join(base, "-checkout");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "a.jsonl"), session("planner", 30_000, 3));
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 5));
+      writeFileSync(join(dir, "c.jsonl"), session("executor", 50_000, 2));
+      const file = join(base, "reuse", "-checkout.json");
+      let reads: string[] = [];
+      const read = (path: string) => {
+        reads.push(basename(path));
+        return measureFile(path);
+      };
+      const t0 = Date.parse("2026-11-06T12:00:00Z");
+      const inputs = reuseInputs({ refresh: true, now: t0, dir, file, read });
+      expect(reads.sort()).toEqual(["a.jsonl", "b.jsonl", "c.jsonl"]);
+      const summary = JSON.parse(readFileSync(file, "utf8"));
+      expect(Object.keys(summary.rows).sort()).toEqual(["a", "b", "c"]);
+      for (const key of [
+        "id",
+        "mtime",
+        "size",
+        "agent",
+        "model",
+        "turns",
+        "startContext",
+        "endContext",
+      ])
+        expect(summary.rows.a).toHaveProperty(key);
+      expect(summary.measuredAt).toBe(t0);
+      expect(inputs.planner).toEqual({
+        sessions: 2,
+        start: 35_000,
+        turns: 4,
+        model: "claude-opus-5-5",
+      });
+      expect(inputs.executor).toEqual({
+        sessions: 1,
+        start: 50_000,
+        turns: 2,
+        model: "claude-opus-5-5",
+      });
+      expect(summary.inputs).toEqual(inputs);
+
+      // Nothing changed: a stat per file, no transcript read.
+      reads = [];
+      reuseInputs({ refresh: true, now: t0 + 1000, dir, file, read });
+      expect(reads).toEqual([]);
+
+      // One grown: it alone is read again.
+      writeFileSync(join(dir, "b.jsonl"), session("planner", 40_000, 7));
+      reads = [];
+      // From a hook within the hour of measuredAt: none read, even with b changed.
+      expect(reuseInputs({ now: t0 + 30 * 60_000, dir, file, read })).toEqual(
+        JSON.parse(readFileSync(file, "utf8")).inputs,
+      );
+      expect(reads).toEqual([]);
+      // plans cost refreshes: b alone.
+      const after = reuseInputs({ refresh: true, now: t0 + 31 * 60_000, dir, file, read });
+      expect(reads).toEqual(["b.jsonl"]);
+      expect(after.planner.turns).toBe(5);
+      // A hook past the hour measures too.
+      writeFileSync(join(dir, "c.jsonl"), session("executor", 50_000, 4));
+      reads = [];
+      reuseInputs({ now: t0 + 120 * 60_000, dir, file, read });
+      expect(reads).toEqual(["c.jsonl"]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("gives no inputs for a missing folder", () => {
+    const base = mkdtempSync(join(tmpdir(), "reuse-"));
+    try {
+      expect(
+        reuseInputs({ refresh: true, dir: join(base, "none"), file: join(base, "r.json") }),
+      ).toEqual({});
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

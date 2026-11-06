@@ -4,7 +4,7 @@
 // reuse ceilings rest on these numbers (docs/decisions.md#context-cost), so
 // they are measured again, not remembered.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -38,12 +38,15 @@ function day(at) {
 /**
  * One row per transcript in `dir` (`*.jsonl`) whose first turn is on or after
  * `since` (`yyyy-mm-dd`, optional): `{ id, agent, model, models, turns,
- * maxContext, endContext, read, write, input, output, cost, compactions,
- * start }`. The main thread only (a sidechain's turns are a subagent's), each
+ * maxContext, endContext, startContext, read, write, input, output, cost,
+ * compactions, start, mtime, size }`. The main thread only (a sidechain's turns are a subagent's), each
  * assistant turn once by its message id, its last entry's usage, Claude Code's own `<synthetic>`
  * entries passed over; each turn priced at its own model's prices (`cost`, by
  * part; `models`, every model seen), so a session that changed model mid-way
- * is not priced at its last; `start` the first turn's epoch time.
+ * is not priced at its last; `start` the first turn's epoch time;
+ * `startContext` the first turn's context, the fresh start
+ * (decisions.md#context-cost); `mtime` and `size` the file's, which tell
+ * `reuseInputs` whether a cached row is still the file's.
  */
 export function measure(dir, { since = "" } = {}) {
   let names = [];
@@ -55,80 +58,94 @@ export function measure(dir, { since = "" } = {}) {
   const from = since ? Date.parse(`${since}T00:00:00Z`) : 0;
   const rows = [];
   for (const name of names) {
-    let text = "";
-    try {
-      text = readFileSync(join(dir, name), "utf8");
-    } catch {
-      continue;
-    }
-    const row = {
-      id: name.replace(/\.jsonl$/, ""),
-      agent: "",
-      model: "",
-      models: [],
-      turns: 0,
-      maxContext: 0,
-      endContext: 0,
-      read: 0,
-      write: 0,
-      input: 0,
-      output: 0,
-      cost: { input: 0, write: 0, read: 0, output: 0 },
-      compactions: 0,
-      start: 0,
-    };
-    // One turn per message id, the last entry written for it: Claude Code
-    // writes an entry per content block, and the last carries the turn's
-    // final usage. A turn keeps its place from its first entry.
-    const turns = new Map();
-    let unnamed = 0;
-    for (const line of text.split("\n")) {
-      if (!line) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (entry.type === "agent-setting") row.agent = entry.agentSetting || "";
-      if (entry.type === "system" && entry.subtype === "compact_boundary") row.compactions++;
-      const message = entry.message;
-      if (entry.type !== "assistant" || !message?.usage || entry.isSidechain) continue;
-      if (message.model === "<synthetic>") continue;
-      const id = message.id || `unnamed-${unnamed++}`;
-      const first = turns.get(id)?.at;
-      turns.set(id, { message, at: first ?? (Date.parse(entry.timestamp) || 0) });
-    }
-    for (const { message, at } of turns.values()) {
-      const u = message.usage;
-      const context =
-        (u.input_tokens || 0) +
-        (u.cache_read_input_tokens || 0) +
-        (u.cache_creation_input_tokens || 0);
-      row.model = message.model || row.model;
-      if (!row.models.includes(row.model)) row.models.push(row.model);
-      const { price } = priceOf(row.model);
-      row.cost.input += ((u.input_tokens || 0) * price.input) / 1_000_000;
-      row.cost.write += ((u.cache_creation_input_tokens || 0) * price.write) / 1_000_000;
-      row.cost.read += ((u.cache_read_input_tokens || 0) * price.read) / 1_000_000;
-      row.cost.output += ((u.output_tokens || 0) * price.output) / 1_000_000;
-      row.turns++;
-      row.maxContext = Math.max(row.maxContext, context);
-      row.endContext = context;
-      row.read += u.cache_read_input_tokens || 0;
-      row.write += u.cache_creation_input_tokens || 0;
-      row.input += u.input_tokens || 0;
-      row.output += u.output_tokens || 0;
-      row.start ||= at;
-    }
-    if (!row.turns || row.start < from) continue;
+    const row = measureFile(join(dir, name));
+    if (!row || row.start < from) continue;
     rows.push(row);
   }
   return rows.sort((a, b) => a.start - b.start);
 }
 
+/** One transcript's row, as `measure` gives it, or null with no turn or no file. */
+export function measureFile(path) {
+  let text = "";
+  let stat;
+  try {
+    stat = statSync(path);
+    text = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const row = {
+    id: path
+      .split(/[\\/]/)
+      .at(-1)
+      .replace(/\.jsonl$/, ""),
+    agent: "",
+    model: "",
+    models: [],
+    turns: 0,
+    maxContext: 0,
+    endContext: 0,
+    read: 0,
+    write: 0,
+    input: 0,
+    output: 0,
+    cost: { input: 0, write: 0, read: 0, output: 0 },
+    compactions: 0,
+    start: 0,
+    startContext: 0,
+    mtime: stat.mtimeMs,
+    size: stat.size,
+  };
+  // One turn per message id, the last entry written for it: Claude Code
+  // writes an entry per content block, and the last carries the turn's
+  // final usage. A turn keeps its place from its first entry.
+  const turns = new Map();
+  let unnamed = 0;
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type === "agent-setting") row.agent = entry.agentSetting || "";
+    if (entry.type === "system" && entry.subtype === "compact_boundary") row.compactions++;
+    const message = entry.message;
+    if (entry.type !== "assistant" || !message?.usage || entry.isSidechain) continue;
+    if (message.model === "<synthetic>") continue;
+    const id = message.id || `unnamed-${unnamed++}`;
+    const first = turns.get(id)?.at;
+    turns.set(id, { message, at: first ?? (Date.parse(entry.timestamp) || 0) });
+  }
+  for (const { message, at } of turns.values()) {
+    const u = message.usage;
+    const context =
+      (u.input_tokens || 0) +
+      (u.cache_read_input_tokens || 0) +
+      (u.cache_creation_input_tokens || 0);
+    row.model = message.model || row.model;
+    if (!row.models.includes(row.model)) row.models.push(row.model);
+    const { price } = priceOf(row.model);
+    row.cost.input += ((u.input_tokens || 0) * price.input) / 1_000_000;
+    row.cost.write += ((u.cache_creation_input_tokens || 0) * price.write) / 1_000_000;
+    row.cost.read += ((u.cache_read_input_tokens || 0) * price.read) / 1_000_000;
+    row.cost.output += ((u.output_tokens || 0) * price.output) / 1_000_000;
+    row.turns++;
+    row.maxContext = Math.max(row.maxContext, context);
+    row.endContext = context;
+    row.read += u.cache_read_input_tokens || 0;
+    row.write += u.cache_creation_input_tokens || 0;
+    row.input += u.input_tokens || 0;
+    row.output += u.output_tokens || 0;
+    if (row.turns === 1) [row.start, row.startContext] = [at, context];
+  }
+  return row.turns ? row : null;
+}
+
 /** The price entry for a model id, and whether it was the fallback's. */
-function priceOf(model) {
+export function priceOf(model) {
   const key = Object.keys(PRICES.models).find((id) => (model || "").startsWith(id));
   return { price: PRICES.models[key || FALLBACK], assumed: !key };
 }
@@ -162,16 +179,20 @@ const KINDS = [
   ["assistant", "Assistants"],
 ];
 
-const kindOf = (agent) => KINDS.find(([kind]) => agent.split(":").at(-1) === kind)?.[0] || "";
+export const kindOf = (agent) =>
+  KINDS.find(([kind]) => agent.split(":").at(-1) === kind)?.[0] || "";
 
 /**
  * The report's lines: the first says the machine, the span, the folder and
  * the prices with the day they were read; then one line per agent with
- * sessions (`ceilings`, the project's `{ executor, planner }` pairs, gives
- * the counts over them), and one for the sessions of no agent the queue
- * starts.
+ * sessions, and one for the sessions of no agent the queue starts. `reuse`,
+ * per agent, the inputs its ceiling is worked out from (`sessions`, `start`,
+ * `turns`) and that ceiling `warm` and `cold` (`ceilingFor`'s): the line
+ * gives the count of sessions that ended over the warm one, and, with
+ * history (`warm.history`), a line after it says the inputs
+ * (plans/adaptive-reuse.md, part 4).
  */
-export function costWords(rows, { ceilings = null, machine = "", since = "", dir = "" } = {}) {
+export function costWords(rows, { reuse = null, machine = "", since = "", dir = "" } = {}) {
   const first = since || (rows.length ? rows[0].start : 0);
   const prices = Object.values(PRICES.models);
   const head = `Cost of this queue's sessions${machine ? ` on ${machine}` : ""}${first ? ` since ${day(first)}` : ""} (${rows.length} transcript${rows.length === 1 ? "" : "s"}${dir ? ` in ${dir}` : ""}), at the prices read on ${day(PRICES.read)} from ${PRICES.page}: ${prices
@@ -208,17 +229,19 @@ export function costWords(rows, { ceilings = null, machine = "", since = "", dir
       .slice(0, 3)
       .map(([part, value]) => `${SHARE_WORDS[part]} ${sum ? Math.round((value / sum) * 100) : 0}%`)
       .join(", ");
-    const pair = ceilings?.[kind];
-    const over = (n) => group.filter((row) => row.endContext > n).length;
-    const overWords = pair
-      ? pair.any === pair.related
-        ? `, ${over(pair.any)} ended over ${k(pair.any)}`
-        : `, ${over(pair.any)} ended over ${k(pair.any)} and ${over(pair.related)} over ${k(pair.related)}`
+    const ceiling = reuse?.[kind]?.warm?.ceiling;
+    const overWords = ceiling
+      ? `, ${group.filter((row) => row.endContext > ceiling).length} ended over ${k(ceiling)}`
       : "";
     const compacted = group.filter((row) => row.compactions).length;
     lines.push(
       `${heading}: ${group.length} session${group.length === 1 ? "" : "s"}, median ${Math.round(median(group.map((row) => row.turns)))} turns, median context at the end ${k(median(group.map((row) => row.endContext)))}${overWords}, ${compacted ? `${compacted} compacted` : "none compacted"}; ${dollars(sum)}${assumedWords(group)}, ${shares}.`,
     );
+    const inputs = reuse?.[kind];
+    if (inputs?.warm?.history)
+      lines.push(
+        `Reuse inputs: fresh start ${k(inputs.start)} (median first turn of ${inputs.sessions} sessions), ${inputs.turns} turns; the ceiling is ${k(inputs.warm.ceiling)} warm and ${k(inputs.cold.ceiling)} cold at ${inputs.warm.prices} prices, capped at ${k(inputs.warm.cap)}.`,
+      );
   }
   const other = rows.filter((row) => !kindOf(row.agent));
   if (other.length) {
@@ -228,4 +251,27 @@ export function costWords(rows, { ceilings = null, machine = "", since = "", dir
     );
   }
   return lines;
+}
+
+/**
+ * The reuse ceiling's inputs per agent kind (decisions.md#context-cost):
+ * `{ sessions, start, turns, model }`, the start the median first-turn
+ * context, the turns the median, the model the commonest last one.
+ */
+export function inputsOf(rows) {
+  const inputs = {};
+  for (const [kind] of KINDS) {
+    const group = rows.filter((row) => kindOf(row.agent) === kind);
+    if (!group.length) continue;
+    const counts = new Map();
+    for (const row of group) counts.set(row.model, (counts.get(row.model) || 0) + 1);
+    const model = [...counts].sort((a, b) => b[1] - a[1])[0][0];
+    inputs[kind] = {
+      sessions: group.length,
+      start: Math.round(median(group.map((row) => row.startContext || 0))),
+      turns: Math.round(median(group.map((row) => row.turns))),
+      model,
+    };
+  }
+  return inputs;
 }

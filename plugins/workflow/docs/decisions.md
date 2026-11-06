@@ -356,6 +356,10 @@ on the machine that planned them.
   6 November: the third compaction's hand-over is retired with the
   compaction count; a plan is handed over by the usage limit's cutoff and
   by plans end --now alone. plans/simpler-agents.md.
+  6 November (Javi): the ceiling is worked out for this project and agent
+  from its transcripts and raised by what each waiting plan shares with
+  the batch; the related pair retires (context-cost).
+  plans/adaptive-reuse.md.
 - `starts-bounded` **Starts are bounded, as every loop over model calls
   is.** (Javi, 27 October) A queue that starts sessions on its own must
   not spend the subscription's window or loop on a session that dies.
@@ -395,8 +399,8 @@ on the machine that planned them.
   brief written while the planner is busy is not lost, and the planner
   is started under the executor's bounds. plans/cache-aware-queue.md.
 - `planner-takes-next-brief` **A planner with room left takes the next
-  brief: under its ceiling the oldest, under its related ceiling the
-  oldest brief on the ground of its plans.** (Javi, 5 November) For a
+  brief: the oldest it is under its ceiling for, the ceiling raised by
+  what the brief shares with its plans.** (Javi, 6 November) For a
   planner the fresh start's writes outweigh the reread of a context three
   times its size, so relatedness is the planner's cost argument, where it
   was the executor's quality guard; under one ceiling the median planner
@@ -404,7 +408,12 @@ on the machine that planned them.
   plans/reuse-ceiling-per-agent.md. 6 November: compactions no longer
   enter the rule; under its ceiling for any brief the oldest, under its
   ceiling for a related brief the oldest related one.
-  plans/simpler-agents.md.
+  plans/simpler-agents.md. 6 November (Javi): relatedness, a yes or no,
+  becomes the tokens the brief shares, and the ceiling is worked out from
+  this project's planners (context-cost). plans/adaptive-reuse.md.
+  - ~~A planner with room left takes the next brief: under its ceiling
+    the oldest, under its related ceiling the oldest brief on the ground
+    of its plans.~~ (Javi, 5 November)
   - ~~A planner with room left takes the next brief.~~ (Javi, 27
     October; by the executor's rule)
 - `brief-leased` **A brief left with a live planner is leased to it
@@ -488,9 +497,9 @@ on the machine that planned them.
   would look odd there; Rust's rollups and Dependabot's grouped updates
   batch small changes the same way. plans/pull-requests-by-topic.md.
 - `context-cost` **A session's context is worth keeping only while it is
-  cheaper than a fresh one, and the wash is each agent's: an executor
-  retires past 200k, a planner past 160k for a brief on other ground and
-  past 480k for one related to its plans.** (Javi, 5 November) The wash
+  cheaper than a fresh one, by the wash worked out for each project and
+  agent from its transcripts, raised by what the work shares with the
+  chat, and never over 480k.** (Javi, 6 November) The wash
   is (start + shared reading) x (1 + write price / (turns x read price)):
   a kept context is re-read every turn at the read price, a fresh one
   writes its 50k start and the reading it shares once at the one-hour
@@ -511,11 +520,32 @@ on the machine that planned them.
   compactions 56 times, so the context against the ceiling and the
   cache's warmth are the whole rule, and plans cost keeps counting
   compactions as the measurement that would show them back.
-  plans/simpler-agents.md.
+  plans/simpler-agents.md. 6 November: the inputs are measured per
+  project and agent from the transcripts and cached, the fresh start as
+  the median first turn (here 49k for an executor over 40 sessions, 35k
+  for a planner over 21), the turns as the median (79, 26), the shared
+  reading in tokens of the named files; the wash is raised by what is
+  shared and decides alone (Javi: here it is 74k and 144k, under today's
+  numbers, so more chats start, taken for the formula's saving), today's
+  numbers serve only while an agent has under five sessions in the
+  project, and 480k is the cap, the quality limit no price measures
+  (Chroma's context rot, research.trychroma.com/context-rot).
+  plans/adaptive-reuse.md.
+  - ~~A session's context is worth keeping only while it is cheaper than
+    a fresh one, and the wash is each agent's: an executor retires past
+    200k, a planner past 160k for a brief on other ground and past 480k
+    for one related to its plans.~~ (Javi, 5 November)
   - ~~A session's context is worth keeping only while it is cheaper than
     a fresh one.~~ (per Anthropic's pricing page, 27 October; one wash of
     100k for both agents, counted with the fresh session's growth on one
     side only)
+- `reuse-check-cheap` **The reuse check costs the agent nothing: the
+  scripts measure from the transcripts into a cached summary, and the
+  agent reads one verdict line.** (Javi, 6 November) A check that spent
+  tokens to save tokens would defeat its purpose; the measuring is a
+  stat per transcript when nothing changed, a re-read of the changed
+  ones otherwise, at most hourly from a hook and always from plans
+  cost. plans/adaptive-reuse.md.
 - `one-thread` **The executor works in one thread, with a subagent only
   in four named cases.** (per Anthropic's multi-agent research post, 27
   October) A plan's steps share one context, coding has few parallel
