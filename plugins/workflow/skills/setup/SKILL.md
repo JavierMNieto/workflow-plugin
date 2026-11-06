@@ -197,24 +197,32 @@ with a `Detail:` or `Check:` line only when the person names one. With a
 never as a variable, so only the commands that need it read it
 (decisions.md#push-token): beside `GH_TOKEN`,
 `"WORKFLOW_SECRETS_FILE": "/run/secrets/workflow.env"` into the same
-`containerEnv`, and a read-only bind mount of the host's file,
-`"source=${localEnv:WORKFLOW_SECRETS_FILE},target=/run/secrets/workflow.env,type=bind,readonly"`,
+`containerEnv`, and a read-only bind mount of the host's file, which has
+one fixed place per project, `~/.config/workflow/<project>.env` on the
+host (`<project>` the project file's `name` in lower case, spaces as
+hyphens),
+`"source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/workflow/<project>.env,target=/run/secrets/workflow.env,type=bind,readonly"`,
 into `mounts`: into the array when there is one, else a new `"mounts"`
 key after `containerEnv`, by Edit the same way as `GH_TOKEN`, a mount
 already there with that target left alone. A configuration that names a
 `dockerComposeFile` ignores `mounts`, so there the mount goes into the
 service's `volumes` in that Compose file instead,
-`- ${WORKFLOW_SECRETS_FILE}:/run/secrets/workflow.env:ro`, by Edit the
-same way. None of `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY`,
+`- ${HOME}/.config/workflow/<project>.env:/run/secrets/workflow.env:ro`,
+by Edit the same way. Docker refuses to start a container whose bind
+source is missing, so setup also writes an `initializeCommand`, which
+runs on the host before the container is created, that makes the folder
+and, only when no file is there, an empty file its owner alone reads:
+`mkdir -p "$HOME/.config/workflow" && { [ -e "$HOME/.config/workflow/<project>.env" ] || (umask 077 && : > "$HOME/.config/workflow/<project>.env"); }`,
+joined with ` && ` after an `initializeCommand` already there, never
+replacing it. None of `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY`,
 `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` goes into
-`containerEnv`. The final message says, in a line, that the host's file,
-whose absolute path `WORKFLOW_SECRETS_FILE` names on the host, is a
-dotenv file readable by its owner only, holding `WORKFLOW_APP_ID`,
-`WORKFLOW_APP_KEY` (the PEM's text, in double quotes), and for the
-webhook `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT` (8789 when
-left out), and that a rebuild of the container mounts it, so a host
-without the variable or the file cannot start the container until it
-has both. Without a `.devcontainer/`, nothing is written, and the final
+`containerEnv`. The final message says, in a line, that the app's id and
+key (and the webhook's secret and port) go in
+`~/.config/workflow/<project>.env` on the host, a dotenv file only its
+owner reads, holding `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY` (the PEM's
+text, in double quotes), and for the webhook `WORKFLOW_WEBHOOK_SECRET`
+and `WORKFLOW_WEBHOOK_PORT` (8789 when left out); until they are there
+the GitHub App is off and everything else works. Without a `.devcontainer/`, nothing is written, and the final
 message says the names, or `WORKFLOW_SECRETS_FILE`, must be in the shell
 that starts the queue's chats.
 

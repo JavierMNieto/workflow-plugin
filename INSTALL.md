@@ -25,7 +25,9 @@ ask only the questions below, and end with the message in step 6.
   also needs its GitHub App's id and private key, `WORKFLOW_APP_ID` and
   `WORKFLOW_APP_KEY`, set where `GH_TOKEN` is, and for its webhook
   `WORKFLOW_WEBHOOK_SECRET` and `WORKFLOW_WEBHOOK_PORT`, or the same
-  names in a private file that `WORKFLOW_SECRETS_FILE` names;
+  names in a private file, on the host at
+  `~/.config/workflow/<project>.env`, which `WORKFLOW_SECRETS_FILE`
+  names inside the container;
   `/workflow:setup` asks.
 
 ## 2. Ask the person's first name
