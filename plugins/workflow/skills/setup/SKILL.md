@@ -210,9 +210,11 @@ service's `volumes` in that Compose file instead,
 `- ${HOME}/.config/workflow/<project>.env:/run/secrets/workflow.env:ro`,
 by Edit the same way. Docker refuses to start a container whose bind
 source is missing, so setup also writes an `initializeCommand`, which
-runs on the host before the container is created, that makes the folder
-and, only when no file is there, an empty file its owner alone reads:
-`mkdir -p "$HOME/.config/workflow" && { [ -e "$HOME/.config/workflow/<project>.env" ] || (umask 077 && : > "$HOME/.config/workflow/<project>.env"); }`,
+runs on the host before the container is created, that makes the folder,
+removes an empty folder Docker may have made at the file's place (Javi,
+6 November), and, only when no file is there, makes an empty file its
+owner alone reads:
+`mkdir -p "$HOME/.config/workflow" && { [ ! -d "$HOME/.config/workflow/<project>.env" ] || rmdir "$HOME/.config/workflow/<project>.env"; } && { [ -e "$HOME/.config/workflow/<project>.env" ] || (umask 077 && : > "$HOME/.config/workflow/<project>.env"); }`,
 never replacing an `initializeCommand` already there: after a string
 one, joined with ` && ` unless the string holds the command already; an
 array one becomes an object, `{"project": <the array>,
@@ -233,7 +235,10 @@ key (and the webhook's secret and port) go in
 owner reads, holding `WORKFLOW_APP_ID`, `WORKFLOW_APP_KEY` (the PEM's
 text, in double quotes), and for the webhook `WORKFLOW_WEBHOOK_SECRET`
 and `WORKFLOW_WEBHOOK_PORT` (8789 when left out); until they are there
-the GitHub App is off and everything else works. Without a `.devcontainer/`, nothing is written, and the final
+the GitHub App is off and everything else works; once they are, a
+rebuild of the container reads them, since an editor that saves by
+renaming leaves the container on the old file (Javi, 6 November).
+Without a `.devcontainer/`, nothing is written, and the final
 message says the names, or `WORKFLOW_SECRETS_FILE`, must be in the shell
 that starts the queue's chats.
 
