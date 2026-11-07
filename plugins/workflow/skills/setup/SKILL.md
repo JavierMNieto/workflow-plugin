@@ -177,6 +177,38 @@ nothing: the host's shell has to carry the variable to the chats, which
 the final message says. Never a token's value in any file.
 
 In a project that lands by pull request (`land: pull-request`), one
+question more, header `Pull requests`: "This is about what happens when
+a new change touches the same thing as a pull request already open here.
+Each pull request is one more review for you, and one more run of the
+checks on GitHub. How should plans group into pull requests here?", with
+the options `Related plans share one (Recommended)`
+(A plan related to an open pull request of the queue's own lands in it,
+a draft again; a new one opens only when none fits; fewer pull requests
+to review) and `A pull request per topic`
+(Each pull request is merged or held on its own; a plan is stacked only
+on one it cannot be built without; more pull requests to review). The
+answer replaces the text under `## Pull requests` in the project file's
+body (the starter's line included), or is written before `## Reading`
+when the file has no such heading (decisions.md#pull-requests-heading):
+
+```
+## Pull requests
+
+Related plans share one: a plan related to an open pull request of the
+queue's own lands in it (`Lands: topic <name>, ready; lands in #<n>.`),
+a draft again, and a new pull request opens only when none fits.
+```
+
+or
+
+```
+## Pull requests
+
+A pull request per topic: each is merged or held on its own, and a plan
+is stacked only on one it cannot be built without.
+```
+
+In a project that lands by pull request (`land: pull-request`), one
 question more, header `Issues`: "Should topics here become GitHub issues
 that the project's Claude writes and the people comment on?", with the
 options `Yes, topics become issues` (Writes an Issues heading in the

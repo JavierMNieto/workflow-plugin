@@ -169,18 +169,31 @@ on the machine that planned them.
   was built. plans/pull-request-description-standard.md,
   plans/pull-request-description-standard-follow-up.md.
 - `stack-only-on-use` **A plan that rests on an open draft pull request
-  of the queue's own lands in it; one that rests on a pull request marked
-  ready, or someone else's, is stacked on it; one that only changes the
-  same file is neither.** (Javi, 4 November) A draft is not done yet, so
+  of the queue's own lands in it, and one that rests on another person's
+  is stacked on it.** (Javi, 7 November) A draft is not done yet, so
   work that belongs to it goes into it, as he had to ask three times in
   a day for a stacked pull request to be joined into the draft it built
-  on; what he reviewed should not change
-  under him, the queue never pushes to another person's branch, and a
-  shared file is a conflict to merge later, not a dependency.
-  plans/stack-only-when-it-depends.md, plans/draft-takes-its-follow-ups.md.
+  on; the queue never pushes to another person's branch. How the rest
+  group is the project's, since grouping is a cost the project carries,
+  not the plugin. plans/stack-only-when-it-depends.md,
+  plans/draft-takes-its-follow-ups.md,
+  plans/related-plans-share-a-pull-request.md.
+  - ~~A plan that rests on an open draft pull request of the queue's own
+    lands in it; one that rests on a pull request marked ready, or
+    someone else's, is stacked on it; one that only changes the same
+    file is neither.~~ (Javi, 4 November)
   - ~~A plan that rests on an open pull request (uses what it adds) is
     stacked on it; one that only changes the same file is not.~~ (Javi,
     30 October)
+- `pull-requests-heading` **How plans group into pull requests is the
+  project's rule, under `## Pull requests` in its file; the plugin
+  suggests one at setup and holds none.** (Javi, 7 November) Grouping is
+  a cost the project carries, each pull request one more review and one
+  more run of its suites, so the project says it; Gerrit's
+  submit-whole-topic is a server setting for the same reason. The first
+  project to say it chose that related plans share one pull request, a
+  ready one going back to draft when joined.
+  plans/related-plans-share-a-pull-request.md.
 - `merge-never-force` **A branch is brought up to date by merging, never
   force-pushed.** (Javi, 29 October) Merge, never force, which a project
   may enforce in its settings; a squash merge keeps the merge commit off
@@ -219,15 +232,19 @@ on the machine that planned them.
   plans/deny-key-review-findings.md.
 - `body-headings` **The project file's body headings are the executor's
   steps for this project: Before a build, While working, Before the push,
-  After the push, Reading, Products, People.** (Javi, 27 October) A
-  project's own steps belong in its file, so no agent or script names a
-  project's specifics. plans/sizes-and-decisions.md,
-  plans/land-by-pull-request.md.
+  After the push, Reading, Products, People, Pull requests.** (Javi, 27
+  October) A project's own steps belong in its file, so no agent or
+  script names a project's specifics. plans/sizes-and-decisions.md,
+  plans/land-by-pull-request.md. 7 November: Pull requests added,
+  plans/related-plans-share-a-pull-request.md.
 - `setup-interview` **A project is set up in a short interview,
   `/workflow:setup`, with the defaults of its kind.** (Javi, 27 October)
   A project file written by hand drifted from what the queue reads; the
   interview asks once and says what each thing turned on costs.
-  plans/project-setup-interview.md.
+  plans/project-setup-interview.md. 7 November: in a project landing by
+  pull request it asks how plans group into pull requests and writes the
+  answer under `## Pull requests`,
+  plans/related-plans-share-a-pull-request.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

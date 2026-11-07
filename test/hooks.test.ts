@@ -2365,11 +2365,16 @@ describe("the planner queue", () => {
         join(dir, "plans", "b.md"),
         brief("30 October 2026", "\nWhere to look: scripts/plan-queue.mjs.\n"),
       );
+      // A plan of this queue's own holds topic shown, #24's head branch.
+      writeFileSync(
+        join(dir, "plans", "mine.md"),
+        "# Mine\n\nPlan only, 30 October 2026, for Javi.\n\nLands: topic shown, ready.\n\n## What was asked\n",
+      );
       const bin = join(dir, ".bin");
       mkdirSync(bin);
       writeFileSync(
         join(bin, "gh"),
-        `#!/bin/sh\n[ -e "$(dirname "$0")/gh.off" ] && exit 1\necho '[{"number":31,"title":"Pictures kept","author":{"login":"anton"},"headRefName":"pictures","files":[{"path":"plugins/workflow/scripts/plan-queue.mjs"}]}]'\n`,
+        `#!/bin/sh\n[ -e "$(dirname "$0")/gh.off" ] && exit 1\necho '[{"number":31,"title":"Pictures kept","author":{"login":"anton"},"headRefName":"pictures","files":[{"path":"plugins/workflow/scripts/plan-queue.mjs"}]},{"number":24,"title":"Shown","author":{"login":"javi"},"headRefName":"shown","files":[{"path":"plugins/workflow/scripts/plan-queue.mjs"}]}]'\n`,
       );
       chmodSync(join(bin, "gh"), 0o755);
       const prompt = (text: string) =>
@@ -2390,6 +2395,10 @@ describe("the planner queue", () => {
       const first = prompt(plannerPrompt("plans/b.md"));
       expect(first).toContain(
         'The brief looks related to:\\nlooks related to #31 \\"Pictures kept\\" (anton; both name plugins/workflow/scripts/plan-queue.mjs)',
+      );
+      // The queue's own pull request names its topic, which a `Lands` line needs to land in it.
+      expect(first).toContain(
+        'looks related to #24 \\"Shown\\" (this queue\'s, plans/mine.md, topic shown; both name plugins/workflow/scripts/plan-queue.mjs)',
       );
       // The table in the context reads nothing: the line is the brief's only.
       expect(first.match(/looks related to #31/g)).toHaveLength(1);
@@ -3215,9 +3224,23 @@ describe("the queue's faults, closed", () => {
       ).toEqual([]);
       expect(lines).toEqual([
         'looks related to #31 "Pictures kept" (anton; both name a/x.mjs, a/y.mjs and 1 more)',
-        'looks related to #24 "Shown" (this queue\'s, plans/mine.md; both name b/w.md)',
+        'looks related to #24 "Shown" (this queue\'s, plans/mine.md, topic shown; both name b/w.md)',
         'looks related to branch next, "Next step" (this queue\'s, plans/next.md; both name b/w.md)',
       ]);
+      // The day's fixes pull request is the queue's own but no topic to land in.
+      expect(
+        relatedLines(text, [{ path: "plans/fix.md", state: "built", pr: 40 }] as never, {
+          pulls: [
+            {
+              number: 40,
+              title: "Fixes",
+              author: "javi",
+              headRefName: "fixes-2026-11-07",
+              files: ["b/w.md"],
+            },
+          ],
+        }),
+      ).toEqual(['looks related to #40 "Fixes" (this queue\'s, plans/fix.md; both name b/w.md)']);
     });
 
     it("prints related lines under briefs and ready plans in the pull request mode only", () => {
@@ -3279,7 +3302,7 @@ describe("the queue's faults, closed", () => {
         /plans\/brief\.md +brief, 30 October\n    looks related to #31 "Pictures kept" \(anton; both name plugins\/workflow\/scripts\/plan-queue\.mjs\)\n/,
       );
       expect(out).toMatch(
-        /plans\/ready\.md +Plan only, 30 October, topic shown, ready, related: #31\n    looks related to #33 "Earlier" \(this queue's, plans\/earlier\.md; both name plugins\/workflow\/docs\/workflow\.md\)\n/,
+        /plans\/ready\.md +Plan only, 30 October, topic shown, ready, related: #31\n    looks related to #33 "Earlier" \(this queue's, plans\/earlier\.md, topic earlier; both name plugins\/workflow\/docs\/workflow\.md\)\n/,
       );
       // Its own topic's pull request is not related to it.
       expect(out).not.toContain("#32");
@@ -3690,11 +3713,12 @@ describe("the queue's faults, closed", () => {
     ready("ai-client-stack.md", "Lands: topic ai-client, ready; stacked on #52.");
     ready("bad-name.md", "Lands: topic Bad Name, ready.");
     const suffixed = runIn(dir, ["list"], { PATH: empty });
+    // plans/related-plans-share-a-pull-request.md: the row says where it lands.
     expect(suffixed).toMatch(
-      /plans\/headless-ui-controls\.md\s+Plan only, 30 October, topic headless-ui, ready\n/,
+      /plans\/headless-ui-controls\.md\s+Plan only, 30 October, topic headless-ui, ready, lands in #52\n/,
     );
     expect(suffixed).toMatch(
-      /plans\/ai-client-stack\.md\s+Plan only, 30 October, topic ai-client, ready\n/,
+      /plans\/ai-client-stack\.md\s+Plan only, 30 October, topic ai-client, ready, stacked on #52\n/,
     );
     expect(suffixed).toContain("Lands line not read: plans/bad-name.md\n");
     expect(suffixed).not.toMatch(/Lands line not read: .*plans\/(?:headless|ai-client|ready)/);

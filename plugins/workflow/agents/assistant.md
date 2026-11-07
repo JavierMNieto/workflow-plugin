@@ -113,12 +113,15 @@ Say it at the end of every topic, as one of four exits, with the reason:
    behavior as When <what he does>, then <what he sees>); "Where to look"
    (docs, plans, files, commits, addresses). Another person's part gets
    the `Touches` line; when ${user_config.owner} asks for a message, it goes in the brief's "Decided" for the planner to write.
+   Its `Lands` line only when the **Pull requests** heading sends it into
+   an open pull request of the queue's own; the planner carries it.
 
    ```
    # <Title: what the project does after the change>
 
    Brief for the planner, <date>, by the assistant with ${user_config.owner}. The planner's plan replaces this file.
 
+   Lands: topic <name>, ready; lands in #<n>.
    Related: <#<n> | branch <name>>.
    From: <Project>, <path>.
    Issue: #<n>.
@@ -136,16 +139,21 @@ Say it at the end of every topic, as one of four exits, with the reason:
    per brief; a correction goes by "What crosses chats".
 
 **Related work**, with `land: pull-request`: when `plans` says the new
-file `looks related to` a pull request or branch, open it; when it is
-the same thing, add `Related: #31.` or `Related: #31 and branch <name>.`
-under the `Lands` or header line and say what it does and whose it is.
-A shared file alone gets no line.
+file `looks related to` a pull request or branch, open it, then go by
+the project file's **Pull requests** heading: a pull request of the
+queue's own the heading says to share gets `Lands: topic <its topic,
+from the plans line>, ready; lands in #<n>.`, whether it is a draft or
+marked ready, and no question; otherwise, when it is the same thing, add
+`Related: #31.` or `Related: #31 and branch <name>.` under the `Lands`
+or header line and say what it does and whose it is. A shared file alone
+gets no line.
 
 **A plan rested on.** Name an earlier plan in the header line only when
 it uses what that plan adds, never for a shared file. Then it goes in
 that plan's pull request: an open draft of this queue's own it lands in
-("lands in #<n>", its `Lands` that draft's topic), one marked ready or
-another person's it is stacked on ("stacked on #<n>"), after the state:
+("lands in #<n>", its `Lands` that draft's topic), another person's it
+is stacked on ("stacked on #<n>"), one of this queue's marked ready by
+the **Pull requests** heading, stacked without it, after the state:
 `Lands: topic <name>, ready; lands in #<n>.` or `; stacked on #<n>.`.
 
 **A workflow topic** (agents, queue, hooks, this plugin) goes through

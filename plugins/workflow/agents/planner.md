@@ -66,7 +66,9 @@ what the line says and nothing else in this chat.
    not change a decision.
 3. **Ground it in the project.** Read the components, functions and
    files the plan will name, by **Reading**: what exists, what stays,
-   what is reused, changed or replaced. With `land: pull-request`, open
+   what is reused, changed or replaced. With `land: pull-request`, read
+   the project file's **Pull requests** heading, which decides where a
+   related plan lands, and open
    what the brief's `Related` line and the context's `The brief looks
    related to:` lines name (`gh pr view <n> --json
    title,body,files,author,comments`, or `git log
@@ -108,14 +110,17 @@ Sources as its "Where to look".
 1. **Title**, then `Plan only, <date>, for ${user_config.owner}; the executor builds it. Read with <docs> ("<rule names>") and the earlier
    plans it rests on.` A plan rests on another only when it uses what
    that plan adds, never for a shared file: an open draft of this queue's
-   own it lands in ("lands in #<n>", its `Lands` that draft's topic), one
-   marked ready or another person's it is stacked on ("stacked on #<n>").
+   own it lands in ("lands in #<n>", its `Lands` that draft's topic),
+   another person's it is stacked on ("stacked on #<n>"), one of this
+   queue's marked ready by the **Pull requests** heading, stacked without
+   it.
    Then, each on its own line, as they apply:
    - With `land: pull-request`, `Lands: topic <name>, ready.` or `Lands: topic <name>, waiting.`, optionally `; lands in #<n>.` or `; stacked on #<n>.` after the state. `<name>` is the topic's branch, lower-case
      words joined by hyphens. `ready` when the topic now holds its central
      decision or two substantial ones; `waiting` when it is a part others
      will finish. The plan that marks a topic ready titles its pull
-     request, so title it for the topic.
+     request, so title it for the topic. A brief's `Lands` line is
+     carried.
    - `Related: #31.` (or `Related: #31 and branch <name>.`) for each open
      pull request or branch the brief or the context names that is a
      different thing on the same files.

@@ -4245,7 +4245,8 @@ const BRANCHES_MAX = 20;
  * `plugins/workflow/scripts/x.mjs`. The most files in common first, a pull
  * request before a branch at the same count, three at most; `own` maps a pull
  * request's number, or a branch or topic name, to the plan of this queue that
- * holds it. Pure, so a project's own hook can copy it.
+ * holds it; a pull request's match keeps its head branch (`head`). Pure, so a
+ * project's own hook can copy it.
  */
 export function relatedWork(paths = [], { pulls = [], branches = [], own = new Map() } = {}) {
   const common = (files = []) =>
@@ -4258,6 +4259,8 @@ export function relatedWork(paths = [], { pulls = [], branches = [], own = new M
       author: pull.author || "",
       files: common(pull.files),
       own: own.get(pull.number) || own.get(pull.headRefName) || "",
+      // The head branch is the topic a `Lands` line names to land in it.
+      head: pull.headRefName || "",
     })),
     ...(branches || []).map((one) => ({
       kind: "branch",
@@ -4459,7 +4462,9 @@ export function relatedReaders({ budget = 25_000 } = {}) {
  * name and its last commit's title, then whose it is and two files at most.
  * A plan's own topic (`topic`, its branch and its pull request's head) is
  * never related to it (/code-review, 30 October); `own` is `ownOf(plans)`,
- * built once by a caller with many rows.
+ * built once by a caller with many rows. A pull request of this queue's own
+ * names its topic, the head branch a `Lands` line needs to land in it
+ * (plans/related-plans-share-a-pull-request.md); the hook decides nothing.
  */
 export function relatedLines(
   text,
@@ -4476,7 +4481,14 @@ export function relatedLines(
       one.files.length > 2
         ? `${one.files.slice(0, 2).join(", ")} and ${one.files.length - 2} more`
         : one.files.join(", ");
-    const whose = one.own ? `this queue's, ${one.own}` : one.author;
+    // Only a head a `Lands` line can name is a topic: not the day's fixes or the branch.
+    const topicOf =
+      one.kind === "pull" &&
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(one.head) &&
+      !/^(?:fixes-|main$)/.test(one.head)
+        ? `, topic ${one.head}`
+        : "";
+    const whose = one.own ? `this queue's, ${one.own}${topicOf}` : one.author;
     const what =
       one.kind === "pull" ? `#${one.number} "${one.title}"` : `branch ${one.name}, "${one.title}"`;
     return `looks related to ${what} (${whose ? `${whose}; ` : ""}both name ${files})`;
@@ -4642,11 +4654,16 @@ function doneWith(text = "") {
   return planTaken(text) || Boolean(droppedOf(text));
 }
 
-/** A plan's `Lands` line in words, for a Ready row; "" with none. */
+/** A plan's `Lands` line in words, for a Ready row, with the pull request it lands in or is stacked on; "" with none. */
 export function landsWords(lands) {
   if (!lands) return "";
   if (lands.kind === "fix") return lands.now ? "a fix, now" : "a fix";
-  return `topic ${lands.name}, ${lands.ready ? "ready" : "waiting"}`;
+  const where = lands.into
+    ? `, lands in #${lands.into}`
+    : lands.stackedOn
+      ? `, stacked on #${lands.stackedOn}`
+      : "";
+  return `topic ${lands.name}, ${lands.ready ? "ready" : "waiting"}${where}`;
 }
 
 /**

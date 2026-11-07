@@ -267,12 +267,18 @@ accounts for, with their author, under `Also`; then where to try it; on
 one screen. "Before the push" runs once per plan; the merge is the
 people's, and no agent merges. (decisions.md#description-is-the-diff)
 
-**A plan that rests on an open draft pull request of the queue's own
-lands in it; one that rests on a pull request marked ready, or someone
-else's, is stacked on it; one that only changes the same file is
-neither.** To rest on a pull request is to use what it adds; landing in
-it, the plan's `Lands` is that pull request's topic.
-(decisions.md#stack-only-on-use)
+**How plans group into pull requests is the project's rule, under
+`## Pull requests` in its file**, read by the author of a `Lands` line;
+the plugin keeps only what the queue cannot do without: a plan that
+rests on an open draft pull request of the queue's own lands in it, and
+one that rests on another person's pull request is stacked on it, since
+the queue never pushes to another's branch. To rest on a pull request is
+to use what it adds; landing in it, the plan's `Lands` is that pull
+request's topic. Without the heading, a plan resting on the queue's own
+pull request marked ready is stacked on it, and one that shares files
+with an open pull request gets a `Related` line and a pull request of
+its own. (decisions.md#stack-only-on-use,
+decisions.md#pull-requests-heading)
 
 **A branch is brought up to date by merging, never force-pushed**, a
 conflicting pull request at a batch's start included, pushed to its own
@@ -307,9 +313,15 @@ push** (what to watch), **Reading** (which tools read code and docs),
 `design-research` follows first), **People** (whose calls are theirs,
 and what each decides) and **Issues** (`Detail:`, a skill or command that
 turns a plan into an address an issue links, and `Check:`, a command that
-fails on what may not leave the repository; its presence turns issues on);
-the body may also name the tools that publish under the owner's name,
-which no agent calls. (decisions.md#body-headings)
+fails on what may not leave the repository; its presence turns issues on)
+and **Pull requests** (how plans group into pull requests); the body may
+also name the tools that publish under the owner's name, which no agent
+calls. (decisions.md#body-headings)
+
+**`## Pull requests` says how plans group into pull requests**, read by
+whoever writes a `Lands` line; the plugin suggests one in
+`/workflow:setup` and holds no rule of its own.
+(decisions.md#pull-requests-heading)
 
 **A project is set up in a short interview**, `/workflow:setup`, asked
 once with its kind's defaults (`kinds.md`), each thing's cost said; run

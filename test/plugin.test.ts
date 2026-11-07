@@ -102,6 +102,23 @@ catalogue: docs/patterns
     expect(project(root).body).toContain("# Body");
   });
 
+  it("reads the text under ## Pull requests as pullRequests, and none without the heading", () => {
+    const root = dir("pulls-");
+    mkdirSync(join(root, ".claude"));
+    const file = join(root, ".claude", "workflow.md");
+    writeFileSync(
+      file,
+      "---\nname: Pulls\nland: pull-request\n---\n\n## After the push\n\nThe run.\n\n## Pull requests\n\nRelated plans share one.\nA new one opens only when none fits.\n\n## Reading\n\nRead.\n",
+    );
+    expect(project(root).pullRequests).toBe(
+      "Related plans share one.\nA new one opens only when none fits.",
+    );
+    writeFileSync(file, "---\nname: Pulls\n---\n\n## Pull requests\n\nA pull request per topic.\n");
+    expect(project(root).pullRequests).toBe("A pull request per topic.");
+    writeFileSync(file, "---\nname: Pulls\n---\n\n## Reading\n\nRead.\n");
+    expect(project(root).pullRequests).toBe("");
+  });
+
   it("defaults the name to the directory and the branch to the remote's default, else main", () => {
     const root = dir("defaults-");
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
@@ -234,9 +251,15 @@ catalogue: docs/patterns
       "While working",
       "Before the push",
       "After the push",
+      "Pull requests",
       "Reading",
     ])
       expect(text).toContain(`## ${heading}`);
+    expect(text).toContain(
+      "## Pull requests\n\nHow plans group into pull requests, when `land: pull-request` is on:\nrelated plans share one, or a pull request per topic; omit the heading\nto let each plan's author decide.\n\n## Reading",
+    );
+    // The starter's comment is no rule: the heading reads as what it says.
+    expect(project(root).pullRequests).toMatch(/^How plans group into pull requests/);
     expect(project(root).found).toBe(true);
     expect(init(root)).toBe(".claude/workflow.md exists already; edit it instead.");
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(
@@ -1725,6 +1748,28 @@ describe("the setup interview", () => {
     );
   });
 
+  // plans/related-plans-share-a-pull-request.md, part 4.
+  it("has the setup skill ask how plans group into pull requests and write the heading", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    expect(text).toContain(
+      'header `Pull requests`: "This is about what happens when a new change touches the same thing as a pull request already open here. Each pull request is one more review for you, and one more run of the checks on GitHub. How should plans group into pull requests here?"',
+    );
+    expect(text).toContain("`Related plans share one (Recommended)`");
+    expect(text).toContain("`A pull request per topic`");
+    expect(text).toContain(
+      "answer replaces the text under `## Pull requests` in the project file's body (the starter's line included)",
+    );
+    expect(text).toContain(
+      "## Pull requests Related plans share one: a plan related to an open pull request of the queue's own lands in it",
+    );
+    expect(text).toContain(
+      "## Pull requests A pull request per topic: each is merged or held on its own",
+    );
+  });
+
   it("has the setup skill at fable, and the kinds table's five rows of eight columns", () => {
     const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
     const text = readFileSync(join(skill, "SKILL.md"), "utf8");
@@ -1850,8 +1895,9 @@ describe("a pull request stacked only on one it cannot be built without", () => 
       .replace(/\s+/g, " ");
     expect(mode).not.toContain("--name-only");
     expect(mode).toContain("it uses what an earlier plan adds");
+    // plans/related-plans-share-a-pull-request.md: a shared file goes where its `Lands` line says.
     expect(mode).toContain(
-      "only changes a file an open pull request changes is neither joined to it nor stacked on it",
+      "A plan that shares files with an open pull request goes where its `Lands` line says; its author read the project's **Pull requests** heading.",
     );
     expect(mode).toContain("`mergeable` `CONFLICTING`");
     // From the head as GitHub has it, its own base merged in, a plain push.
@@ -1932,12 +1978,43 @@ describe("a pull request stacked only on one it cannot be built without", () => 
 
   it("has the docs, the planner and the assistant name a plan rested on only when it is used", () => {
     expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
-      "A plan that rests on an open draft pull request of the queue's own lands in it; one that rests on a pull request marked ready, or someone else's, is stacked on it; one that only changes the same file is neither.",
+      "**How plans group into pull requests is the project's rule, under `## Pull requests` in its file**, read by the author of a `Lands` line; the plugin keeps only what the queue cannot do without: a plan that rests on an open draft pull request of the queue's own lands in it, and one that rests on another person's pull request is stacked on it, since the queue never pushes to another's branch.",
+    );
+    // Without the heading, what the queue did before: stacked on a ready one, a Related line for a shared file.
+    expect(read("docs/workflow.md").replace(/\s+/g, " ")).toContain(
+      "Without the heading, a plan resting on the queue's own pull request marked ready is stacked on it, and one that shares files with an open pull request gets a `Related` line and a pull request of its own.",
     );
     for (const agent of ["planner", "assistant"])
       expect(read(`agents/${agent}.md`).replace(/\s+/g, " ")).toContain(
         "only when it uses what that plan adds, never for a shared file",
       );
+  });
+
+  // plans/related-plans-share-a-pull-request.md: the plugin drops its own
+  // grouping rule; the project's Pull requests heading says it.
+  it("leaves how plans group to the project's Pull requests heading", () => {
+    for (const path of [
+      "docs/workflow.md",
+      "docs/landing.md",
+      "agents/planner.md",
+      "agents/assistant.md",
+    ]) {
+      const text = read(path).replace(/\s+/g, " ");
+      expect(text).not.toContain("same file is neither");
+      expect(text).not.toContain("only changes a file an open pull request changes");
+    }
+    expect(read("docs/decisions.md").replace(/\s+/g, " ")).toContain(
+      "one that only changes the same file is neither.~~ (Javi, 4 November)",
+    );
+    expect(read("agents/assistant.md").replace(/\s+/g, " ")).toContain(
+      "then go by the project file's **Pull requests** heading",
+    );
+    expect(read("agents/planner.md").replace(/\s+/g, " ")).toContain(
+      "read the project file's **Pull requests** heading, which decides where a related plan lands",
+    );
+    expect(read("docs/landing.md").replace(/\s+/g, " ")).toContain(
+      "One of the queue's own marked ready goes by the project's **Pull requests** heading: lands in it (a draft again, as any join) when the heading says related plans share a pull request, else stacked on it",
+    );
   });
 
   // plans/draft-takes-its-follow-ups.md: a plan resting on an open draft of
@@ -1955,7 +2032,7 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     expect(rests).toContain(
       "the plan lands in that pull request whatever its `Lands` line names, its topic that head branch",
     );
-    expect(rests).toContain("One marked ready, or another person's, is stacked on");
+    expect(rests).toContain("**Another person's** is stacked on");
     // A plan written for a draft since marked ready gets a topic of its own, not the ready one.
     expect(rests).toContain(
       "as `topic <the plan's file name without .md>` (with `-2` when that is the head branch) when its `Lands` line names that pull request's topic",
@@ -1971,7 +2048,7 @@ describe("a pull request stacked only on one it cannot be built without", () => 
     for (const agent of ["planner", "assistant"]) {
       const text = read(`agents/${agent}.md`).replace(/\s+/g, " ");
       expect(text).toContain(
-        'an open draft of this queue\'s own it lands in ("lands in #<n>", its `Lands` that draft\'s topic), one marked ready or another person\'s it is stacked on ("stacked on #<n>")',
+        "an open draft of this queue's own it lands in (\"lands in #<n>\", its `Lands` that draft's topic), another person's it is stacked on (\"stacked on #<n>\"), one of this queue's marked ready by the **Pull requests** heading, stacked without it",
       );
       expect(text).not.toContain("build it on #<n>'s branch");
     }

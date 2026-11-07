@@ -338,13 +338,15 @@ export function defaultBranch(root, { checkedOut = false } = {}) {
 
 /**
  * `{ name, branch, run, land, ui, catalogue, inherits, tools, mcp, deny,
- * written, form, reuse, reviews, body, found }` for the project
+ * written, form, reuse, reviews, body, pullRequests, found }` for the project
  * at `root`: the name defaults to the directory's, the branch to the
  * remote's default (else main; `plans init` writes the branch checked out
  * in a repository with no remote), `run`, `ui` and `catalogue` to none, `land` to
  * "push" ("pull-request" when the frontmatter says so: the executor opens a
  * pull request to the branch instead of pushing it), `form` to "full"
- * ("compact" when the frontmatter says so: one chat, no queue).
+ * ("compact" when the frontmatter says so: one chat, no queue),
+ * `pullRequests` to "" (the text under the body's `## Pull requests`: how
+ * the project's plans group into pull requests).
  */
 export function project(root) {
   const file = join(root, PROJECT_FILE);
@@ -361,6 +363,7 @@ export function project(root) {
   // The remote's default is asked of git only when a caller reads the branch:
   // every hook reads `found`, in every session (/code-review, 27 October).
   let branch = typeof front.branch === "string" && front.branch ? front.branch : null;
+  const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "");
   return {
     name: typeof front.name === "string" && front.name ? front.name : basename(root),
     get branch() {
@@ -400,7 +403,12 @@ export function project(root) {
       : front.form === "compact"
         ? []
         : ["plan", "code-review", "codex"],
-    body: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
+    body,
+    // How plans group into pull requests is the project's rule, read by
+    // whoever writes a `Lands` line (decisions.md#pull-requests-heading).
+    pullRequests: (
+      /^## Pull requests[ \t]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(body)?.[1] ?? ""
+    ).trim(),
     found: Boolean(text),
   };
 }
@@ -485,6 +493,12 @@ The screenshots, checks and suites, in order, once per batch.
 ## After the push
 
 What to watch once the push is in: the run, the deploy.
+
+## Pull requests
+
+How plans group into pull requests, when \`land: pull-request\` is on:
+related plans share one, or a pull request per topic; omit the heading
+to let each plan's author decide.
 
 ## Reading
 

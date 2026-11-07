@@ -44,12 +44,18 @@ its "Built" saying why.
   `gh pr view <n> --json isDraft,headRefName`
   (decisions.md#stack-only-on-use). **A draft of this queue's own** takes
   it: the plan lands in that pull request whatever its `Lands` line
-  names, its topic that head branch. One marked ready, or another person's, is stacked on
+  names, its topic that head branch. **Another person's** is stacked on
   ("No branch yet"), as `topic <the plan's file name without .md>` (with
   `-2` when that is the head branch) when its `Lands` line names that
-  pull request's topic. A plan sent to another topic has its `Lands` line
-  rewritten to it. A plan that only changes a file an open pull request
-  changes is neither joined to it nor stacked on it.
+  pull request's topic. One of the queue's own marked ready goes by the
+  project's **Pull requests** heading: lands in it (a draft again, as any
+  join) when the heading says related plans share a pull request, else
+  stacked on it as `topic <the plan's file name without .md>` (with `-2`
+  when that is the head branch) when its `Lands` line names that pull
+  request's topic. A plan sent to another topic has its `Lands` line
+  rewritten to it. A plan that shares files with an open pull request
+  goes where its `Lands` line says; its author read the project's
+  **Pull requests** heading.
 - **No branch yet** (no `origin/<name>`, no local `<name>`): `git switch
   -c <name> origin/<branch>`. Stacked: `git switch -c <name> <that head
   branch>`, that branch the pull request's `--base` and the first line
