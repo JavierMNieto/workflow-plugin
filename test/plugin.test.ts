@@ -1837,24 +1837,41 @@ describe("the setup interview", () => {
     );
   });
 
-  // plans/related-plans-share-a-pull-request-follow-up-4.md, Decided 1 and 2.
-  it("has the setup skill's Pushed straight on a run again with issues on take out what Yes wrote, by the Issues undo paragraph", () => {
+  // plans/related-plans-share-a-pull-request-follow-up-4.md, Decided 1 and 2, made one
+  // rule by plans/related-plans-share-a-pull-request-follow-up-5.md, Decided 1, 2 and 4.
+  it("has the setup skill's run again ending without pull requests take out the Issues parts and the Pull requests heading, whichever answer dropped land", () => {
     const text = readFileSync(
       new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
       "utf8",
     ).replace(/\s+/g, " ");
-    expect(text).toContain(
-      "The answer writes `land: pull-request`, or takes the line out. On a run again in a file with an Issues heading, `Pushed straight` also takes out what the Issues question's Yes wrote, as that question's No does on a run again (the paragraph that ends step 6, followed though the project no longer lands by pull request), since issues need pull requests, and the Issues question is not asked; its description is then `Lands the moment the checks pass; nobody reads it first. Issues are turned off too, since they need pull requests; issues already on GitHub stay`",
+    const step4 = text.slice(text.indexOf("## 4. Write the project file"), text.indexOf("## 5. "));
+    expect(step4).toContain(
+      "**A run again that ends without pull requests**, whichever answer left `land` out (the Landing question's `Pushed straight`, or one that picks the compact form, the maker's, which has no pull requests) or a hand that took it out before, takes out what the Issues question's Yes wrote when the file has an Issues heading, by the paragraph that ends step 6, followed though the project no longer lands by pull request, and the `## Pull requests` heading with its text unless that is still the line `plans init` wrote, since it says how plans group into pull requests and means nothing without them (decisions.md#pull-requests-heading); issues need pull requests (Javi, 7 November). Step 6's two questions are then not asked.",
     );
+    const off =
+      "Issues are turned off too, since they need pull requests; issues already on GitHub stay";
+    expect(text).toContain(
+      "The answer writes `land: pull-request`, or takes the line out, and what that takes out with it is step 4's. On a run again in a file with an Issues heading, the description of `Pushed straight` is `Lands the moment the checks pass; nobody reads it first. " +
+        off +
+        "`",
+    );
+    expect(text).toContain(
+      "On a run again in a file with an Issues heading, the two that pick the maker end their description with `" +
+        off +
+        "`, since the maker has no pull requests (step 4).",
+    );
+    expect(text).not.toContain("the Landing question's `Pushed straight` there");
     const step6 = text.slice(text.indexOf("## 6. The GitHub token"), text.indexOf("## 7. "));
     const at = step6.indexOf(
       "On a run again, `No, not here` in a file with an Issues heading takes out",
     );
     expect(at, "the Issues undo paragraph in step 6").toBeGreaterThan(-1);
     const undo = step6.slice(at);
-    expect(undo).toContain("and so does the Landing question's `Pushed straight` there, each part");
+    expect(undo).toContain(
+      "and so does a run again that ends without pull requests there (step 4), each part",
+    );
     expect(text).toContain(
-      "When No, or the Landing question's `Pushed straight`, took the Issues heading out on a run again, one line: - `Issues: off;",
+      "When a run again took the Issues heading out, by No or by ending without pull requests (step 4), one line: - `Issues: off;",
     );
   });
 

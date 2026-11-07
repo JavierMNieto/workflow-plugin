@@ -96,6 +96,8 @@ export function parseDay(text: string): number;
 export function today(now?: number): string;
 /** A plan's text without the queue's status sections (Planning, Building, Resumed, Handing over). */
 export function withoutStatus(text: string): string;
+/** Issues are on with an Issues heading and `land: pull-request`, the project file's by default. */
+export function hasIssues(body?: string, land?: string): boolean;
 export function stateOf(
   text: string,
   options?: { mtime?: number; live?: string[] | null },

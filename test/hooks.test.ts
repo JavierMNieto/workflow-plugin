@@ -110,6 +110,7 @@ import {
   withoutStatus,
   noAppWords,
   noSecretWords,
+  hasIssues,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { statusFrom } from "../plugins/workflow/scripts/statusline.mjs";
 import {
@@ -7968,6 +7969,67 @@ describe("github webhook", () => {
     expect(noteFor(events[0])).not.toContain("# GitHub");
   });
 
+  // plans/related-plans-share-a-pull-request-follow-up-5.md: issues need pull requests.
+  describe("issues are read only with pull requests", () => {
+    const body = "# Hook\n\n## Issues\n\nTopics here are GitHub issues.\n";
+    it("an Issues heading with land: pull-request turns issues on, as before", () => {
+      expect(hasIssues(body, "pull-request")).toBe(true);
+    });
+    it("an Issues heading without land: pull-request turns them off", () => {
+      expect(hasIssues(body, "push")).toBe(false);
+    });
+    it("with land taken out by hand, plans prints no webhook line", () => {
+      const dir = mkdtempSync(join(tmpdir(), "issues-off-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: dir });
+        mkdirSync(join(dir, ".claude"));
+        const file = (land: string) =>
+          writeFileSync(
+            join(dir, ".claude", "workflow.md"),
+            `---\nname: Hook\nbranch: test\n${land}---\n\n## Issues\n\nTopics here are GitHub issues.\n`,
+          );
+        const list = () =>
+          spawnSync("node", [join(here, "plan-queue.mjs"), "list"], {
+            encoding: "utf8",
+            env: {
+              PATH: process.env.PATH || "",
+              WORKFLOW_ROOT: dir,
+              WORKFLOW_GH: "/bin/false",
+              WORKFLOW_LIVE: "[]",
+              CLAUDE_PLUGIN_OPTION_OWNER: "Javi",
+              CLAUDE_PLUGIN_OPTION_MACHINE: "lab",
+            },
+          }).stdout;
+        file("land: pull-request\n");
+        expect(list()).toContain("The webhook: none; plans webhook starts it.");
+        file("");
+        expect(list()).not.toContain("The webhook");
+        // A listener left running acts on no delivery once issues are off (Codex).
+        mkdirSync(join(dir, ".claude", "github-inbox"));
+        const body = JSON.stringify({
+          action: "opened",
+          issue: { number: 3, title: "T", labels: [] },
+        });
+        writeFileSync(
+          join(dir, ".claude", "github-inbox", "d1.json"),
+          JSON.stringify({ id: "d1", event: "issues", body }),
+        );
+        const inbox = () =>
+          spawnSync("node", [join(here, "plan-queue.mjs"), "github", "--inbox"], {
+            encoding: "utf8",
+            env: { PATH: process.env.PATH || "", WORKFLOW_ROOT: dir, WORKFLOW_GH: "/bin/false" },
+          }).stdout;
+        expect(inbox()).toBe("GitHub: nothing new.\n");
+        expect(existsSync(join(dir, ".claude", "github-seen.json"))).toBe(false);
+        file("land: pull-request\n");
+        inbox();
+        expect(existsSync(join(dir, ".claude", "github-seen.json"))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("plans webhook", () => {
     let dir: string;
     const port = 30000 + (process.pid % 20000);
@@ -7989,7 +8051,7 @@ describe("github webhook", () => {
       mkdirSync(join(dir, ".claude"));
       writeFileSync(
         join(dir, ".claude", "workflow.md"),
-        "---\nname: Hook\nbranch: test\n---\n\n## Issues\n\nTopics here are GitHub issues.\n",
+        "---\nname: Hook\nbranch: test\nland: pull-request\n---\n\n## Issues\n\nTopics here are GitHub issues.\n",
       );
     });
     afterAll(() => {

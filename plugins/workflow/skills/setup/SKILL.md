@@ -57,7 +57,11 @@ recommended option from the kind step 1 found.
   personal tool or script; something else (say what).
 - **What do you mostly do here?** Many small changes in one chat (the
   maker); changes worth planning first (the full queue); both, mostly
-  small (the maker, with the full queue a line away).
+  small (the maker, with the full queue a line away). On a run again in
+  a file with an Issues heading, the two that pick the maker end their
+  description with `Issues are turned off too, since they need pull
+  requests; issues already on GitHub stay`, since the maker has no pull
+  requests (step 4).
 - **Which reviews before a push?** All three (the plan review,
   `/code-review`, Codex); one light one (`/code-review`); the writing
   ones (`writing:review`, `writing:proof`); none (the compact form).
@@ -86,17 +90,13 @@ moment the checks pass; nobody reads it first`. The pull request is first
 and marked recommended when the collaborators list someone besides the
 owner, else second, and pushing straight is recommended; on a run again,
 the file's answer is the recommended one. The answer writes `land:
-pull-request`, or takes the line out. On a run again in a file with an
-Issues heading, `Pushed straight` also takes out what the Issues
-question's Yes wrote, as that question's No does on a run again (the
-paragraph that ends step 6, followed though the project no longer lands
-by pull request), since issues need pull requests, and the Issues
-question is not asked; its description is then `Lands the moment
-the checks pass; nobody reads it first. Issues are turned off too, since
-they need pull requests; issues already on GitHub stay` (Javi, 7
-November). When the call would then hold more
-than four questions (the tool's limit), the landing is asked in a call of
-its own after it.
+pull-request`, or takes the line out, and what that takes out with it is
+step 4's. On a run again in a file with an Issues heading, the
+description of `Pushed straight` is `Lands the moment the checks pass;
+nobody reads it first. Issues are turned off too, since they need pull
+requests; issues already on GitHub stay` (Javi, 7 November). When the
+call would then hold more than four questions (the tool's limit), the
+landing is asked in a call of its own after it.
 
 Then, in a call of its own, **which connectors a chat here uses**: the
 connectors step 1 found, as multi-select questions of at most four
@@ -123,6 +123,18 @@ empty with its explaining line. On a run again, every key the answers
 did not change and every heading's text stay as they are. A talk or a
 paper synced with Overleaf names no `branch`: take out the `branch:`
 line `plans init` wrote, so the maker never commits there.
+
+**A run again that ends without pull requests**, whichever answer left
+`land` out (the Landing question's `Pushed straight`, or one that picks
+the compact form, the maker's, which has no pull requests) or a hand
+that took it out before, takes out what the Issues question's Yes wrote
+when the file has an Issues heading, by the paragraph that ends step 6,
+followed though the project no longer lands by pull request, and the
+`## Pull requests` heading with its text unless that is still the line
+`plans init` wrote, since it says how plans group into pull requests and
+means nothing without them (decisions.md#pull-requests-heading); issues
+need pull requests (Javi, 7 November). Step 6's two questions are then
+not asked.
 
 ## 5. Write the plugins and the connectors
 
@@ -294,8 +306,8 @@ that starts the queue's chats.
 
 On a run again, `No, not here` in a file with an Issues heading takes
 out what Yes wrote, as the Landing question undoes its answer (Javi, 7
-November), and so does the Landing question's `Pushed straight` there,
-each part by Edit, the inverse of how Yes wrote it: the
+November), and so does a run again that ends without pull requests
+there (step 4), each part by Edit, the inverse of how Yes wrote it: the
 `## Issues` heading and its lines; the `WORKFLOW_SECRETS_FILE` line of
 `containerEnv`; setup's own mount to `/run/secrets/workflow.env`, its
 source the fixed place or `${localEnv:WORKFLOW_SECRETS_FILE}`, a
@@ -343,8 +355,8 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `Webhook: secret and port reach this container.`, when the secret is
     set, read the same way; the port is 8789 when neither has it.
   - `Webhook: not set; plans webhook says what to turn on.`
-- When No, or the Landing question's `Pushed straight`, took the Issues
-  heading out on a run again, one line:
+- When a run again took the Issues heading out, by No or by ending
+  without pull requests (step 4), one line:
   - `Issues: off; the Issues heading and the secrets file's mount are
     taken out, effective after a rebuild;
     ~/.config/workflow/<project>.env on the host is kept.`

@@ -313,7 +313,8 @@ push** (what to watch), **Reading** (which tools read code and docs),
 `design-research` follows first), **People** (whose calls are theirs,
 and what each decides) and **Issues** (`Detail:`, a skill or command that
 turns a plan into an address an issue links, and `Check:`, a command that
-fails on what may not leave the repository; its presence turns issues on)
+fails on what may not leave the repository; its presence turns issues on
+with `land: pull-request`, since issues need pull requests)
 and **Pull requests** (how plans group into pull requests); the body may
 also name the tools that publish under the owner's name, which no agent
 calls. (decisions.md#body-headings)

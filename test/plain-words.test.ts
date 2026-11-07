@@ -199,7 +199,7 @@ describe("the plain-words check", () => {
         // follow-up-4: on a run again with issues on, Pushed straight's longer description.
         longer: {
           label: "Pushed straight",
-          found: /its description is then `([^`]+)`/,
+          found: /the description of `Pushed straight` is `([^`]+)`/,
         },
       },
       {

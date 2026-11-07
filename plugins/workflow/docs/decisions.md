@@ -256,7 +256,11 @@ on the machine that planned them.
   plans/related-plans-share-a-pull-request-follow-up-3.md. 7 November:
   pushing straight on a run again turns issues off, since issues assume
   pull requests (Javi).
-  plans/related-plans-share-a-pull-request-follow-up-4.md.
+  plans/related-plans-share-a-pull-request-follow-up-4.md. 7 November:
+  any run again that ends without pull requests takes out issues and the
+  Pull requests heading, and the queue reads issues only with pull
+  requests on (Javi's choice of follow-up-4).
+  plans/related-plans-share-a-pull-request-follow-up-5.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

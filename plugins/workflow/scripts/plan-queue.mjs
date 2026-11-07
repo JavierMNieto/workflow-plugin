@@ -5782,9 +5782,14 @@ function setWhere(names, env = process.env, project = proj().name) {
 /** The port the listener takes: `WORKFLOW_WEBHOOK_PORT`, else 8789. */
 const webhookPort = (env = process.env) => Number(secret("WORKFLOW_WEBHOOK_PORT", env)) || 8789;
 
-/** Whether the project file turns issues on: its `## Issues` heading. */
-export function hasIssues(body = proj().body || "") {
-  return /^## Issues[ \t]*$/m.test(withoutFences(body));
+/**
+ * Whether the project file turns issues on: its `## Issues` heading, read
+ * only with `land: pull-request`, since issues need pull requests; a `land`
+ * line taken out by hand turns them off
+ * (plans/related-plans-share-a-pull-request-follow-up-5.md).
+ */
+export function hasIssues(body = proj().body || "", land = proj().land) {
+  return land === "pull-request" && /^## Issues[ \t]*$/m.test(withoutFences(body));
 }
 
 /** `plans webhook`'s refusal with no secret here. */
@@ -6070,7 +6075,10 @@ export async function githubCommand({ budget = 25_000, dry = false, inbox = fals
   const seen = readSeen();
   const since = seen.readAt || "";
   const items = [];
-  // The listener's handling: the inbox alone, no read.
+  // The listener's handling: the inbox alone, no read; nothing once issues
+  // are off, so a listener left running acts on no delivery
+  // (plans/related-plans-share-a-pull-request-follow-up-5.md, Codex).
+  if (inbox && !hasIssues()) return ["GitHub: nothing new."];
   if (inbox) {
     const said = await act(inboxItems(seen), { deadline, dry });
     return said.length ? said : ["GitHub: nothing new."];
