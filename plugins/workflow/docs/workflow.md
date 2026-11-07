@@ -141,10 +141,10 @@ reversed, is a short plan; anything else is a brief.
 
 **An idea is asked about before anything is written**: the assistant
 answers it, then asks the owner with the question tool whether it becomes
-an issue (in a project with an Issues heading), a brief or nothing yet; a
-clear bug, an objective fix or a request to build, plan or file asks
-nothing, and a doubt between the two is asked (the assistant's "Where
-each topic ends"). (decisions.md#idea-asked-first)
+an issue (in a project with an Issues heading and `land: pull-request`),
+a brief or nothing yet; a clear bug, an objective fix or a request to
+build, plan or file asks nothing, and a doubt between the two is asked
+(the assistant's "Where each topic ends"). (decisions.md#idea-asked-first)
 
 **Every new topic starts in the assistant's chat.** A planner's chat holds
 the plans it wrote until an executor's `## Building` line takes each; an

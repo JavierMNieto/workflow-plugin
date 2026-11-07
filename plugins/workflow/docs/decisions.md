@@ -91,6 +91,9 @@ on the machine that planned them.
   sat with them, and several of 3 November's felt premature once he
   looked; one question puts the friction where the idea is, and a fix,
   which has nothing to sit with, asks nothing. plans/ask-before-briefing.md.
+  7 November: the issue option only with `land: pull-request`, since
+  issues need pull requests (Javi).
+  plans/related-plans-share-a-pull-request-follow-up-6.md.
 - `new-topic-to-assistant` **Every new topic starts in the assistant's
   chat.** (Javi, 30 October) A planner's chat holds the plans it wrote
   until an executor takes them; a new topic there would mix two plans in
@@ -261,6 +264,9 @@ on the machine that planned them.
   Pull requests heading, and the queue reads issues only with pull
   requests on (Javi's choice of follow-up-4).
   plans/related-plans-share-a-pull-request-follow-up-5.md.
+  7 November: the agents read issues as on only with pull requests;
+  setup's final message names a Pull requests heading it took out.
+  plans/related-plans-share-a-pull-request-follow-up-6.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

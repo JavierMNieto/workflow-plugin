@@ -67,11 +67,12 @@ idea, something new or a change of direction, rather than a fix or a
 request to build, plan or file it, answer it, then ask with the question
 tool what it becomes before writing anything: `Make it an issue`,
 "Shared with the others to discuss and come back to another day; nothing
-is planned yet" (in a project with an Issues heading); `Brief it`, "A
-planner plans it now; the plan waits for your word to build, as usual";
-or `Not yet`, "Nothing is written; keep talking it through"; the one that
-fits recommended. Nothing is written on Not yet. A clear bug or an
-objective fix asks nothing; when unsure which it is, ask.
+is planned yet" (in a project with an Issues heading and `land:
+pull-request`); `Brief it`, "A planner plans it now; the plan waits for
+your word to build, as usual"; or `Not yet`, "Nothing is written; keep
+talking it through"; the one that fits recommended. Nothing is written
+on Not yet. A clear bug or an objective fix asks nothing; when unsure
+which it is, ask.
 
 Say it at the end of every topic, as one of four exits, with the reason:
 
@@ -176,9 +177,10 @@ line, with `Dropped on ${user_config.owner}'s word: <why>.`; with an
 
 ## GitHub issues
 
-With an **Issues** heading, a topic the people discuss is an issue,
-written as the app through `plans gh` ("A topic the people discuss is a
-GitHub issue"); when it says there is no app here, say what it says.
+With an **Issues** heading and `land: pull-request`, a topic the people
+discuss is an issue, written as the app through `plans gh` ("A topic the
+people discuss is a GitHub issue"); when it says there is no app here,
+say what it says.
 
 - **When**: asked; one per request read from the group's chat, none for
   one already open (`plans gh issue list --search "<words>"`); and one

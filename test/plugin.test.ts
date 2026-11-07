@@ -1154,7 +1154,7 @@ describe("an idea is asked about before anything is written", () => {
     expect(first).toMatch(/^\*\*An idea is asked about first\.\*\*/);
     expect(first).toContain("ask with the question tool what it becomes before writing anything");
     expect(first).toContain(
-      '`Make it an issue`, "Shared with the others to discuss and come back to another day; nothing is planned yet" (in a project with an Issues heading)',
+      '`Make it an issue`, "Shared with the others to discuss and come back to another day; nothing is planned yet" (in a project with an Issues heading and `land: pull-request`)',
     );
     expect(first).toContain(
       '`Brief it`, "A planner plans it now; the plan waits for your word to build, as usual"',
@@ -1176,7 +1176,7 @@ describe("an idea is asked about before anything is written", () => {
         docs,
       )![0];
     expect(rule).toContain(
-      "an issue (in a project with an Issues heading), a brief or nothing yet",
+      "an issue (in a project with an Issues heading and `land: pull-request`), a brief or nothing yet",
     );
     expect(rule).toContain(
       "a clear bug, an objective fix or a request to build, plan or file asks nothing",
@@ -1189,6 +1189,9 @@ describe("an idea is asked about before anything is written", () => {
     const issues = /^## GitHub issues\n([\s\S]*?)(?=^## )/m
       .exec(read("agents/assistant.md"))![1]
       .replace(/\s+/g, " ");
+    expect(issues).toContain(
+      "With an **Issues** heading and `land: pull-request`, a topic the people discuss is an issue",
+    );
     expect(issues).toContain(
       'An issue alone, `Make it an issue` with no brief, leaves out the line "The plan behind this: the first comment." and takes no label until a brief carries its number; the topic ends as answered, with its address.',
     );
@@ -1872,6 +1875,18 @@ describe("the setup interview", () => {
     );
     expect(text).toContain(
       "When a run again took the Issues heading out, by No or by ending without pull requests (step 4), one line: - `Issues: off;",
+    );
+  });
+
+  // plans/related-plans-share-a-pull-request-follow-up-6.md, Decided 2.
+  it("has the setup skill say a Pull requests heading it took out", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    const step7 = text.slice(text.indexOf("## 7. "), text.indexOf("## 8. "));
+    expect(step7).toContain(
+      "When a run again that ends without pull requests took out a `## Pull requests` heading whose text was no longer the line `plans init` wrote (step 4), one line: `Pull requests: the Pull requests section of the project file, which said how plans group into pull requests, is taken out, since the project no longer lands by pull request.`",
     );
   });
 

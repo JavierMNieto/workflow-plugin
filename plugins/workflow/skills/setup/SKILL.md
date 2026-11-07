@@ -362,6 +362,11 @@ One line each, from the counts you can take (each plugin's `skills/` and
     ~/.config/workflow/<project>.env on the host is kept.`
   - `Issues: off; the Issues heading is taken out.`, when no secrets
     part of setup's own was there to take out.
+- When a run again that ends without pull requests took out a `## Pull
+  requests` heading whose text was no longer the line `plans init` wrote
+  (step 4), one line: `Pull requests: the Pull requests section of the project
+  file, which said how plans group into pull requests, is taken out,
+  since the project no longer lands by pull request.`
 
 Then: `/context in a chat here shows the numbers.`
 
