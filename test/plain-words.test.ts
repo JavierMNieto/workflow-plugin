@@ -176,6 +176,48 @@ describe("the plain-words check", () => {
     expect(run(lab, "question", call(session(), asked))).toBe("");
   });
 
+  // plans/related-plans-share-a-pull-request-follow-up.md: the setup skill's Issues question,
+  // with its two options, as the skill gives them.
+  it("passes the setup skill's Issues question, and refused its old one-sentence form", () => {
+    const skill = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    const found = /header `Issues`: "([^"]+)", with the options (.*?) Yes writes/.exec(skill);
+    expect(
+      found,
+      "the setup skill's Issues question, as quoted text and its options",
+    ).not.toBeNull();
+    const [, asked, rest] = found!;
+    const options = [...rest.matchAll(/`([^`]+)` \(([^)]+)\)/g)].map(([, label, description]) => ({
+      label,
+      description,
+    }));
+    expect(options.map((option) => option.label)).toEqual([
+      "Yes, topics become issues",
+      "No, not here",
+    ]);
+    const issues = (text: string) => ({
+      question: text,
+      header: "Issues",
+      multiSelect: false,
+      options,
+    });
+    expect(run(lab, "question", call(session(), issues(asked)))).toBe("");
+    expect(
+      run(
+        lab,
+        "question",
+        call(
+          session(),
+          issues(
+            "Should topics here become GitHub issues that the project's Claude writes and the people comment on?",
+          ),
+        ),
+      ),
+    ).toBe(refusal("is a single sentence"));
+  });
+
   it("refuses twice in a turn and passes the third; a new prompt resets the count", () => {
     const id = session();
     const bad = call(id, question("Should plan.path change?"));

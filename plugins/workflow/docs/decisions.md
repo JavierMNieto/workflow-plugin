@@ -244,7 +244,10 @@ on the machine that planned them.
   plans/project-setup-interview.md. 7 November: in a project landing by
   pull request it asks how plans group into pull requests and writes the
   answer under `## Pull requests`,
-  plans/related-plans-share-a-pull-request.md.
+  plans/related-plans-share-a-pull-request.md. 7 November: the Issues
+  question opens with two sentences of context, and its No option says
+  the plans folder, not its path, as the plain-words check needs.
+  plans/related-plans-share-a-pull-request-follow-up.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

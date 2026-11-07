@@ -1770,6 +1770,18 @@ describe("the setup interview", () => {
     );
   });
 
+  // plans/related-plans-share-a-pull-request-follow-up.md.
+  it("has the setup skill's Issues question open with two sentences of context", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    expect(text).toContain(
+      "header `Issues`: \"This is about whether the topics people talk over here live on GitHub, as issues they can comment on. The project's Claude would write each issue, and a plan is built once the issue is marked ready. Should topics here become GitHub issues that the project's Claude writes and the people comment on?\"",
+    );
+    expect(text).not.toContain('"Should topics here');
+  });
+
   it("has the setup skill at fable, and the kinds table's five rows of eight columns", () => {
     const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
     const text = readFileSync(join(skill, "SKILL.md"), "utf8");
