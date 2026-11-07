@@ -180,7 +180,8 @@ describe("the plain-words check", () => {
   // quotes whole (Landing, Pull requests, Issues), with its options as the skill gives them, the
   // first marked recommended as it is when asked, each through the hook; the Issues question
   // with each description of No (follow-up-3: a first ask, and a run again with issues on), each
-  // with Yes first and with No first, as the collaborators rule orders them.
+  // with Yes first and with No first, as the collaborators rule orders them; the Landing question
+  // also with Pushed straight's longer description (follow-up-4: a run again with issues on).
   it("passes the setup skill's Landing, Pull requests and Issues questions, and refuses the Issues one-sentence form", () => {
     const skill = readFileSync(
       new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
@@ -195,6 +196,11 @@ describe("the plain-words check", () => {
         found: /header `Landing`, question `([^`]+)`, options (.*?)\. The pull request is first/,
         option: byDescription,
         labels: ["A pull request to merge", "Pushed straight"],
+        // follow-up-4: on a run again with issues on, Pushed straight's longer description.
+        longer: {
+          label: "Pushed straight",
+          found: /its description is then `([^`]+)`/,
+        },
       },
       {
         header: "Pull requests",
@@ -222,12 +228,13 @@ describe("the plain-words check", () => {
       options,
     });
     const parsed: Record<string, object[]> = {};
-    for (const { header, found, option, labels, sets } of quoted as {
+    for (const { header, found, option, labels, sets, longer } of quoted as {
       header: string;
       found: RegExp;
       option: RegExp;
       labels: string[];
       sets?: number[][];
+      longer?: { label: string; found: RegExp };
     }[]) {
       const match = found.exec(skill);
       expect(
@@ -243,7 +250,22 @@ describe("the plain-words check", () => {
         options.map((o) => o.label),
         `the ${header} question's options`,
       ).toEqual(labels);
-      const each = (sets ?? [options.map((_, i) => i)]).map((set) => set.map((i) => options[i]));
+      if (longer) {
+        const description = longer.found.exec(skill);
+        expect(description, `the ${header} question's longer ${longer.label}`).not.toBeNull();
+        options.push({ label: longer.label, description: description![1] });
+      }
+      const each = (
+        sets ?? [
+          options.slice(0, labels.length).map((_, i) => i),
+          ...(longer
+            ? [
+                [0, labels.length],
+                [labels.length, 0],
+              ]
+            : []),
+        ]
+      ).map((set) => set.map((i) => options[i]));
       parsed[header] = each[0];
       for (const set of each) {
         const shown = set.map((o, i) =>

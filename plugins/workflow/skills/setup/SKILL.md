@@ -86,7 +86,15 @@ moment the checks pass; nobody reads it first`. The pull request is first
 and marked recommended when the collaborators list someone besides the
 owner, else second, and pushing straight is recommended; on a run again,
 the file's answer is the recommended one. The answer writes `land:
-pull-request`, or takes the line out. When the call would then hold more
+pull-request`, or takes the line out. On a run again in a file with an
+Issues heading, `Pushed straight` also takes out what the Issues
+question's Yes wrote, as that question's No does on a run again (the
+paragraph that ends step 6, followed though the project no longer lands
+by pull request), since issues need pull requests, and the Issues
+question is not asked; its description is then `Lands the moment
+the checks pass; nobody reads it first. Issues are turned off too, since
+they need pull requests; issues already on GitHub stay` (Javi, 7
+November). When the call would then hold more
 than four questions (the tool's limit), the landing is asked in a call of
 its own after it.
 
@@ -286,7 +294,8 @@ that starts the queue's chats.
 
 On a run again, `No, not here` in a file with an Issues heading takes
 out what Yes wrote, as the Landing question undoes its answer (Javi, 7
-November), each part by Edit, the inverse of how Yes wrote it: the
+November), and so does the Landing question's `Pushed straight` there,
+each part by Edit, the inverse of how Yes wrote it: the
 `## Issues` heading and its lines; the `WORKFLOW_SECRETS_FILE` line of
 `containerEnv`; setup's own mount to `/run/secrets/workflow.env`, its
 source the fixed place or `${localEnv:WORKFLOW_SECRETS_FILE}`, a
@@ -334,7 +343,8 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `Webhook: secret and port reach this container.`, when the secret is
     set, read the same way; the port is 8789 when neither has it.
   - `Webhook: not set; plans webhook says what to turn on.`
-- When No took the Issues heading out on a run again, one line:
+- When No, or the Landing question's `Pushed straight`, took the Issues
+  heading out on a run again, one line:
   - `Issues: off; the Issues heading and the secrets file's mount are
     taken out, effective after a rebuild;
     ~/.config/workflow/<project>.env on the host is kept.`
