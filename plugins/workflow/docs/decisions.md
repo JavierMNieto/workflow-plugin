@@ -360,6 +360,22 @@ on the machine that planned them.
   from its transcripts and raised by what each waiting plan shares with
   the batch; the related pair retires (context-cost).
   plans/adaptive-reuse.md.
+  6 November: a session named plans that stops without taking them is
+  retired on every waiting plan, whatever its context
+  (plans-reach-an-executor). plans/executor-takes-next-ready-plan.md.
+- `plans-reach-an-executor` **Ready plans never wait with no executor: a
+  plan named to a session that stops without taking it goes to a fresh
+  executor, and a hook or timer that finds plans ready and none alive
+  starts one.** (Javi, 6 November) Eight plans sat two hours in a
+  project: an executor named nine plans built one and stopped, the hook
+  judged only the plans not yet told and passed, and nothing starts an
+  executor on its own. The planner's rule since 27 October, as SQS gives
+  a message received and not deleted to another consumer, and a
+  supervisor's restart of a worker that exits with work queued
+  (Kubernetes `restartPolicy: Always`; Sidekiq's orphaned jobs moved
+  back at startup and every five minutes). The queue is a file: the stop
+  is the acknowledgement, and what matters is that no plan is ignored.
+  plans/executor-takes-next-ready-plan.md.
 - `starts-bounded` **Starts are bounded, as every loop over model calls
   is.** (Javi, 27 October) A queue that starts sessions on its own must
   not spend the subscription's window or loop on a session that dies.

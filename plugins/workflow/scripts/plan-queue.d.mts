@@ -48,7 +48,10 @@ export type StopDecision = {
   runId?: number;
   told?: string[];
   retire?: true;
+  /** Retired on plans it was named at a stop and left waiting. */
+  declined?: true;
   paths?: string[];
+  why?: string;
   handover?: Handed;
   context?: string;
   /** Why the session was kept, and for which plans. */
@@ -430,8 +433,15 @@ export function decideEnd(facts: {
 export function endSession(
   sessionId: string,
   options?: { force?: boolean; live?: LiveRow[] | null },
-): { ended: boolean; line: string };
+): { ended: boolean; handed?: true; line: string };
 export function endCommand(ids?: string[]): string;
+/** How long a hook's `executor.starting` marker, left by a start still running or crashed, holds off another hook's. */
+export const STARTING_SPAN: number;
+/** The line of an executor started on the ready plans when none is alive, else "" (the gate, the marker, a refusal or a deferral). */
+export function startOnReady(options?: {
+  now?: number;
+  alive?: (pid?: number | null) => boolean;
+}): string;
 export function transcriptOf(row: { cwd?: string; sessionId?: string }, projects?: string): string;
 export function mayReuse(facts: {
   usage?: SessionUsage | null;

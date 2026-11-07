@@ -238,7 +238,8 @@ With `land: pull-request`, "push" means the landing
   while this session's context is under the reuse ceiling; the Stop hook
   judges that at every stop, names the plans or retires the session, and
   a session it names builds them, never declining them on its own count
-  of its context.
+  of its context; a session that stops with a named plan untaken is
+  retired on every waiting plan, and a fresh executor takes them.
 - Retired, with plans waiting, the Stop hook starts the next executor
   and tells you; your final message's first line says so, and goes as a
   push notification too. On your first turn in a started session, send

@@ -459,6 +459,15 @@ owner is asked.
 (decisions.md#one-executor, decisions.md#context-cost,
 decisions.md#shared-is-what-is-held)
 
+**Ready plans never wait with no executor**: a plan the Stop hook
+named to a session that stops without taking it goes to a fresh
+executor, the session retired on every waiting plan; and a planner's
+or an assistant's Stop hook, a retired executor's, or the end timer
+that finds plans ready, no executor alive and the queue open starts
+one under "Starts are bounded", two at one moment starting one.
+`plans` says on its first line that the next hook or timer starts one,
+or why none does. (decisions.md#plans-reach-an-executor)
+
 **Starts are bounded**: one executor at a time; none while the five-hour
 window is above 80 percent or the seven-day above 95, deferred to the
 reset; none after a quick death; twenty-four a day at most; `plans pause`

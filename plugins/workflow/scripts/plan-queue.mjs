@@ -148,6 +148,8 @@ const AFTER_RESET = 120;
 const files = {
   lock: () => join(root, ".claude", "executor.lock"),
   pause: () => join(root, ".claude", "executor.pause"),
+  // A hook starting an executor on ready plans (\`startOnReady\`), so two at one moment start one.
+  starting: () => join(root, ".claude", "executor.starting"),
   // One deferral per kind, so a planner's never drops an executor's; the
   // thirty minutes of "Asked once" have their own (`asking`), so a question
   // never moves a usage limit's restart.
@@ -1912,7 +1914,8 @@ export function decideEnd({
  * `{retire, paths}` (a fresh executor takes them), `{handover, plan}` (a
  * fresh executor resumes it), `{context}` (pass, with words for the model),
  * or null to pass. With plans waiting, the reuse verdict comes first, on all
- * of them, told or not; the plans not yet told are named only when it says yes.
+ * of them, told or not; a plan told and still waiting then retires the
+ * session; the plans not yet told are named only when it says yes.
  */
 export function decideStop({
   waiting = [],
@@ -2002,10 +2005,26 @@ export function decideStop({
   const pool = (fresh.length ? fresh : waiting).map((plan) => ({ plan, verdict: judge(plan) }));
   if (!pool.some(({ verdict }) => verdict.reuse))
     return { retire: true, paths: waiting.map((plan) => plan.path), why: pool[0].verdict.why };
+  // **A plan named and not taken goes to a fresh executor**
+  // (plans/executor-takes-next-ready-plan.md, part 1), as a brief goes to a
+  // fresh planner: this live executor refuses every start, so a plan it was
+  // named and stopped without taking would otherwise wait for good. Whatever
+  // its context, the session is retired on every waiting plan, the ones that
+  // arrived since included.
+  const declined = waiting.filter((plan) => told.includes(plan.path));
+  if (declined.length)
+    return {
+      retire: true,
+      declined: true,
+      paths: waiting.map((plan) => plan.path),
+      why:
+        declined.length === 1
+          ? "the plan named at the last stop is still waiting, untaken"
+          : "the plans named at the last stop are still waiting, untaken",
+    };
   // **Kept for the plans it has room for**, those are taken, and the rest go
   // to a fresh executor at the next stop.
-  const taken = fresh.length ? pool.filter(({ verdict }) => verdict.reuse) : [];
-  if (!taken.length) return null;
+  const taken = pool.filter(({ verdict }) => verdict.reuse);
   const paths = taken.map(({ plan }) => plan.path);
   const why = taken[0].verdict.why;
   return {
@@ -2793,6 +2812,17 @@ export function endSession(
     usageWords({ kind, usage, fallback: proj().reuse[kind], inputs: reuseNow() }),
   ].filter(Boolean);
   const line = `Ended ${who}: ${words.join(", ")}.`;
+  // **An ended executor holds nothing** (plans/executor-takes-next-ready-
+  // plan.md, part 2): its lock released and its state retired, so the start
+  // the end timer makes on ready plans does not count it as alive while its
+  // process winds down.
+  if (
+    parseName(row.name || "")?.kind === "executor" ||
+    readJson(files.lock())?.sessionId === sessionId
+  ) {
+    release(sessionId);
+    writeJson(files.state(sessionId), { ...readState(sessionId), retired: true });
+  }
   if (!verdict.on || !plan) return { ended: true, line };
   // **The plan under way is handed over once its session is stopped**, read
   // again so nothing it wrote while stopping is lost, and the queue resumes it
@@ -2808,7 +2838,12 @@ export function endSession(
   writeFileSync(plan.file, endedEdit(text, { sessionId, by: owner(), branch: branchOf(row.cwd) }));
   const agent = plan.state === "planning" ? "planner" : "executor";
   const started = start([plan.path], { replace: sessionId, agent });
-  return { ended: true, line: `${line} ${plan.path} is handed over.\n${started}` };
+  return {
+    ended: true,
+    // An executor started on the plan: the net starts none beside it.
+    ...(agent === "executor" ? { handed: true } : {}),
+    line: `${line} ${plan.path} is handed over.\n${started}`,
+  };
 }
 
 /**
@@ -2842,11 +2877,19 @@ export function endCommand(ids = [], { immediate = false } = {}) {
       else lines.push(`${id} is no live session of this queue; plans lists them.`);
     }
   }
-  for (const sessionId of [...new Set(targets)])
-    lines.push(endSession(sessionId, { force: true, immediate, live }).line);
+  let handed = false;
+  for (const sessionId of [...new Set(targets)]) {
+    const ended = endSession(sessionId, { force: true, immediate, live });
+    handed ||= Boolean(ended.handed);
+    lines.push(ended.line);
+  }
   // Each line above says why a session was not ended; with none alive, this says so.
   if (!ids.length && !targets.length)
     lines.push("Nothing to end: no finished chat of this queue is alive.");
+  // **Ready plans never wait with no executor** (plans/executor-takes-next-
+  // ready-plan.md, part 2), unless a handover above started one already.
+  const net = handed ? "" : startOnReady();
+  if (net) lines.push(net);
   return lines.join("\n");
 }
 
@@ -3075,6 +3118,142 @@ export function start(paths, options = {}) {
   return synced ? `${synced}\n${said}` : said;
 }
 
+/** How long a hook's \`executor.starting\` marker holds off another: a launch takes ten seconds. */
+export const STARTING_SPAN = 2 * MINUTE;
+
+/** The plans an executor's default pick takes: ready or handed, not asking. */
+function readyForExecutor(plans) {
+  return plans.filter((p) => (p.state === "ready" || p.state === "handed") && !p.askingIn);
+}
+
+/**
+ * **Ready plans never wait with no executor** (plans/executor-takes-next-
+ * ready-plan.md, part 2): a planner's or an assistant's Stop hook, a retired
+ * executor's, and the end timer start one when plans are ready and none is
+ * alive. A cheap gate first, no sessions read: the project found and not
+ * compact, the queue not paused, a ready or handed plan on disk, or one whose
+ * Building line may be a dead session's, and the lock absent, released, or
+ * held by a pid that is dead or unknown (a lock with no pid is judged by the
+ * sessions, in \`canStart\`). Then a marker created exclusively, its stale
+ * one reclaimed under a guard, so two hooks at one moment start one executor,
+ * and \`start\` with its bounds ("Starts are bounded"). The line \`start\`
+ * returns when it started one, else "": a refusal or a deferral is said by
+ * \`plans\`, not at every stop.
+ */
+export function startOnReady({ now = Date.now(), alive = pidAlive } = {}) {
+  if (!proj().found || proj().form === "compact" || pausedSince()) return "";
+  // A start already deferred to the window's reset has its timer: none again.
+  const deferred = readJson(files.deferred("executor"));
+  if (deferred?.pid && deferred.until > now) return "";
+  // A plan its planner is still asking about is that chat's for its window ("Asked once").
+  const asking = readJson(files.deferred("asking"));
+  const held = asking?.until > now ? asking.paths || [] : [];
+  const plans = readPlans(join(root, "plans"));
+  if (
+    !plans.some((p) => ["ready", "handed", "building"].includes(p.state) && !held.includes(p.path))
+  )
+    return "";
+  const lock = readJson(files.lock());
+  if (lockHeldByOther(lock, "", (pid) => Boolean(pid) && alive(pid))) return "";
+  const marker = files.starting();
+  const token = `${now} ${process.pid}`;
+  const create = () => {
+    try {
+      writeFileSync(marker, token, { flag: "wx" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    mkdirSync(dirname(marker), { recursive: true });
+  } catch {
+    return "";
+  }
+  if (!create()) {
+    // A stale marker is reclaimed under the guard, so two hooks that both
+    // found it stale cannot each remove the other's and both start.
+    const guard = `${marker}.guard`;
+    let guarded = false;
+    try {
+      guarded = takeGuard(guard);
+    } catch {
+      // A folder that cannot be written: no start from here.
+    }
+    if (!guarded) return "";
+    try {
+      let at;
+      try {
+        // A marker another hook has created and not yet written is its mtime's.
+        at = Number(readFileSync(marker, "utf8").split(" ")[0]) || statSync(marker).mtimeMs;
+      } catch {
+        at = 0;
+      }
+      if (now - at < STARTING_SPAN) return "";
+      try {
+        unlinkSync(marker);
+      } catch {
+        // Gone already.
+      }
+      if (!create()) return "";
+    } finally {
+      try {
+        unlinkSync(guard);
+      } catch {
+        // Gone already.
+      }
+    }
+  }
+  try {
+    const said = start([], { why: "plans were ready and no executor was alive" });
+    // Only a start is said at a stop: nothing waiting after all, a refusal or
+    // a deferral would repeat at every turn, and \`plans\` says on its first
+    // line why none starts (part 3).
+    return /was started on/.test(said) ? said : "";
+  } catch {
+    return "";
+  } finally {
+    // Only this hook's own marker is removed, never one that replaced it.
+    try {
+      if (readFileSync(marker, "utf8") === token) unlinkSync(marker);
+    } catch {
+      // Gone already.
+    }
+  }
+}
+
+/**
+ * The first line's words for no executor alive (part 3): with plans ready,
+ * that the next hook or timer starts one, or why none does, from \`canStart\`
+ * run dry.
+ */
+function noneAliveWords(plans, live) {
+  const ready = readyForExecutor(plans);
+  if (!ready.length) return "The executor: none alive.";
+  const count = `${ready.length} ${ready.length === 1 ? "plan" : "plans"} ready`;
+  const lock = readJson(files.lock());
+  const decision = canStart({
+    kind: "executor",
+    lock,
+    alive: () => holderAlive(lock, live),
+    log: readLog(),
+    progressAt: progressAt(plans),
+    paused: pausedSince(),
+    usage: readJson(files.usage()),
+    sessions: [],
+    name: proj().name,
+    fallback: proj().reuse.executor,
+    // Only the verdict is said, so the name it would take needs no sessions read.
+    taken: [],
+    machine: machine().name,
+  });
+  if (decision.refuse)
+    return `The executor: none alive; ${count}, but none starts: ${decision.why.replace(/\.$/, "")}.`;
+  if (decision.defer)
+    return `The executor: none alive; ${count}, but none starts: until ${hhmm(decision.until)}, ${decision.why}.`;
+  return `The executor: none alive; ${count}, and the next hook or timer starts one.`;
+}
+
 /** The effort an agent's frontmatter names (`effort: high`), or "". */
 export function agentEffort(agent, dir = join(here, "..", "agents")) {
   try {
@@ -3137,9 +3316,7 @@ function startHere(
         ? freeBriefs(plans, { live, replace })
             .slice(0, 1)
             .map((p) => p.path)
-        : plans
-            .filter((p) => (p.state === "handed" || p.state === "ready") && !p.askingIn)
-            .map((p) => p.path);
+        : readyForExecutor(plans).map((p) => p.path);
   if (!paths.length) return "Nothing is waiting in the queue.";
   if (kind === "executor") {
     // **A dropped plan is nobody's to build** (plans/dropped-plan-state.md):
@@ -3418,6 +3595,8 @@ function startHere(
       ...(replace && why
         ? [`${oldName} [${String(replace).slice(0, 8)}] was retired: ${why}.`]
         : []),
+      // A start with nothing replaced says its own why (startOnReady's).
+      ...(!replace && why ? [`${why[0].toUpperCase()}${why.slice(1)}.`] : []),
       ...retiredWords,
     ].join(" ");
     appendFileSync(
@@ -3638,7 +3817,7 @@ export function list({ all = false, live, related = true, readers = null } = {})
   // **The executor line comes from the sessions** (plans/queue-counts-any-
   // executor.md): a retired executor that kept working held no lock and read
   // as "none alive". The lock alone speaks only when the sessions cannot be read.
-  let executor = "The executor: none alive.";
+  let executor = "";
   if (live)
     executor = sessionsLine(
       "executor",
@@ -3656,6 +3835,8 @@ export function list({ all = false, live, related = true, readers = null } = {})
     );
   else if (lock && !lock.released)
     executor = `The executor: ${lock.name || nameOf(lock.sessionId)} [${String(lock.sessionId).slice(0, 8)}], status unknown.`;
+  if (!executor || executor === "The executor: none alive.")
+    executor = proj().found ? noneAliveWords(plans, live) : "The executor: none alive.";
   const here = machine();
   out.push(`Plans on ${here.name}, ${today(now)} ${now.toTimeString().slice(0, 5)}. ${executor}`);
   // **The planner line** (plans/planner-queue.md): the queue's planners only.
@@ -4957,10 +5138,19 @@ function plannerHook(mode, input, sessionId, statePath) {
       inputs: reuseNow(),
       fallback: proj().reuse.planner,
     });
+    // **Ready plans never wait with no executor** (plans/executor-takes-next-
+    // ready-plan.md, part 2): a plan this planner wrote and did not hand on,
+    // or whose start an executor that then died refused, is started here.
+    const withNet = (context) => {
+      const net = startOnReady();
+      return [context, net].filter(Boolean).join("\n\n");
+    };
     if (!decision) {
       writeJson(statePath, state);
       // **A finished chat ends an hour after it goes quiet** (plans/idle-chats-end.md).
       armEnd(sessionId, live);
+      const net = withNet("");
+      if (net) hookOutput("Stop", net);
       return;
     }
     if (decision.refuse) {
@@ -4976,7 +5166,9 @@ function plannerHook(mode, input, sessionId, statePath) {
       const relatedText = found?.text || "";
       if (found?.read) state.relatedSaid = [...said, state.brief];
       writeJson(statePath, state);
-      const reason = relatedText ? `${decision.reason}\n\n${relatedText}` : decision.reason;
+      const reason = withNet(
+        relatedText ? `${decision.reason}\n\n${relatedText}` : decision.reason,
+      );
       process.stdout.write(JSON.stringify({ decision: "block", reason }));
       return;
     }
@@ -4992,7 +5184,7 @@ function plannerHook(mode, input, sessionId, statePath) {
     // this planner unretired then, so the chat is stopped here.
     if (state.plans.length && state.plans.every((path) => doneWith(planText(path))))
       stopPlannersOn(state.plans[0], live);
-    hookOutput("Stop", `Retired: ${why}. ${said}`);
+    hookOutput("Stop", withNet(`Retired: ${why}. ${said}`));
   }
 }
 
@@ -5106,12 +5298,18 @@ function hook(mode, input) {
   // (plans/project-follow-ups-reach-the-project.md, part 6), by its numbered
   // name; the owner's own assistant chat is never the queue's to end.
   if (mode === "stop" && kindOf(input) === "assistant") {
+    // **Ready plans never wait with no executor** (plans/executor-takes-next-
+    // ready-plan.md, part 2): the owner's chat too, whose cheap gate reads no
+    // sessions unless a plan is ready and the lock is free.
+    const net = startOnReady();
     // Only a chat the queue launched carries the mark, so the owner's own
     // chat never waits on `claude agents` at its stops (/code-review).
-    if (process.env.WORKFLOW_STARTED !== "assistant") return;
-    const live = liveSessions();
-    const row = live?.find((r) => r.sessionId === sessionId);
-    if (parseName(row?.name || "")?.kind === "assistant") armEnd(sessionId, live);
+    if (process.env.WORKFLOW_STARTED === "assistant") {
+      const live = liveSessions();
+      const row = live?.find((r) => r.sessionId === sessionId);
+      if (parseName(row?.name || "")?.kind === "assistant") armEnd(sessionId, live);
+    }
+    if (net) hookOutput("Stop", net);
     return;
   }
   if (kindOf(input) === "planner") {
@@ -5317,6 +5515,10 @@ function hook(mode, input) {
     });
     if (!decision) {
       armEnd(sessionId, live);
+      // A retired session whose successor's start was refused, deferred or
+      // died hands on at its next stop (plans/executor-takes-next-ready-plan.md).
+      const net = state.retired ? startOnReady() : "";
+      if (net) hookOutput("Stop", net);
       return;
     }
     if (decision.refuse) {
@@ -6282,10 +6484,19 @@ export function main(args = process.argv.slice(2)) {
       const sessionId = rest.filter((_, i) => i !== at && i !== at + 1)[0];
       setTimeout(
         () => {
+          let handed = false;
           try {
-            if (sessionId) endSession(sessionId);
+            if (sessionId) handed = Boolean(endSession(sessionId).handed);
           } catch {
             // A timer that fails ends nothing: the supervisor's own clock remains.
+          }
+          // **The end timer is the queue's sweep** (plans/executor-takes-next-
+          // ready-plan.md, part 2): plans ready and no executor alive start one,
+          // unless the end handed a plan over and started one already.
+          try {
+            if (!handed) startOnReady();
+          } catch {
+            // A start that fails leaves the plans to the next hook or timer.
           }
           // Fired, it is no timer of the session's any more, so its pid is not signalled.
           if (sessionId) clearEnd(sessionId);
