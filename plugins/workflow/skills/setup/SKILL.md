@@ -217,9 +217,14 @@ project's Claude writes and the people comment on?", with the
 options `Yes, topics become issues` (Writes an Issues heading in the
 project file and mounts your private secrets file, read only; you
 register a GitHub App once, on GitHub) and `No, not here` (Nothing changes; plans
-stay in the plans folder alone). Yes is first and marked recommended when
+stay in the plans folder alone), whose description on a run again in a
+file with an Issues heading is instead `No, not here` (Turns issues off
+here: the issues setting and the secrets file access are taken out;
+issues already on GitHub stay). Yes is first and marked recommended when
 the collaborators list someone besides the owner, else No is first and
-recommended; on a run again, the file's answer is the recommended one.
+recommended; on a run again, the file's answer is the recommended one
+when the file already had `land: pull-request` or an Issues heading;
+else the collaborators rule decides, since the question is new to it.
 Yes writes the heading at the end of the project file's body:
 
 ```
@@ -279,6 +284,21 @@ Without a `.devcontainer/`, nothing is written, and the final
 message says the names, or `WORKFLOW_SECRETS_FILE`, must be in the shell
 that starts the queue's chats.
 
+On a run again, `No, not here` in a file with an Issues heading takes
+out what Yes wrote, as the Landing question undoes its answer (Javi, 7
+November), each part by Edit, the inverse of how Yes wrote it: the
+`## Issues` heading and its lines; the `WORKFLOW_SECRETS_FILE` line of
+`containerEnv`; setup's own mount to `/run/secrets/workflow.env`, its
+source the fixed place or `${localEnv:WORKFLOW_SECRETS_FILE}`, a
+`mounts` array left empty going with it (in Compose, the service's
+volume with that target and either source); and the `workflow-secrets`
+command, a string `initializeCommand` losing its ` && <the command>`
+part (the key going when it held only that), an object one its
+`"workflow-secrets"` key. A mount to that target
+with any other source is the project's own and stays. The host's
+`~/.config/workflow/<project>.env` and the issues already on GitHub
+stay. The final message says so in step 7's `Issues: off` line.
+
 ## 7. Say what is on and what it costs
 
 One line each, from the counts you can take (each plugin's `skills/` and
@@ -314,6 +334,12 @@ One line each, from the counts you can take (each plugin's `skills/` and
   - `Webhook: secret and port reach this container.`, when the secret is
     set, read the same way; the port is 8789 when neither has it.
   - `Webhook: not set; plans webhook says what to turn on.`
+- When No took the Issues heading out on a run again, one line:
+  - `Issues: off; the Issues heading and the secrets file's mount are
+    taken out, effective after a rebuild;
+    ~/.config/workflow/<project>.env on the host is kept.`
+  - `Issues: off; the Issues heading is taken out.`, when no secrets
+    part of setup's own was there to take out.
 
 Then: `/context in a chat here shows the numbers.`
 

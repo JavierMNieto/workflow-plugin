@@ -250,7 +250,10 @@ on the machine that planned them.
   plans/related-plans-share-a-pull-request-follow-up.md. 7 November: the
   Issues question recommends issues when someone besides the owner builds
   here, as the Landing question does (Javi).
-  plans/related-plans-share-a-pull-request-follow-up-2.md.
+  plans/related-plans-share-a-pull-request-follow-up-2.md. 7 November: No
+  on a run again turns issues off, and the file's answer counts only from
+  a file already landing by pull request or with issues on (Javi).
+  plans/related-plans-share-a-pull-request-follow-up-3.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

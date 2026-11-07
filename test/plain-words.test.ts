@@ -178,7 +178,9 @@ describe("the plain-words check", () => {
 
   // plans/related-plans-share-a-pull-request-follow-up-2.md: every question the setup skill
   // quotes whole (Landing, Pull requests, Issues), with its options as the skill gives them, the
-  // first marked recommended as it is when asked, each through the hook.
+  // first marked recommended as it is when asked, each through the hook; the Issues question
+  // with each description of No (follow-up-3: a first ask, and a run again with issues on), each
+  // with Yes first and with No first, as the collaborators rule orders them.
   it("passes the setup skill's Landing, Pull requests and Issues questions, and refuses the Issues one-sentence form", () => {
     const skill = readFileSync(
       new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
@@ -204,7 +206,13 @@ describe("the plain-words check", () => {
         header: "Issues",
         found: /header `Issues`: "([^"]+)", with the options (.*?) Yes is first/,
         option: inParentheses,
-        labels: ["Yes, topics become issues", "No, not here"],
+        labels: ["Yes, topics become issues", "No, not here", "No, not here"],
+        sets: [
+          [0, 1],
+          [0, 2],
+          [1, 0],
+          [2, 0],
+        ],
       },
     ];
     const asked = (header: string, text: string, options: object[]) => ({
@@ -214,7 +222,13 @@ describe("the plain-words check", () => {
       options,
     });
     const parsed: Record<string, object[]> = {};
-    for (const { header, found, option, labels } of quoted) {
+    for (const { header, found, option, labels, sets } of quoted as {
+      header: string;
+      found: RegExp;
+      option: RegExp;
+      labels: string[];
+      sets?: number[][];
+    }[]) {
       const match = found.exec(skill);
       expect(
         match,
@@ -229,16 +243,19 @@ describe("the plain-words check", () => {
         options.map((o) => o.label),
         `the ${header} question's options`,
       ).toEqual(labels);
-      parsed[header] = options;
-      const shown = options.map((o, i) =>
-        i > 0 || o.label.endsWith(" (Recommended)")
-          ? o
-          : { ...o, label: `${o.label} (Recommended)` },
-      );
-      expect(
-        run(lab, "question", call(session(), asked(header, text, shown))),
-        `the ${header} question through the hook`,
-      ).toBe("");
+      const each = (sets ?? [options.map((_, i) => i)]).map((set) => set.map((i) => options[i]));
+      parsed[header] = each[0];
+      for (const set of each) {
+        const shown = set.map((o, i) =>
+          i > 0 || o.label.endsWith(" (Recommended)")
+            ? o
+            : { ...o, label: `${o.label} (Recommended)` },
+        );
+        expect(
+          run(lab, "question", call(session(), asked(header, text, shown))),
+          `the ${header} question through the hook, its last option: ${set.at(-1)!.description}`,
+        ).toBe("");
+      }
     }
     expect(
       run(

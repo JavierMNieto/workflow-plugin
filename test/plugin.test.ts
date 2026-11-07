@@ -1789,7 +1789,51 @@ describe("the setup interview", () => {
       "utf8",
     ).replace(/\s+/g, " ");
     expect(text).toContain(
-      "plans stay in the plans folder alone). Yes is first and marked recommended when the collaborators list someone besides the owner, else No is first and recommended; on a run again, the file's answer is the recommended one. Yes writes the heading",
+      "Yes is first and marked recommended when the collaborators list someone besides the owner, else No is first and recommended; on a run again, the file's answer is the recommended one",
+    );
+  });
+
+  // plans/related-plans-share-a-pull-request-follow-up-3.md, Decided 1.
+  it("has the setup skill's No on a run again take out the Issues heading and setup's secrets parts, keeping the host's file", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    expect(text).toContain(
+      "`No, not here` (Turns issues off here: the issues setting and the secrets file access are taken out; issues already on GitHub stay)",
+    );
+    const undo = text.slice(
+      text.indexOf("On a run again, `No, not here` in a file with an Issues heading takes out"),
+    );
+    expect(undo).not.toBe(text);
+    for (const part of [
+      "the `## Issues` heading and its lines",
+      "the `WORKFLOW_SECRETS_FILE` line of `containerEnv`",
+      "setup's own mount to `/run/secrets/workflow.env`",
+      "a `mounts` array left empty going with it",
+      "(in Compose, the service's volume with that target and either source)",
+      "a string `initializeCommand` losing its ` && <the command>` part (the key going when it held only that)",
+      'an object one its `"workflow-secrets"` key',
+      "A mount to that target with any other source is the project's own and stays.",
+      "The host's `~/.config/workflow/<project>.env` and the issues already on GitHub stay.",
+    ])
+      expect(undo).toContain(part);
+    expect(text).toContain(
+      "`Issues: off; the Issues heading and the secrets file's mount are taken out, effective after a rebuild; ~/.config/workflow/<project>.env on the host is kept.`",
+    );
+    expect(text).toContain(
+      "`Issues: off; the Issues heading is taken out.`, when no secrets part of setup's own was there to take out",
+    );
+  });
+
+  // plans/related-plans-share-a-pull-request-follow-up-3.md, Decided 2.
+  it("has the setup skill recommend the file's Issues answer only from a file that already landed by pull request or had issues on", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    expect(text).toContain(
+      "on a run again, the file's answer is the recommended one when the file already had `land: pull-request` or an Issues heading; else the collaborators rule decides, since the question is new to it. Yes writes the heading",
     );
   });
 
