@@ -176,42 +176,80 @@ describe("the plain-words check", () => {
     expect(run(lab, "question", call(session(), asked))).toBe("");
   });
 
-  // plans/related-plans-share-a-pull-request-follow-up.md: the setup skill's Issues question,
-  // with its two options, as the skill gives them.
-  it("passes the setup skill's Issues question, and refused its old one-sentence form", () => {
+  // plans/related-plans-share-a-pull-request-follow-up-2.md: every question the setup skill
+  // quotes whole (Landing, Pull requests, Issues), with its options as the skill gives them, the
+  // first marked recommended as it is when asked, each through the hook.
+  it("passes the setup skill's Landing, Pull requests and Issues questions, and refuses the Issues one-sentence form", () => {
     const skill = readFileSync(
       new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
       "utf8",
     ).replace(/\s+/g, " ");
-    const found = /header `Issues`: "([^"]+)", with the options (.*?) Yes writes/.exec(skill);
-    expect(
-      found,
-      "the setup skill's Issues question, as quoted text and its options",
-    ).not.toBeNull();
-    const [, asked, rest] = found!;
-    const options = [...rest.matchAll(/`([^`]+)` \(([^)]+)\)/g)].map(([, label, description]) => ({
-      label,
-      description,
-    }));
-    expect(options.map((option) => option.label)).toEqual([
-      "Yes, topics become issues",
-      "No, not here",
-    ]);
-    const issues = (text: string) => ({
+    // Landing gives its options as `label`, description `text`; the others as `label` (text).
+    const byDescription = /`([^`]+)`, description `([^`]+)`/g;
+    const inParentheses = /`([^`]+)` \(([^)]+)\)/g;
+    const quoted = [
+      {
+        header: "Landing",
+        found: /header `Landing`, question `([^`]+)`, options (.*?)\. The pull request is first/,
+        option: byDescription,
+        labels: ["A pull request to merge", "Pushed straight"],
+      },
+      {
+        header: "Pull requests",
+        found: /header `Pull requests`: "([^"]+)", with the options (.*?) The answer replaces/,
+        option: inParentheses,
+        labels: ["Related plans share one (Recommended)", "A pull request per topic"],
+      },
+      {
+        header: "Issues",
+        found: /header `Issues`: "([^"]+)", with the options (.*?) Yes is first/,
+        option: inParentheses,
+        labels: ["Yes, topics become issues", "No, not here"],
+      },
+    ];
+    const asked = (header: string, text: string, options: object[]) => ({
       question: text,
-      header: "Issues",
+      header,
       multiSelect: false,
       options,
     });
-    expect(run(lab, "question", call(session(), issues(asked)))).toBe("");
+    const parsed: Record<string, object[]> = {};
+    for (const { header, found, option, labels } of quoted) {
+      const match = found.exec(skill);
+      expect(
+        match,
+        `the setup skill's ${header} question, as quoted text and its options`,
+      ).not.toBeNull();
+      const [, text, rest] = match!;
+      const options = [...rest.matchAll(option)].map(([, label, description]) => ({
+        label,
+        description,
+      }));
+      expect(
+        options.map((o) => o.label),
+        `the ${header} question's options`,
+      ).toEqual(labels);
+      parsed[header] = options;
+      const shown = options.map((o, i) =>
+        i > 0 || o.label.endsWith(" (Recommended)")
+          ? o
+          : { ...o, label: `${o.label} (Recommended)` },
+      );
+      expect(
+        run(lab, "question", call(session(), asked(header, text, shown))),
+        `the ${header} question through the hook`,
+      ).toBe("");
+    }
     expect(
       run(
         lab,
         "question",
         call(
           session(),
-          issues(
+          asked(
+            "Issues",
             "Should topics here become GitHub issues that the project's Claude writes and the people comment on?",
+            parsed.Issues,
           ),
         ),
       ),

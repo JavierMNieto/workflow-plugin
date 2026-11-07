@@ -247,7 +247,10 @@ on the machine that planned them.
   plans/related-plans-share-a-pull-request.md. 7 November: the Issues
   question opens with two sentences of context, and its No option says
   the plans folder, not its path, as the plain-words check needs.
-  plans/related-plans-share-a-pull-request-follow-up.md.
+  plans/related-plans-share-a-pull-request-follow-up.md. 7 November: the
+  Issues question recommends issues when someone besides the owner builds
+  here, as the Landing question does (Javi).
+  plans/related-plans-share-a-pull-request-follow-up-2.md.
 - `connectors-off` **A project turns off the claude.ai connectors it does
   not use, whole, in its own settings.** (Javi, 27 October) The account's
   connectors otherwise reach every chat in every project; a project

@@ -1782,6 +1782,17 @@ describe("the setup interview", () => {
     expect(text).not.toContain('"Should topics here');
   });
 
+  // plans/related-plans-share-a-pull-request-follow-up-2.md.
+  it("has the setup skill's Issues question recommend Yes when someone besides the owner builds here", () => {
+    const text = readFileSync(
+      new URL("../plugins/workflow/skills/setup/SKILL.md", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    expect(text).toContain(
+      "plans stay in the plans folder alone). Yes is first and marked recommended when the collaborators list someone besides the owner, else No is first and recommended; on a run again, the file's answer is the recommended one. Yes writes the heading",
+    );
+  });
+
   it("has the setup skill at fable, and the kinds table's five rows of eight columns", () => {
     const skill = new URL("../plugins/workflow/skills/setup/", import.meta.url).pathname;
     const text = readFileSync(join(skill, "SKILL.md"), "utf8");

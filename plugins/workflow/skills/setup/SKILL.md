@@ -217,8 +217,10 @@ project's Claude writes and the people comment on?", with the
 options `Yes, topics become issues` (Writes an Issues heading in the
 project file and mounts your private secrets file, read only; you
 register a GitHub App once, on GitHub) and `No, not here` (Nothing changes; plans
-stay in the plans folder alone). Yes writes the heading at the end of the project
-file's body:
+stay in the plans folder alone). Yes is first and marked recommended when
+the collaborators list someone besides the owner, else No is first and
+recommended; on a run again, the file's answer is the recommended one.
+Yes writes the heading at the end of the project file's body:
 
 ```
 ## Issues
