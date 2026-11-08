@@ -708,9 +708,12 @@ hook writes `~/.local/bin/plans`, where Claude Code's own installer puts
 `claude`, a shell wrapper that runs the installed copy named by Claude
 Code's install record at each call, so a plugin update changes what it
 runs with no step from anyone, and a rebuilt container has it back after
-its first chat. A PATH without `~/.local/bin` is said once, with the
-line to add, when the file is written; a file there that is not the
-plugin's is left alone and said. (decisions.md#plans-in-the-terminal)
+its first chat. A PATH without `~/.local/bin` is said in the owner's
+own chats at each start while it holds, with the line to add, and never
+in a chat the queue started, which nobody reads; a copy the record names
+that is gone is said by the wrapper, with the update command; a file
+there that is not the plugin's is left alone and said.
+(decisions.md#plans-in-the-terminal)
 
 **A push needs a token in the container**: a fine-grained `GH_TOKEN` on
 the host (Contents and Workflows read and write, Actions and Metadata

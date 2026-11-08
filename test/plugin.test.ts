@@ -26,6 +26,7 @@ import {
   sessionName,
   pathsIn,
   sessionEnv,
+  launchEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { FILES, missing, steps } from "../plugins/workflow/scripts/install-check.mjs";
 import { install, onPath, source, WRAPPER } from "../plugins/workflow/scripts/plans-on-path.mjs";
@@ -746,6 +747,27 @@ describe("the plugin's queue in any project", () => {
     );
   });
 
+  // plans/plans-on-the-terminal-path-follow-up.md: every chat the queue starts is marked with its kind.
+  it("marks a chat it starts with its kind, without what sessionEnv drops", () => {
+    const bin = "/home/u/.claude/plugins/cache/workflow/workflow/73aa1d388dcc/bin";
+    const inherited = {
+      WORKFLOW_ROOT: "/a",
+      CLAUDE_PROJECT_DIR: "/b",
+      CLAUDE_SESSION_ID: "s",
+      CLAUDE_PLUGIN_ROOT: "/r",
+      CLAUDE_PLUGIN_DATA: "/d",
+      WORKFLOW_STARTED: "assistant",
+      PATH: [bin, "/bin"].join(delimiter),
+      HOME: "/h",
+    };
+    for (const kind of ["executor", "planner", "assistant"])
+      expect(launchEnv(kind, inherited)).toEqual({
+        PATH: "/bin",
+        HOME: "/h",
+        WORKFLOW_STARTED: kind,
+      });
+  });
+
   it("finds any path of two segments with an extension, and no address or plan", () => {
     expect(pathsIn("see src/a/b.ts and docs/x.md, not 192.0.2.1 or plans/p.md")).toEqual([
       "src/a/b.ts",
@@ -834,13 +856,21 @@ describe("the status line's copy", () => {
 // plans/plans-on-the-terminal-path.md: `plans` in the owner's own terminal.
 describe("the terminal's plans", () => {
   const record = "/fake/installed_plugins.json";
-  const hook = (target: string, PATH = process.env.PATH) =>
-    execFileSync("node", [join(scripts, "plans-on-path.mjs")], {
+  // The owner's chat unless `started` names the kind the queue marked it with.
+  const hook = (target: string, PATH = process.env.PATH, started?: string) => {
+    const { WORKFLOW_STARTED: _started, ...env } = process.env;
+    return execFileSync("node", [join(scripts, "plans-on-path.mjs")], {
       encoding: "utf8",
-      env: { ...process.env, WORKFLOW_BIN: target, PATH },
+      env: {
+        ...env,
+        WORKFLOW_BIN: target,
+        PATH,
+        ...(started ? { WORKFLOW_STARTED: started } : {}),
+      },
     });
+  };
   const pathLine =
-    "`plans` is now a command at ~/.local/bin/plans, but ~/.local/bin is not on this machine's PATH. To run it from a terminal, add `export PATH=\"$HOME/.local/bin:$PATH\"` to your shell's startup file (~/.zshrc or ~/.bashrc), then open a new terminal.";
+    '`plans` is a command at ~/.local/bin/plans, but ~/.local/bin is not on PATH in the terminal this chat was started from. To run it from a terminal, add `export PATH="$HOME/.local/bin:$PATH"` to your shell\'s startup file (~/.zshrc or ~/.bashrc), then open a new terminal.';
   const foreignLine =
     "~/.local/bin/plans exists and is not the workflow plugin's, so it was left as it is; the queue's command is still plans in a chat.";
   const agent = "Say this line to the owner in a sentence, then go on with the work.";
@@ -876,9 +906,10 @@ describe("the terminal's plans", () => {
     expect(readFileSync(file, "utf8")).toBe(text);
     // The hook itself, with its own text, writes once.
     const fresh = dir("bin-");
-    hook(fresh);
+    const onIt = `${fresh}${delimiter}${process.env.PATH}`;
+    hook(fresh, onIt);
     const first = statSync(join(fresh, "plans")).mtimeMs;
-    expect(hook(fresh)).toBe("");
+    expect(hook(fresh, onIt)).toBe("");
     expect(statSync(join(fresh, "plans")).mtimeMs).toBe(first);
   });
 
@@ -920,15 +951,49 @@ describe("the terminal's plans", () => {
     }
   });
 
-  it("says the PATH line when it wrote the file and PATH lacks the folder, else nothing", () => {
-    const said = JSON.parse(hook(dir("bin-")));
-    expect(said.systemMessage).toBe(pathLine);
-    expect(said.hookSpecificOutput).toEqual({
-      hookEventName: "SessionStart",
-      additionalContext: `${pathLine}\n\n${agent}`,
-    });
+  it("says a copy the record names that is gone in one line, with the update command", () => {
+    const plugins = dir("plugins-");
+    const never = join(plugins, "cache", "workflow", "workflow", "0.0.1");
+    const empty = join(plugins, "cache", "workflow", "workflow", "0.0.2");
+    mkdirSync(empty, { recursive: true });
+    for (const copy of [never, empty]) {
+      const recordFile = join(plugins, "installed_plugins.json");
+      writeFileSync(
+        recordFile,
+        JSON.stringify({ version: 2, plugins: { "workflow@workflow": [{ installPath: copy }] } }),
+      );
+      const bin = dir("bin-");
+      install(bin, WRAPPER(recordFile, "workflow@workflow"));
+      const run = spawnSync("sh", [join(bin, "plans")], { encoding: "utf8" });
+      expect(run.stderr).toBe(
+        `The workflow plugin's installed copy is gone: ${recordFile} names ${copy}, which has no bin/plans. Install it again with: claude plugin update workflow@workflow\n`,
+      );
+      expect(run.status).toBe(1);
+      const out = run.stdout + run.stderr;
+      expect(out).not.toContain("Cannot find module");
+      expect(out).not.toMatch(/^ {4}at /m);
+    }
+  });
+
+  it("says the PATH line in the owner's chat at each start while PATH lacks the folder, else nothing", () => {
+    const target = dir("bin-");
+    for (let start = 0; start < 2; start++) {
+      const said = JSON.parse(hook(target));
+      expect(said.systemMessage).toBe(pathLine);
+      expect(said.hookSpecificOutput).toEqual({
+        hookEventName: "SessionStart",
+        additionalContext: `${pathLine}\n\n${agent}`,
+      });
+    }
+    // A chat the queue started is read by nobody: the file is written, nothing said.
+    for (const kind of ["executor", "planner", "assistant"]) {
+      const marked = dir("bin-");
+      expect(hook(marked, process.env.PATH, kind)).toBe("");
+      expect(readFileSync(join(marked, "plans"), "utf8")).toContain("bin/plans");
+    }
     const onIt = dir("bin-");
     expect(hook(onIt, `${onIt}/${delimiter}${process.env.PATH}`)).toBe("");
+    expect(hook(onIt, `${onIt}/${delimiter}${process.env.PATH}`, "executor")).toBe("");
     expect(onPath(onIt, `/usr/bin${delimiter}${onIt}/`)).toBe(true);
     expect(onPath("/home/me/.local/bin", "~/.local/bin")).toBe(false);
   });

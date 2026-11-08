@@ -2577,6 +2577,16 @@ export function sessionEnv(env = process.env) {
   return rest;
 }
 
+/**
+ * A chat the queue launches is marked with its kind, so a hook of the
+ * plugin can tell it from the owner's own chat (the terminal's plans
+ * says its PATH line only to the owner); the Stop hook reads the
+ * assistant's value to end the chat an hour after it goes quiet.
+ */
+export function launchEnv(kind, env = process.env) {
+  return { ...sessionEnv(env), WORKFLOW_STARTED: kind };
+}
+
 /** A plugin's `bin` folder in Claude Code's cache: `<plugins>/cache/<marketplace>/<plugin>/<version>/bin`. */
 const PLUGIN_BIN = /[\\/]plugins[\\/]cache[\\/][^\\/]+[\\/][^\\/]+[\\/][^\\/]+[\\/]bin[\\/]?$/;
 
@@ -2602,8 +2612,7 @@ function launch(args, name, kind) {
       cwd: root,
       detached: true,
       stdio: ["ignore", fd, fd],
-      // An assistant chat is marked as the queue's, for its own Stop hook.
-      env: { ...sessionEnv(), ...(kind === "assistant" ? { WORKFLOW_STARTED: "assistant" } : {}) },
+      env: launchEnv(kind),
     });
     child.on("error", () => {
       // A launcher that cannot run says so in nothing: the wait reports it.

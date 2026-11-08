@@ -704,8 +704,15 @@ on the machine that planned them.
   install check already calls installed, so the wrapper reads it at each
   call rather than being rewritten after an update. The hook says a
   missing PATH entry rather than editing a shell file, as `uv tool
-  install` warns and only `uv tool update-shell` edits.
-  plans/plans-on-the-terminal-path.md.
+  install` warns and only `uv tool update-shell` edits. 8 November,
+  later: the PATH line went to whichever chat wrote the file, a queue
+  chat after a rebuild, so it is said in the owner's chats at each start
+  while PATH lacks the directory, as uv and pipx warn at each install,
+  and the queue marks every chat it launches; a copy the record names
+  that was removed gave Node's trace, so the wrapper checks for
+  `bin/plans` first and says the update command.
+  plans/plans-on-the-terminal-path.md,
+  plans/plans-on-the-terminal-path-follow-up.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the

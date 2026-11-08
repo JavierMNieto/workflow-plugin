@@ -58,6 +58,10 @@ dir=$(node -e '
   echo "The workflow plugin is not installed on this machine: $record names no $key. Install it with: claude plugin install $key" >&2
   exit 1
 }
+[ -f "$dir/bin/plans" ] || {
+  echo "The workflow plugin's installed copy is gone: $record names $dir, which has no bin/plans. Install it again with: claude plugin update $key" >&2
+  exit 1
+}
 exec node "$dir/bin/plans" "$@"
 `;
 
@@ -108,7 +112,7 @@ export function onPath(dir, pathEnv = process.env.PATH || "") {
 }
 
 const PATH_LINE =
-  "`plans` is now a command at ~/.local/bin/plans, but ~/.local/bin is not on this machine's PATH. To run it from a terminal, add `export PATH=\"$HOME/.local/bin:$PATH\"` to your shell's startup file (~/.zshrc or ~/.bashrc), then open a new terminal.";
+  '`plans` is a command at ~/.local/bin/plans, but ~/.local/bin is not on PATH in the terminal this chat was started from. To run it from a terminal, add `export PATH="$HOME/.local/bin:$PATH"` to your shell\'s startup file (~/.zshrc or ~/.bashrc), then open a new terminal.';
 const FOREIGN_LINE =
   "~/.local/bin/plans exists and is not the workflow plugin's, so it was left as it is; the queue's command is still plans in a chat.";
 const AGENT = "Say this line to the owner in a sentence, then go on with the work.";
@@ -124,8 +128,12 @@ function main() {
     return;
   }
   let text = null;
-  if (result === "written" && !onPath(dir)) text = PATH_LINE;
   if (result === "foreign") text = FOREIGN_LINE;
+  // A line said once can land in a chat nobody reads, so the PATH line is said
+  // at each start while PATH lacks the directory, and only in the owner's own
+  // chats: one the queue started (marked WORKFLOW_STARTED by launch()) is read
+  // by nobody.
+  else if (!process.env.WORKFLOW_STARTED && !onPath(dir)) text = PATH_LINE;
   if (!text) return;
   // The owner sees the line; the agent gets the line and what to do with it.
   process.stdout.write(
