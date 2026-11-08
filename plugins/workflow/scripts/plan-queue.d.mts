@@ -132,6 +132,11 @@ export function checkDeny(
 export function sessionEnv(
   env?: Record<string, string | undefined>,
 ): Record<string, string | undefined>;
+/** A chat the queue launches is marked with its kind. */
+export function launchEnv(
+  kind: string,
+  env?: Record<string, string | undefined>,
+): Record<string, string | undefined>;
 export function takeLock(
   sessionId: string,
   live: LiveRow[] | null,

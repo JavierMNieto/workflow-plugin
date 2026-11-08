@@ -424,6 +424,14 @@ describe("the plugin's queue in any project", () => {
     // A screenshot sits under its bullet, one level in.
     expect(topic).toMatch(/\n {2}!\[<[^\]\n]+>\]\(plans\/<topic>\/<file>\.png\)/);
     expect(fixes).toMatch(/^## Fixes\n\n- <The commit's title\.>\n/m);
+    // plans/short-pull-request-descriptions-follow-up-2.md: the line is the alt text, once.
+    expect(fixes).not.toContain("<What changed in the screenshot, in one line.>");
+    expect(fixes).toMatch(/\n {2}!\[<[^\]\n]+>\]\(plans\/<x>\/<file>\.png\)/);
+    // /code-review: the image follows its bullet with the topic's placeholder, and no line between.
+    expect(fixes).toMatch(
+      /^- <The commit's title\.>\n\n {2}!\[<What the picture shows, in one line\.>\]\(plans\/<x>\/<file>\.png\)/m,
+    );
+    expect(topic).toContain("![<What the picture shows, in one line.>]");
     expect(fixes).not.toContain("## Also");
     expect(fixes).not.toContain("plans/<x>.md");
     const doc = readFileSync(join(plugin, "docs/workflow.md"), "utf8").replace(/\s+/g, " ");

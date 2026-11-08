@@ -178,8 +178,8 @@ message saying why (decisions.md#fix-landing).
 
 **The screenshots, when `--attach` fails** (gh under 2.99.0, or the
 upload refused; decisions.md#screenshots-attach): take the images that
-failed out of the body, each one's line kept as a line of its own (a
-topic's, its alt text), and set it without
+failed out of the body, each one's line kept as a line of its own (its
+alt text), and set it without
 `--attach`, one line under `## To try it`. A refused `gh pr create` that
 opened one anyway (`gh pr view <name> --json number,url`) gets its body
 replaced, never a second; a refused `gh pr edit` that set part of the
@@ -303,9 +303,7 @@ sections are kept as in a topic's.
 
 - <The commit's title.>
 
-  <What changed in the screenshot, in one line.>
-
-  ![<the same line>](plans/<x>/<file>.png)
+  ![<What the picture shows, in one line.>](plans/<x>/<file>.png)
 
 ## Already on <branch>
 
