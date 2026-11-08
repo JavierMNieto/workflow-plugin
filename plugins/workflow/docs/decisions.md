@@ -171,8 +171,11 @@ on the machine that planned them.
   informative body, GitHub's "How to write the perfect pull request"
   says what the change does and shows it. A bullet that replaces
   another person's call names them; the commits no plan here accounts
-  for stay, as bullets with their author.
-  plans/short-pull-request-descriptions.md.
+  for stay, as bullets with their author. 8 November, later: a section
+  the owner adds anywhere in the body, a topic's or the day's fixes, is
+  kept on every rewrite (Javi).
+  plans/short-pull-request-descriptions.md,
+  plans/short-pull-request-descriptions-follow-up.md.
   - ~~The description is the catalogue's diff: New, Changed and Retired,
     each entry as the catalogue stores it, a conflict first, each
     screenshot under its decision, then Also and To try it.~~ (Javi, 31

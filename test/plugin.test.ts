@@ -394,7 +394,12 @@ describe("the plugin's queue in any project", () => {
     const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8").replace(/\s+/g, " ");
     expect(executor).not.toContain("(plans/ is not tracked)");
     expect(executor).not.toContain("Checks: <the checks workflow's name>");
-    expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
+    // The owner's own sections are the only thing between the one line and the attribution.
+    expect(
+      executor.match(
+        /## To try it <One line\.> <The owner's own sections, word for word, when the body has some> <the attribution lines/g,
+      ),
+    ).toHaveLength(2);
   });
 
   // plans/short-pull-request-descriptions.md, replacing plans/pull-request-description-standard.md.
@@ -428,6 +433,25 @@ describe("the plugin's queue in any project", () => {
     const decisions = readFileSync(join(plugin, "docs/decisions.md"), "utf8");
     expect(decisions).toContain("`short-description`");
     expect(decisions).toMatch(/^\s+- ~~The description is the catalogue's diff/m);
+    // plans/short-pull-request-descriptions-follow-up.md: the owner's sections stay.
+    const landing = executor.replace(/\s+/g, " ");
+    expect(landing).toContain(
+      "So is every `## ` section whose heading the template does not name: it follows To try it, word for word, in the order the body has it.",
+    );
+    expect(landing).toContain(
+      "On a rewrite (`gh pr view <n> --json body`) the owner's paragraphs and sections are kept as in a topic's.",
+    );
+    // /code-review: an earlier template's headings are not the owner's.
+    expect(landing).toContain(
+      "`## New`, `## Changed`, `## Retired`, `## Also`, `## Decisions` and `## Screenshots`, an earlier template's, are the template's too, and are left out.",
+    );
+    // Codex's C1: the old attribution is not kept inside the owner's last section.
+    expect(landing).toContain(
+      "On a rewrite, the attribution lines at the old body's end belong to none of the owner's sections: the new body ends with them once.",
+    );
+    expect(decisions.replace(/\s+/g, " ")).toContain(
+      "8 November, later: a section the owner adds anywhere in the body, a topic's or the day's fixes, is kept on every rewrite (Javi).",
+    );
   });
 
   // plans/no-session-link-in-pull-requests.md.

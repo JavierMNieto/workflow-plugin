@@ -233,6 +233,8 @@ Related: #<n>.                                <- plans with a Related line only
 
 <One line.>
 
+<The owner's own sections, word for word, when the body has some>
+
 <the attribution lines the session gives for a pull request, with any link
 to a Claude session left out>
 ```
@@ -241,8 +243,12 @@ to a Claude session left out>
   body`), everything above the body's first `## ` heading, less its
   `For #`, `Builds on #` and `Related:` lines, is the owner's and opens
   the new body unchanged; with nothing there, the body opens with the
-  three lines that apply. Write no opening paragraph of your own: the
-  title is the summary.
+  three lines that apply. So is every `## ` section whose heading the
+  template does not name: it follows To try it, word for word, in the
+  order the body has it. `## New`, `## Changed`, `## Retired`, `## Also`,
+  `## Decisions` and `## Screenshots`, an earlier template's, are the
+  template's too, and are left out. Write no opening paragraph of your
+  own: the title is the summary.
 - **For** and **Related**: `For #<n>.` for each plan's `Issue` line, no
   closing keyword; the plans' `Related` lines as written (`Related:
   #31.`). Look for no related work yourself, and comment on no other
@@ -281,12 +287,18 @@ to a Claude session left out>
 - **The title** is the title of the plan that marks the topic ready.
 - **The attribution**: the session's lines for a pull request, less
   any line with a `claude.ai/code/session_` address, old ones included.
+  On a rewrite, the attribution lines at the old body's end belong to
+  none of the owner's sections: the new body ends with them once.
 
 **The day's fixes pull request**, `Small fixes, <d Month yyyy>` from
 `fixes-<yyyy-mm-dd>`, has its own description, written to `plans/<the
-plan>/pull-request.md` each time a fix joins, with no words of yours:
+plan>/pull-request.md` each time a fix joins, with no words of yours.
+On a rewrite (`gh pr view <n> --json body`) the owner's paragraphs and
+sections are kept as in a topic's.
 
 ```
+<The owner's paragraphs, word for word, when the body has some>
+
 ## Fixes
 
 - <The commit's title.>
@@ -302,6 +314,8 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 ## To try it
 
 <One line.>
+
+<The owner's own sections, word for word, when the body has some>
 
 <the attribution lines the session gives for a pull request, with any link
 to a Claude session left out>
