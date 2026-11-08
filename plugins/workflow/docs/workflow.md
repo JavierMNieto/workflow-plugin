@@ -259,13 +259,16 @@ it (below); `docs/landing.md` holds the executor's steps.
   pushed straight to the branch, its `run` read, and listed in the day's
   fixes. (decisions.md#fix-now-landing)
 
-**The description is the catalogue's diff**: `New`, `Changed` and
-`Retired`, each entry as the catalogue stores it, a conflict (a struck
-line with another person's name) first, each screenshot under the
-decision it shows; then the other changes and the commits no plan here
-accounts for, with their author, under `Also`; then where to try it; on
-one screen. "Before the push" runs once per plan; the merge is the
-people's, and no agent merges. (decisions.md#description-is-the-diff)
+**The description is a short list of what changed**: the owner's
+paragraphs when he wrote some, the `For`, `Builds on` and `Related`
+lines, then `Changes`, a few bullets, each a bold lead and one plain
+sentence of what a person can now do or see, with one screenshot under
+a bullet only where it shows it; a bullet that replaces another
+person's call says so by name; the commits no plan here accounts for
+as bullets with their author; then where to try it; on one screen,
+pictures aside. The decisions stay in the catalogue, whose diff the
+pull request shows. "Before the push" runs once per plan; the merge is
+the people's, and no agent merges. (decisions.md#short-description)
 
 **How plans group into pull requests is the project's rule, under
 `## Pull requests` in its file**, read by the author of a `Lands` line;
@@ -384,13 +387,15 @@ replaces. **People** names calls, not parts.
 
 **A change one person started is anyone's to go on with.** Another
 person's commits on a pushed branch are kept as theirs, the executor
-squashing only its own, and listed under `Also`. (decisions.md#anyone-goes-on)
+squashing only its own, and listed among the changes with their author.
+(decisions.md#anyone-goes-on)
 
 **The plans account for the queue's commits.** Every queue commits as
 `Claude <noreply@anthropic.com>`; a plan's "Built" names its commit and
-its merges by hash, so `Also` lists every commit on the branch no plan in
-this checkout accounts for and no merged pull request down the stack
-already showed, with its author; none is left out by author or title.
+its merges by hash, so the description lists every commit on the branch
+no plan in this checkout accounts for and no merged pull request down the
+stack already showed, with their author, among the changes; none is left
+out by author or title.
 (decisions.md#plans-account-for-commits)
 
 **A string rests on what produced it.** Every word a person sees is in the

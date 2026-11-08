@@ -161,16 +161,23 @@ on the machine that planned them.
   pushed straight to the branch and listed in the day's fixes.** (Javi,
   30 October) A fix the site needs today cannot wait for a merge.
   plans/pull-requests-by-topic.md.
-- `description-is-the-diff` **The description is the catalogue's diff:
-  New, Changed and Retired, each entry as the catalogue stores it, a
-  conflict first, each screenshot under its decision, then Also and To
-  try it.** (Javi, 31 October) The diff of the decisions, what is new,
-  what changed, what conflicted; Keep a Changelog's grouped kinds and no
-  commit log, the commits no plan here accounts for aside; MADR's
-  superseded record kept in sight; GOV.UK Frontend's
-  effect under each change; the `Also` list kept, answered after the plan
-  was built. plans/pull-request-description-standard.md,
-  plans/pull-request-description-standard-follow-up.md.
+- `short-description` **The description is a short list of what
+  changed: a few bullets, each a bold lead and one plain sentence of
+  what a person can now do or see, one screenshot under a bullet only
+  where it shows it, then To try it; no tiers, dates, struck rules or
+  ids.** (Javi, 8 November) Nobody read the long one; the decisions are
+  in the catalogue, whose diff the pull request shows; Google's CL
+  descriptions guide puts one summary first and the detail in an
+  informative body, GitHub's "How to write the perfect pull request"
+  says what the change does and shows it. A bullet that replaces
+  another person's call names them; the commits no plan here accounts
+  for stay, as bullets with their author.
+  plans/short-pull-request-descriptions.md.
+  - ~~The description is the catalogue's diff: New, Changed and Retired,
+    each entry as the catalogue stores it, a conflict first, each
+    screenshot under its decision, then Also and To try it.~~ (Javi, 31
+    October; replaced 8 November, nobody reading the diff of decisions
+    in a description)
 - `stack-only-on-use` **A plan that rests on an open draft pull request
   of the queue's own lands in it, and one that rests on another person's
   is stacked on it.** (Javi, 7 November) A draft is not done yet, so
@@ -314,7 +321,7 @@ on the machine that planned them.
 - `anyone-goes-on` **A change one person started is anyone's to go on
   with.** (Javi, 30 October) A plan's reasoning stays on the machine that
   planned it; what reaches another machine is the pull request, whose
-  description carries the decisions and, once merged, the squash commit
+  diff carries the catalogue's entries and, once merged, the squash commit
   that `git log -S<id>` finds.
   plans/collaborating-when-claude-writes-the-code.md.
 - `plans-account-for-commits` **The plans account for the queue's

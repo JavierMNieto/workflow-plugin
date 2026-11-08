@@ -375,13 +375,15 @@ describe("the plugin's queue in any project", () => {
       "`gh api --paginate repos/{owner}/{repo}/pulls/<n>/commits --jq '.[].sha'`",
     );
     expect(executor).not.toContain("--json commits");
-    expect(doc).toContain("the commits no plan here accounts for, with their author, under `Also`");
+    // plans/short-pull-request-descriptions.md: listed among the changes, no Also heading.
+    expect(doc).toContain("with their author, among the changes");
+    expect(doc).not.toContain("under `Also`");
     expect(doc).not.toContain("another person's commits with their author");
     // plans/also-docs-match-the-rule.md: the docs and the opening sentence name the rule as built.
-    expect(executor).toContain("the titles of the commits under `Also` aside");
+    expect(executor).toContain("a commit's title as written");
     // plans/docs-as-a-prompt.md: the reason is the catalogue's entry, not the handbook's.
     expect(text("docs/decisions.md")).toContain(
-      "no commit log, the commits no plan here accounts for aside",
+      "the commits no plan here accounts for stay, as bullets with their author",
     );
     expect(doc).toContain("and no merged pull request down the stack already showed");
   });
@@ -395,33 +397,37 @@ describe("the plugin's queue in any project", () => {
     expect(executor.match(/## To try it <One line\.> <the attribution lines/g)).toHaveLength(2);
   });
 
-  // plans/pull-request-description-standard.md.
-  it("a pull request's description is the catalogue's diff", () => {
+  // plans/short-pull-request-descriptions.md, replacing plans/pull-request-description-standard.md.
+  it("a pull request's description is a short list of what changed", () => {
     const plugin = new URL("../plugins/workflow/", import.meta.url).pathname;
     const executor = readFileSync(join(plugin, "docs/landing.md"), "utf8");
     const mode = executor.slice(executor.indexOf("# Landing by pull request"));
     const [topic, fixes] = [...mode.matchAll(/^```\n([\s\S]*?)^```$/gm)]
       .map((m) => m[1])
       .filter((block) => block.includes("## To try it"));
-    for (const heading of ["## New", "## Changed", "## Retired"]) expect(topic).toContain(heading);
-    for (const block of [topic, fixes])
-      for (const gone of ["## Decisions", "## Screenshots"]) expect(block).not.toContain(gone);
-    // plans/pull-request-description-standard-follow-up.md: Also stays in a topic's, after Retired.
-    expect(fixes).not.toContain("## Also");
-    expect(topic.indexOf("## Also")).toBeGreaterThan(topic.indexOf("## Retired"));
-    expect(topic.indexOf("## Also")).toBeLessThan(topic.indexOf("## To try it"));
-    // The replaced line, struck through, one level in under the changed bullet.
-    expect(topic).toMatch(/^- \*\*<The rule, as the entry words it\.>\*\*[^\n]*\n[^\n]*\n  - ~~/m);
-    // A screenshot sits under its decision, one level in.
-    expect(topic).toContain("\n  ![<the same line>](plans/<topic>/<file>.png)");
+    expect(topic.indexOf("## Changes")).toBeGreaterThan(-1);
+    expect(topic.indexOf("## Changes")).toBeLessThan(topic.indexOf("## To try it"));
+    for (const gone of [
+      "## New",
+      "## Changed",
+      "## Retired",
+      "## Also",
+      "## Decisions",
+      "## Screenshots",
+    ])
+      expect(topic).not.toContain(gone);
+    // A screenshot sits under its bullet, one level in.
+    expect(topic).toMatch(/\n {2}!\[<[^\]\n]+>\]\(plans\/<topic>\/<file>\.png\)/);
     expect(fixes).toMatch(/^## Fixes\n\n- <The commit's title\.>\n/m);
+    expect(fixes).not.toContain("## Also");
     expect(fixes).not.toContain("plans/<x>.md");
     const doc = readFileSync(join(plugin, "docs/workflow.md"), "utf8").replace(/\s+/g, " ");
-    expect(doc).toContain("**The description is the catalogue's diff**");
+    expect(doc).toContain("**The description is a short list of what changed**");
+    expect(doc).not.toContain("**The description is the catalogue's diff**");
     expect(doc).not.toContain("the plan's path;");
-    expect(readFileSync(join(plugin, "docs/decisions.md"), "utf8")).toContain(
-      "the `Also` list kept",
-    );
+    const decisions = readFileSync(join(plugin, "docs/decisions.md"), "utf8");
+    expect(decisions).toContain("`short-description`");
+    expect(decisions).toMatch(/^\s+- ~~The description is the catalogue's diff/m);
   });
 
   // plans/no-session-link-in-pull-requests.md.

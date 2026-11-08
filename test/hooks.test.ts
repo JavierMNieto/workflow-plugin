@@ -7854,7 +7854,7 @@ describe("github webhook", () => {
           title: "Small",
           merged: true,
           merged_at: at(5),
-          body: "For #12.\n\n## New\n",
+          body: "For #12.\n\n## Changes\n",
           head: { ref: "x" },
           labels: [],
         },

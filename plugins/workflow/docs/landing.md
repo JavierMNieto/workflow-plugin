@@ -116,7 +116,7 @@ retried as for a merge. Then, by the topic:
     --attach plans/<topic>/<file>.png#<the line> ...
   ```
 
-  one `--attach` per screenshot of each plan of the topic. "Built" opens
+  one `--attach` per screenshot the body names. "Built" opens
   with `Pull request #<n> (<url>) to <branch> from branch <name>, commit <sha>; draft, checks green.`, and each earlier plan of the topic gets,
   after its "Built" section's first line,
   `Pull request #<n> (<url>) opened <date> with plans/<x>.md.`
@@ -131,7 +131,9 @@ retried as for a merge. Then, by the topic:
     --attach plans/<topic>/<file>.png#<the line> ...
   ```
 
-  A plan marked waiting says in "Built" that it was open already.
+  one `--attach` per local screenshot the body names, the uploaded ones
+  kept as they are. A plan marked waiting says in "Built" that it was
+  open already.
   No comment: the description is the record
   (decisions.md#joined-pull-request). "Built" opens with
   `Pull request #<n> (<url>) joined, commit <sha>; draft, checks green.`
@@ -176,7 +178,8 @@ message saying why (decisions.md#fix-landing).
 
 **The screenshots, when `--attach` fails** (gh under 2.99.0, or the
 upload refused; decisions.md#screenshots-attach): take the images that
-failed out of the body, each one's line kept, and set it without
+failed out of the body, each one's line kept as a line of its own (a
+topic's, its alt text), and set it without
 `--attach`, one line under `## To try it`. A refused `gh pr create` that
 opened one anyway (`gh pr view <name> --json number,url`) gets its body
 replaced, never a second; a refused `gh pr edit` that set part of the
@@ -204,41 +207,26 @@ review button at the bottom of the pull request). Until then it asks
 nothing of anyone else.`; then the topics left waiting, the day's fixes
 pull request, and the fixes pushed straight.
 
-**The description** is the catalogue's diff in the catalogue's order
-(decisions.md#description-is-the-diff): plain words, no dashes, the
-project's spelling, every string from the plans or the catalogue, the
-titles of the commits under `Also` aside; without screenshots, one
-screen.
+**The description** is a short list of what changed
+(decisions.md#short-description): plain words, no dashes, the
+project's spelling, each bullet's words from the plans or the
+catalogue, a commit's title as written; on one screen, pictures aside.
 
 ```
+<The owner's paragraphs, word for word, when the body has some>
+
 For #<n>.                                     <- plans with an Issue line only
 Builds on #<n>; merge that first.             <- stacked plans only
 Related: #<n>.                                <- plans with a Related line only
 
-## New
+## Changes
 
-- **<The rule, as the catalogue entry words it.>** (<tier and date, as
-  the entry has them>) <The reason, one sentence.> `<catalogue file>#<id>`
+- **<What was added or changed, two to five words.>** <One sentence of
+  what a person can now do or see.>
 
-  <What changed in the screenshot, in one line.>
+  ![<What the picture shows, in one line.>](plans/<topic>/<file>.png)
 
-  ![<the same line>](plans/<topic>/<file>.png)
-
-## Changed
-
-- **<The rule, as the entry words it.>** (<tier and date>) <The
-  reason, one sentence.> `<catalogue file>#<id>`
-  - ~~<The rule it replaces, as the catalogue keeps it.>~~ (<its tier
-    and date>)
-
-## Retired
-
-- ~~<The rule, as the catalogue keeps it.>~~ (<its tier and date>;
-  retired <date>) <Why, one sentence.> `<catalogue file>#<id>`
-
-## Also
-
-- <A change with no decision in it, in a line.>
+- **<What was added or changed.>** <One sentence.>
 - <The commit's title.> (<author>)
 
 ## To try it
@@ -249,27 +237,27 @@ Related: #<n>.                                <- plans with a Related line only
 to a Claude session left out>
 ```
 
+- **The owner's paragraphs**: on a rewrite (`gh pr view <n> --json
+  body`), everything above the body's first `## ` heading, less its
+  `For #`, `Builds on #` and `Related:` lines, is the owner's and opens
+  the new body unchanged; with nothing there, the body opens with the
+  three lines that apply. Write no opening paragraph of your own: the
+  title is the summary.
 - **For** and **Related**: `For #<n>.` for each plan's `Issue` line, no
   closing keyword; the plans' `Related` lines as written (`Related:
   #31.`). Look for no related work yourself, and comment on no other
   person's pull request.
-- **New, Changed, Retired**: every catalogue entry the topic's commits
-  add, replace or retire, and every "Decided" item with no entry (who
-  decided it and when in the parenthesis, no id; under New, or under
-  Changed with the struck rule it replaces), under the heading of what
-  the commit did to it, in the catalogue's order; only headings with a
-  bullet. A bullet is the entry's line: the rule in bold, its tier and
-  date, its reason cut to the first sentence, the id last. A changed or
-  retired rule whose struck line carries another person's name is a
-  conflict and goes first under its heading. Nothing else in a bullet. A
-  decision taken after thirty minutes unanswered keeps `taken by the
-  executor for <the owner>, unanswered ("Asked once")` in place of
-  his name and date.
-- **Screenshots**: each under the decision it shows, its line (what
-  changed, also its alt text) above it; one that shows no decision under
-  `## To try it`.
-- **Also**: a line per change with no decision in it, from the plans'
-  "Building it"; then a line per commit on the topic's branch that this
+- **Changes**: one bullet per thing a person can now do or see, from
+  every plan of the topic, oldest first: a plan's central decision, each
+  "Done when" scenario a person sees, and a plan's small changes folded
+  into one bullet; the lead in bold is the thing, two to five words, in
+  the words the plans and the catalogue use; the sentence is plain, one
+  line of what it does, with no tier, date, struck rule or catalogue id.
+  A bullet whose change replaces a rule with another person's name says
+  so in its sentence, `replacing <name>'s call`, and goes first
+  (decisions.md#decision-has-a-name). A decision taken after thirty
+  minutes unanswered says `taken for <the owner>, unanswered` in its
+  sentence. Then, last, a line per commit on the topic's branch that this
   checkout's plans do not account for (`git log
   origin/<base>..origin/<name> --format='%H%x09%an%x09%s'` after the
   push), as `- <the commit's title> (<author>)`, another person's merge
@@ -280,7 +268,14 @@ to a Claude session left out>
   of the longer; on a branch stacked on a pull request since merged, the commits of each merged pull request down the
   stack, found by the `Builds on #<n>` line of its body (`gh api
   --paginate repos/{owner}/{repo}/pulls/<n>/commits --jq '.[].sha'`).
-  Nothing is left out by author or by title. With none, no heading.
+  Nothing is left out by author or by title.
+- **Screenshots**: one under a bullet at most, only where it shows
+  exactly what the bullet added or changed, in light mode at desktop
+  width; dark mode or a phone width only for a bullet about the theme or
+  about that width; its line, what the picture shows, is its alt text and
+  the `#<the line>` of its `--attach`. The screenshots the plan took for
+  its review stay in `plans/<topic>/`; only the ones the body names are
+  attached. A bullet with nothing to show has no picture.
 - **To try it**: a line from the project file's "After the push", else
   "Check out the branch."
 - **The title** is the title of the plan that marks the topic ready.
@@ -312,7 +307,9 @@ plan>/pull-request.md` each time a fix joins, with no words of yours:
 to a Claude session left out>
 ```
 
-- **Fixes**: every fix on the day's branch, oldest first.
+- **Fixes**: every fix on the day's branch, oldest first, its
+  screenshot by the topic's rule: one at most, light mode, desktop
+  width, only where it shows the fix.
 - **Already on <branch>**: the day's fixes pushed straight, from `git log
   origin/<branch> --first-parent --since=<the day's start> --format='%h
   %s'`, without merge commits and commits whose title ends in ` (#<n>)`;
