@@ -35,6 +35,7 @@ export const FILES = [
   "scripts/plain-words.mjs",
   "scripts/plan-queue.d.mts",
   "scripts/plan-queue.mjs",
+  "scripts/plans-on-path.mjs",
   "scripts/project.mjs",
   "scripts/seen.d.mts",
   "scripts/seen.mjs",

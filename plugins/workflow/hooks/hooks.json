@@ -1,5 +1,5 @@
 {
-  "description": "The plan queue, the turn audit, the catalogue's edit-time context, the project's tool denials, the plain-words check of every question and the status line copy.",
+  "description": "The plan queue, the turn audit, the catalogue's edit-time context, the project's tool denials, the plain-words check of every question, the status line copy and the terminal's `plans`.",
   "hooks": {
     "PreToolUse": [
       {
@@ -124,6 +124,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.mjs\" install",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/plans-on-path.mjs\"",
             "timeout": 5
           },
           {

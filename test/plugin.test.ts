@@ -28,6 +28,7 @@ import {
   sessionEnv,
 } from "../plugins/workflow/scripts/plan-queue.mjs";
 import { FILES, missing, steps } from "../plugins/workflow/scripts/install-check.mjs";
+import { install, onPath, source, WRAPPER } from "../plugins/workflow/scripts/plans-on-path.mjs";
 import {
   defaultBranch,
   frontmatter,
@@ -827,6 +828,129 @@ describe("the status line's copy", () => {
     expect(JSON.parse(readFileSync(join(target, "usage.json"), "utf8")).five_hour).toMatchObject({
       used_percentage: 3,
     });
+  });
+});
+
+// plans/plans-on-the-terminal-path.md: `plans` in the owner's own terminal.
+describe("the terminal's plans", () => {
+  const record = "/fake/installed_plugins.json";
+  const hook = (target: string, PATH = process.env.PATH) =>
+    execFileSync("node", [join(scripts, "plans-on-path.mjs")], {
+      encoding: "utf8",
+      env: { ...process.env, WORKFLOW_BIN: target, PATH },
+    });
+  const pathLine =
+    "`plans` is now a command at ~/.local/bin/plans, but ~/.local/bin is not on this machine's PATH. To run it from a terminal, add `export PATH=\"$HOME/.local/bin:$PATH\"` to your shell's startup file (~/.zshrc or ~/.bashrc), then open a new terminal.";
+  const foreignLine =
+    "~/.local/bin/plans exists and is not the workflow plugin's, so it was left as it is; the queue's command is still plans in a chat.";
+  const agent = "Say this line to the owner in a sentence, then go on with the work.";
+
+  it("fills the record and the key in from the cache path, else the user's default record", () => {
+    expect(source("/h/.claude/plugins/cache/mk/wf/1.0/scripts")).toEqual({
+      record: "/h/.claude/plugins/installed_plugins.json",
+      key: "wf@mk",
+    });
+    expect(source("/src/plugins/workflow/scripts")).toEqual({
+      record: "$HOME/.claude/plugins/installed_plugins.json",
+      key: "workflow@workflow",
+    });
+    expect(WRAPPER(record, "wf@mk")).toContain(`record="${record}"\nkey="wf@mk"\n`);
+  });
+
+  it("writes the wrapper when it is missing, not again when it is there, and again when it changed", () => {
+    const target = dir("bin-");
+    const file = join(target, "plans");
+    const text = WRAPPER(record, "workflow@workflow");
+    expect(install(target, text)).toBe("written");
+    expect(readFileSync(file, "utf8")).toBe(text);
+    expect(statSync(file).mode & 0o777).toBe(0o755);
+    const mtime = statSync(file).mtimeMs;
+    expect(install(target, text)).toBe("same");
+    expect(statSync(file).mtimeMs).toBe(mtime);
+    // An older wrapper of the plugin's, or the hand-written stopgap: the record and bin/plans.
+    writeFileSync(
+      file,
+      '#!/bin/sh\nr="$HOME/.claude/plugins/installed_plugins.json"\nexec "$dir/bin/plans" "$@"\n',
+    );
+    expect(install(target, text)).toBe("written");
+    expect(readFileSync(file, "utf8")).toBe(text);
+    // The hook itself, with its own text, writes once.
+    const fresh = dir("bin-");
+    hook(fresh);
+    const first = statSync(join(fresh, "plans")).mtimeMs;
+    expect(hook(fresh)).toBe("");
+    expect(statSync(join(fresh, "plans")).mtimeMs).toBe(first);
+  });
+
+  it("runs the copy the record names, with its arguments and its exit code", () => {
+    const bin = dir("bin-");
+    const plugins = dir("plugins-");
+    const copy = join(plugins, "cache", "workflow", "workflow", "9.9.9");
+    mkdirSync(join(copy, "bin"), { recursive: true });
+    writeFileSync(
+      join(copy, "bin", "plans"),
+      'process.stdout.write(process.argv.slice(2).join(" ")); process.exit(3);',
+    );
+    const recordFile = join(plugins, "installed_plugins.json");
+    writeFileSync(
+      recordFile,
+      JSON.stringify({ version: 2, plugins: { "workflow@workflow": [{ installPath: copy }] } }),
+    );
+    install(bin, WRAPPER(recordFile, "workflow@workflow"));
+    const run = spawnSync("sh", [join(bin, "plans"), "a", "b"], { encoding: "utf8" });
+    expect(run.stdout).toBe("a b");
+    expect(run.status).toBe(3);
+  });
+
+  it("says the plugin is not installed when the record names no key, or there is no record", () => {
+    const plugins = dir("plugins-");
+    const recordFile = join(plugins, "installed_plugins.json");
+    writeFileSync(
+      recordFile,
+      JSON.stringify({ version: 2, plugins: { "other@other": [{ installPath: "/x" }] } }),
+    );
+    for (const path of [recordFile, join(plugins, "none.json")]) {
+      const bin = dir("bin-");
+      install(bin, WRAPPER(path, "workflow@workflow"));
+      const run = spawnSync("sh", [join(bin, "plans")], { encoding: "utf8" });
+      expect(run.stderr).toBe(
+        `The workflow plugin is not installed on this machine: ${path} names no workflow@workflow. Install it with: claude plugin install workflow@workflow\n`,
+      );
+      expect(run.status).toBe(1);
+    }
+  });
+
+  it("says the PATH line when it wrote the file and PATH lacks the folder, else nothing", () => {
+    const said = JSON.parse(hook(dir("bin-")));
+    expect(said.systemMessage).toBe(pathLine);
+    expect(said.hookSpecificOutput).toEqual({
+      hookEventName: "SessionStart",
+      additionalContext: `${pathLine}\n\n${agent}`,
+    });
+    const onIt = dir("bin-");
+    expect(hook(onIt, `${onIt}/${delimiter}${process.env.PATH}`)).toBe("");
+    expect(onPath(onIt, `/usr/bin${delimiter}${onIt}/`)).toBe(true);
+    expect(onPath("/home/me/.local/bin", "~/.local/bin")).toBe(false);
+  });
+
+  it("leaves another program's plans as it is, and says so", () => {
+    const other = dir("bin-");
+    writeFileSync(join(other, "plans"), 'exec /opt/other/bin/plans "$@"\n');
+    expect(install(other, WRAPPER(record, "workflow@workflow"))).toBe("foreign");
+    expect(readFileSync(join(other, "plans"), "utf8")).toBe('exec /opt/other/bin/plans "$@"\n');
+    // A file the hook cannot read is not taken for missing, and no temp file stays.
+    const locked = dir("bin-");
+    writeFileSync(join(locked, "plans"), "secret\n", { mode: 0o300 });
+    if (process.getuid?.() !== 0) {
+      expect(() => install(locked, WRAPPER(record, "workflow@workflow"))).toThrow();
+      expect(readdirSync(locked)).toEqual(["plans"]);
+    }
+    const target = dir("bin-");
+    writeFileSync(join(target, "plans"), "#!/bin/sh\necho mine\n");
+    const said = JSON.parse(hook(target, `${target}${delimiter}${process.env.PATH}`));
+    expect(said.systemMessage).toBe(foreignLine);
+    expect(said.hookSpecificOutput.additionalContext).toBe(`${foreignLine}\n\n${agent}`);
+    expect(readFileSync(join(target, "plans"), "utf8")).toBe("#!/bin/sh\necho mine\n");
   });
 });
 
@@ -2527,6 +2651,14 @@ describe("the hooks manifest", () => {
     expect(commands("PostToolUse", "Edit|Write|MultiEdit|Bash")).toEqual([
       'node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-queue.mjs" wrote',
     ]);
+  });
+  // plans/plans-on-the-terminal-path.md: every session's start writes the terminal's plans.
+  it("writes the terminal's plans at every session's start", () => {
+    expect(
+      commands("SessionStart", "startup|resume|clear").some((c: string) =>
+        c.endsWith('scripts/plans-on-path.mjs"'),
+      ),
+    ).toBe(true);
   });
 });
 

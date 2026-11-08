@@ -695,6 +695,17 @@ on the machine that planned them.
   changed. plans/install-fix-every-path.md. 6 November: the line
   carries the question and the steps, said once by the script; each
   agent file keeps one sentence. plans/simpler-agent-files.md.
+- `plans-in-the-terminal` **`plans` is a command in the owner's
+  terminal, written by a SessionStart hook to `~/.local/bin`.** (Javi, 8
+  November) Claude Code puts a plugin's `bin/` on the Bash tool's PATH
+  and nowhere else, and a rebuilt devcontainer lost the wrapper he had
+  written by hand; `~/.local/bin` is where Claude Code's installer, uv
+  and pipx put a user's commands, and the install record is what the
+  install check already calls installed, so the wrapper reads it at each
+  call rather than being rewritten after an update. The hook says a
+  missing PATH entry rather than editing a shell file, as `uv tool
+  install` warns and only `uv tool update-shell` edits.
+  plans/plans-on-the-terminal-path.md.
 - `push-token` **A push needs a token in the container.** (Javi, 27
   October) The queue's chats run where no VS Code window may be, and VS
   Code's credential helper answers only while its window is attached; the

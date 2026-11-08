@@ -703,6 +703,15 @@ the fix and the check again on yes, and does nothing else in that chat;
 each agent file keeps one sentence pointing at the line.
 (decisions.md#install-checks-itself)
 
+**`plans` is a command in the owner's terminal too.** A SessionStart
+hook writes `~/.local/bin/plans`, where Claude Code's own installer puts
+`claude`, a shell wrapper that runs the installed copy named by Claude
+Code's install record at each call, so a plugin update changes what it
+runs with no step from anyone, and a rebuilt container has it back after
+its first chat. A PATH without `~/.local/bin` is said once, with the
+line to add, when the file is written; a file there that is not the
+plugin's is left alone and said. (decisions.md#plans-in-the-terminal)
+
 **A push needs a token in the container**: a fine-grained `GH_TOKEN` on
 the host (Contents and Workflows read and write, Actions and Metadata
 read; with `land: pull-request`, Pull requests read and write, Checks

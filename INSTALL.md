@@ -134,4 +134,5 @@ assistant (`claude --agent workflow:assistant`, or pick it in the Claude
 app) and just say what you want. It answers questions, and for a change
 it writes a plan and hands it to a planner or a builder, which work in
 the background and ask you only what they can't decide. Restart Claude
-Code once so everything loads."
+Code once so everything loads. After your first chat, `plans` in your
+terminal lists the queue."
