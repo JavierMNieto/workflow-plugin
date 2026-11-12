@@ -56,6 +56,7 @@ import {
   writeFileSync,
   appendFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -3123,7 +3124,7 @@ export function start(paths, options = {}) {
       : sync({ fetch: !options.replace });
   const said = startHere(paths, options);
   // **The listener is armed with a start** (plans/github-watched.md, part 1).
-  if (!options.dry) armWebhook();
+  if (!options.dry) armWebhook().catch(() => {});
   return synced ? `${synced}\n${said}` : said;
 }
 
@@ -5294,7 +5295,8 @@ function hook(mode, input) {
   if (proj().form === "compact") return;
   // **The session's start arms the webhook's listener** (plans/github-watched.md, part 1).
   if (mode === "session") {
-    armWebhook();
+    // Not awaited: the process stays up the port's check, at most 300 ms.
+    armWebhook().catch(() => {});
     return;
   }
   const sessionId = input.session_id;
@@ -5806,10 +5808,61 @@ export function noSecretWords(env = process.env, project = proj().name) {
   return `The project's Claude has no webhook secret here: turn the webhook on in the app's settings on GitHub with the address routed to this container and a secret, and ${setWhere("WORKFLOW_WEBHOOK_SECRET and WORKFLOW_WEBHOOK_PORT", env, project)}`;
 }
 
-/** The listener's record, when its process is alive; null else. */
+/**
+ * The listener's record, when its process is alive; null else. `plans`'s
+ * status line reads this, pid only, since the line is synchronous and a
+ * port's check would make every `plans` wait; what starts a listener asks
+ * `webhookListening`.
+ */
 function webhookAlive() {
   const record = readJson(files.webhook());
   return record?.pid && pidAlive(record.pid) ? record : null;
+}
+
+/** Whether something takes a connection on 127.0.0.1 at `port` within `ms`. */
+function portAnswers(port, ms = 300) {
+  return new Promise((done) => {
+    let socket;
+    try {
+      socket = connect({ host: "127.0.0.1", port: Number(port) });
+    } catch {
+      // A port no socket can take, as a hand-edited record's: nothing answers.
+      return done(false);
+    }
+    const timer = setTimeout(() => end(false), ms);
+    function end(answers) {
+      clearTimeout(timer);
+      socket.destroy();
+      done(answers);
+    }
+    socket.once("connect", () => end(true));
+    socket.once("error", () => end(false));
+  });
+}
+
+/**
+ * **A listener is alive when its port answers**: the record's pid alive and
+ * its port taking a connection. The record sits in the checkout and outlives
+ * a container's reboot, where a new container's pid can name another process
+ * (plans/webhook-stale-record.md).
+ */
+async function webhookListening() {
+  const record = webhookAlive();
+  return record?.port && (await portAnswers(record.port)) ? record : null;
+}
+
+/**
+ * The record `seen` found stale, removed before another listener starts,
+ * unless a listener wrote its own since (two starts racing).
+ */
+function dropWebhookRecord(seen) {
+  const now = readJson(files.webhook());
+  if (!seen || !now || now.pid !== seen.pid || now.at !== seen.at) return;
+  try {
+    unlinkSync(files.webhook());
+  } catch {
+    // Gone already.
+  }
 }
 
 /** `plans`'s webhook line, in a project with issues: listening or none. */
@@ -5824,9 +5877,11 @@ export function webhookLine(record = webhookAlive()) {
  * and the secret set, when none is alive, a detached `plans webhook
  * --serve`. `plans start` and the session's start call it; it says nothing.
  */
-export function armWebhook(env = process.env) {
-  if (!proj().found || !hasIssues() || !secret("WORKFLOW_WEBHOOK_SECRET", env) || webhookAlive())
-    return 0;
+export async function armWebhook(env = process.env) {
+  if (!proj().found || !hasIssues() || !secret("WORKFLOW_WEBHOOK_SECRET", env)) return 0;
+  const seen = readJson(files.webhook());
+  if (await webhookListening()) return 0;
+  dropWebhookRecord(seen);
   return detached(process.execPath, [fileURLToPath(import.meta.url), "webhook", "--serve"], {
     ...env,
     WORKFLOW_ROOT: root,
@@ -6280,7 +6335,9 @@ function labeller(number, label, deadline) {
  */
 export async function webhookCommand(args = [], env = process.env) {
   if (args.includes("--stop")) {
-    const record = webhookAlive();
+    // A record whose port answers nothing is stale, its pid perhaps another
+    // process's: nothing is killed, and the next start removes the record.
+    const record = await webhookListening();
     if (!record) return { said: "The webhook: none was running.", status: 0 };
     try {
       process.kill(record.pid);
@@ -6296,17 +6353,26 @@ export async function webhookCommand(args = [], env = process.env) {
   }
   const webhookSecret = secret("WORKFLOW_WEBHOOK_SECRET", env);
   if (!webhookSecret) return { said: noSecretWords(env), status: 1 };
-  const alive = webhookAlive();
+  const seen = readJson(files.webhook());
+  const alive = await webhookListening();
   if (alive) return { said: webhookLine(alive), status: 0 };
+  const port = webhookPort(env);
   if (!args.includes("--serve")) {
+    // The listener writes its own record once it listens, so only the starter
+    // removes a stale one: two starts racing never remove the winner's.
+    dropWebhookRecord(seen);
     detached(process.execPath, [fileURLToPath(import.meta.url), "webhook", "--serve"], {
       ...env,
       WORKFLOW_ROOT: root,
     });
-    for (let i = 0; i < 20 && !webhookAlive(); i++) await sleep(100);
-    return { said: webhookLine(), status: 0 };
+    // Two seconds for it to answer; `sleep` blocks the loop a connect needs.
+    const until = Date.now() + 2000;
+    let up = null;
+    while (!(up = await webhookListening()) && Date.now() < until)
+      await new Promise((done) => setTimeout(done, 100));
+    if (!up) return { said: `The webhook: none came up on ${port}.`, status: 1 };
+    return { said: webhookLine(up), status: 0 };
   }
-  const port = webhookPort(env);
   mkdirSync(files.githubInbox(), { recursive: true });
   const record = { pid: process.pid, port, at: Date.now(), lastAt: 0 };
   // **The handling runs in a child**, one at a time, so a start's wait never

@@ -16,6 +16,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8104,6 +8105,53 @@ describe("github webhook", () => {
       await new Promise((done) => setTimeout(done, 300));
       expect(() => process.kill(pid, 0)).toThrow();
     });
+
+    // plans/webhook-stale-record.md: a record counts only when its port answers.
+    const record = () => JSON.parse(readFileSync(join(dir, ".claude", "webhook.json"), "utf8"));
+
+    it("replaces a record whose pid is alive but whose port answers nothing, and starts one", () => {
+      // This test's own pid: alive, and nothing listens on the port yet.
+      writeFileSync(
+        join(dir, ".claude", "webhook.json"),
+        JSON.stringify({ pid: process.pid, port, at: Date.now(), lastAt: 0 }),
+      );
+      const done = plans("webhook");
+      expect(done.status).toBe(0);
+      expect(done.stdout).toMatch(new RegExp(`^The webhook: listening on ${port} since `));
+      expect(record().pid).not.toBe(process.pid);
+      expect(plans("webhook", "--stop").stdout.trim()).toBe("The webhook: stopped.");
+    });
+
+    it("leaves a live listener on its port alone and says it listens", () => {
+      expect(plans("webhook").status).toBe(0);
+      const first = record().pid;
+      const again = plans("webhook");
+      expect(again.status).toBe(0);
+      expect(again.stdout).toMatch(new RegExp(`^The webhook: listening on ${port} since `));
+      expect(record().pid).toBe(first);
+      expect(plans("webhook", "--stop").stdout.trim()).toBe("The webhook: stopped.");
+    });
+
+    it("exits 1 when no listener is up after the wait", async () => {
+      // The port taken by another server, so the listener cannot bind it.
+      const taken = createServer();
+      await new Promise<void>((done) => taken.listen(port, "127.0.0.1", done));
+      try {
+        const done = await new Promise<{ status: number | null; stdout: string }>((resolve) => {
+          execFile(
+            "node",
+            [join(here, "plan-queue.mjs"), "webhook"],
+            { encoding: "utf8", env: env() },
+            (error, stdout) => resolve({ status: error ? (error.code as number) : 0, stdout }),
+          );
+        });
+        expect(done.status).toBe(1);
+        expect(done.stdout).toBe(`The webhook: none came up on ${port}.\n`);
+        expect(existsSync(join(dir, ".claude", "webhook.json"))).toBe(false);
+      } finally {
+        await new Promise((done) => taken.close(done));
+      }
+    }, 10_000);
   });
 });
 

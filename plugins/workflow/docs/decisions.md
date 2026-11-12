@@ -556,6 +556,11 @@ on the machine that planned them.
   once rather than by a poll; the lab already fronts services with its
   proxy; GitHub signs each delivery, and Copilot and claude-code-action
   answer only people with write access. plans/github-watched.md.
+  The listener counts as alive only when its record's pid is alive and
+  its port takes a connection, a stale record is removed before another
+  starts, and `plans webhook` exits 1 when none comes up (Javi, 12
+  November): the record outlives a container's reboot, where its pid can
+  name another process. plans/webhook-stale-record.md.
 - `days-fixes` **The day's fixes are one pull request, `Small fixes, <d
   Month yyyy>`, never two in a day.** (Javi, 30 October) A daily pull
   request for the small fixes rather than a message for the group, which
